@@ -1,0 +1,206 @@
+import { useState, useMemo } from "react";
+import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+
+export interface Column<T> {
+  key: string;
+  label: string;
+  render?: (item: T) => React.ReactNode;
+  sortable?: boolean;
+}
+
+export interface FilterOption {
+  key: string;
+  label: string;
+  options: { label: string; value: string }[];
+}
+
+interface DataTableProps<T> {
+  data: T[];
+  columns: Column<T>[];
+  searchKeys?: string[];
+  searchPlaceholder?: string;
+  filters?: FilterOption[];
+  pageSize?: number;
+  onRowClick?: (item: T) => void;
+  actions?: (item: T) => React.ReactNode;
+}
+
+export function DataTable<T extends Record<string, any>>({
+  data,
+  columns,
+  searchKeys = [],
+  searchPlaceholder = "Search...",
+  filters = [],
+  pageSize = 10,
+  onRowClick,
+  actions,
+}: DataTableProps<T>) {
+  const [search, setSearch] = useState("");
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const filtered = useMemo(() => {
+    let result = [...data];
+
+    if (search && searchKeys.length > 0) {
+      const q = search.toLowerCase();
+      result = result.filter((item) =>
+        searchKeys.some((key) => String(item[key] ?? "").toLowerCase().includes(q))
+      );
+    }
+
+    Object.entries(activeFilters).forEach(([key, value]) => {
+      if (value && value !== "__all__") {
+        result = result.filter((item) => String(item[key]) === value);
+      }
+    });
+
+    if (sortKey) {
+      result.sort((a, b) => {
+        const aVal = a[sortKey];
+        const bVal = b[sortKey];
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+    }
+
+    return result;
+  }, [data, search, searchKeys, activeFilters, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safeP = Math.min(page, totalPages);
+  const paged = filtered.slice((safeP - 1) * pageSize, safeP * pageSize);
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            className="pl-9 h-9 bg-muted/50 border-border text-sm"
+          />
+        </div>
+        {filters.map((f) => (
+          <Select
+            key={f.key}
+            value={activeFilters[f.key] || "__all__"}
+            onValueChange={(v) => { setActiveFilters((p) => ({ ...p, [f.key]: v })); setPage(1); }}
+          >
+            <SelectTrigger className="h-9 w-[160px] text-sm bg-muted/50">
+              <Filter className="h-3 w-3 mr-1.5 text-muted-foreground" />
+              <SelectValue placeholder={f.label} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All {f.label}</SelectItem>
+              {f.options.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ))}
+        <span className="text-xs text-muted-foreground ml-auto">
+          {filtered.length} record{filtered.length !== 1 && "s"}
+        </span>
+      </div>
+
+      <div className="bg-card rounded-xl border border-border overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/30 hover:bg-muted/30">
+              {columns.map((col) => (
+                <TableHead
+                  key={col.key}
+                  className={`text-xs font-semibold text-muted-foreground uppercase tracking-wider ${col.sortable ? "cursor-pointer select-none hover:text-foreground" : ""}`}
+                  onClick={() => col.sortable && handleSort(col.key)}
+                >
+                  <span className="flex items-center gap-1">
+                    {col.label}
+                    {sortKey === col.key && (
+                      <span className="text-primary">{sortDir === "asc" ? "↑" : "↓"}</span>
+                    )}
+                  </span>
+                </TableHead>
+              ))}
+              {actions && <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {paged.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={columns.length + (actions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
+                  No records found
+                </TableCell>
+              </TableRow>
+            ) : (
+              paged.map((item, i) => (
+                <TableRow
+                  key={item.id ?? i}
+                  className={onRowClick ? "cursor-pointer" : ""}
+                  onClick={() => onRowClick?.(item)}
+                >
+                  {columns.map((col) => (
+                    <TableCell key={col.key} className="text-sm">
+                      {col.render ? col.render(item) : String(item[col.key] ?? "")}
+                    </TableCell>
+                  ))}
+                  {actions && (
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {actions(item)}
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">
+            Page {safeP} of {totalPages}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={safeP <= 1} onClick={() => setPage(1)}>
+              <ChevronsLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={safeP <= 1} onClick={() => setPage(safeP - 1)}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={safeP >= totalPages} onClick={() => setPage(safeP + 1)}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="outline" size="icon" className="h-8 w-8" disabled={safeP >= totalPages} onClick={() => setPage(totalPages)}>
+              <ChevronsRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
