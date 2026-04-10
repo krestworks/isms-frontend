@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -52,6 +52,15 @@ export function DataTable<T extends Record<string, any>>({
   onDelete,
   actions: actionsProp,
 }: DataTableProps<T>) {
+  const hasActions = !!(actionsProp || onView || onEdit || onDelete);
+  const renderActions = (item: T) => (
+    <div className="flex items-center gap-1">
+      {onView && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(item)}><Eye className="h-3.5 w-3.5" /></Button>}
+      {onEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>}
+      {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>}
+      {actionsProp?.(item)}
+    </div>
+  );
   const [search, setSearch] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
