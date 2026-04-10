@@ -49,7 +49,7 @@ export function EquipmentTab() {
     { key: "name" as const, label: "Name" },
     { key: "type" as const, label: "Type" },
     { key: "serialNo" as const, label: "Serial No." },
-    { key: "status" as const, label: "Status", render: (v: string) => <StatusBadge status={v} /> },
+    { key: "status" as const, label: "Status", render: (i: Equipment) => <StatusBadge status={i.status} /> },
     { key: "lastMaintenance" as const, label: "Last Maintenance" },
     { key: "nextMaintenance" as const, label: "Next Maintenance" },
     { key: "location" as const, label: "Location" },

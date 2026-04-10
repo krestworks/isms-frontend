@@ -54,12 +54,12 @@ export function ProductionTab() {
     { key: "id" as const, label: "ID" },
     { key: "date" as const, label: "Date" },
     { key: "shift" as const, label: "Shift" },
-    { key: "litresProduced" as const, label: "Produced (L)", render: (v: number) => v.toLocaleString() },
-    { key: "litresWasted" as const, label: "Wasted (L)", render: (v: number) => v.toLocaleString() },
-    { key: "netOutput" as const, label: "Net Output (L)", render: (v: number) => v.toLocaleString() },
+    { key: "litresProduced" as const, label: "Produced (L)", render: (i: Production) => i.litresProduced.toLocaleString() },
+    { key: "litresWasted" as const, label: "Wasted (L)", render: (i: Production) => i.litresWasted.toLocaleString() },
+    { key: "netOutput" as const, label: "Net Output (L)", render: (i: Production) => i.netOutput.toLocaleString() },
     { key: "operator" as const, label: "Operator" },
     { key: "machineId" as const, label: "Machine" },
-    { key: "status" as const, label: "Status", render: (v: string) => <StatusBadge status={v} /> },
+    { key: "status" as const, label: "Status", render: (i: Production) => <StatusBadge status={i.status} /> },
   ];
 
   return (

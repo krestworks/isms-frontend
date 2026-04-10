@@ -55,10 +55,10 @@ export function DistributionTab() {
     { key: "driver" as const, label: "Driver" },
     { key: "client" as const, label: "Client" },
     { key: "destination" as const, label: "Destination" },
-    { key: "litresLoaded" as const, label: "Loaded (L)", render: (v: number) => v.toLocaleString() },
-    { key: "litresDelivered" as const, label: "Delivered (L)", render: (v: number) => v.toLocaleString() },
-    { key: "variance" as const, label: "Variance", render: (v: number) => <span className={v < 0 ? "text-destructive" : ""}>{v}</span> },
-    { key: "status" as const, label: "Status", render: (v: string) => <StatusBadge status={v} /> },
+    { key: "litresLoaded" as const, label: "Loaded (L)", render: (i: Distribution) => i.litresLoaded.toLocaleString() },
+    { key: "litresDelivered" as const, label: "Delivered (L)", render: (i: Distribution) => i.litresDelivered.toLocaleString() },
+    { key: "variance" as const, label: "Variance", render: (i: Distribution) => <span className={i.variance < 0 ? "text-destructive" : ""}>{i.variance}</span> },
+    { key: "status" as const, label: "Status", render: (i: Distribution) => <StatusBadge status={i.status} /> },
   ];
 
   return (

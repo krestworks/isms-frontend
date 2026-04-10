@@ -51,12 +51,12 @@ export function WaterSalesTab() {
     { key: "id" as const, label: "ID" },
     { key: "date" as const, label: "Date" },
     { key: "customer" as const, label: "Customer" },
-    { key: "litres" as const, label: "Litres", render: (v: number) => v.toLocaleString() },
-    { key: "pricePerLitre" as const, label: "Price/L", render: (v: number) => `Ksh ${v}` },
-    { key: "discount" as const, label: "Discount", render: (v: number) => `Ksh ${v}` },
-    { key: "totalAmount" as const, label: "Total", render: (v: number) => `Ksh ${v.toLocaleString()}` },
+    { key: "litres" as const, label: "Litres", render: (i: WaterSale) => i.litres.toLocaleString() },
+    { key: "pricePerLitre" as const, label: "Price/L", render: (i: WaterSale) => `Ksh ${i.pricePerLitre}` },
+    { key: "discount" as const, label: "Discount", render: (i: WaterSale) => `Ksh ${i.discount}` },
+    { key: "totalAmount" as const, label: "Total", render: (i: WaterSale) => `Ksh ${i.totalAmount.toLocaleString()}` },
     { key: "paymentMethod" as const, label: "Payment" },
-    { key: "paymentStatus" as const, label: "Status", render: (v: string) => <StatusBadge status={v} /> },
+    { key: "paymentStatus" as const, label: "Status", render: (i: WaterSale) => <StatusBadge status={i.paymentStatus} /> },
   ];
 
   return (

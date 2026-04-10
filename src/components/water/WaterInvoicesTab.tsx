@@ -67,10 +67,10 @@ export function WaterInvoicesTab() {
     { key: "date" as const, label: "Date" },
     { key: "client" as const, label: "Client" },
     { key: "type" as const, label: "Type" },
-    { key: "subtotal" as const, label: "Subtotal", render: (v: number) => `Ksh ${v.toLocaleString()}` },
-    { key: "vat" as const, label: "VAT", render: (v: number) => `Ksh ${v.toLocaleString()}` },
-    { key: "total" as const, label: "Total", render: (v: number) => `Ksh ${v.toLocaleString()}` },
-    { key: "status" as const, label: "Status", render: (v: string) => <StatusBadge status={v} /> },
+    { key: "subtotal" as const, label: "Subtotal", render: (i: Invoice) => `Ksh ${i.subtotal.toLocaleString()}` },
+    { key: "vat" as const, label: "VAT", render: (i: Invoice) => `Ksh ${i.vat.toLocaleString()}` },
+    { key: "total" as const, label: "Total", render: (i: Invoice) => `Ksh ${i.total.toLocaleString()}` },
+    { key: "status" as const, label: "Status", render: (i: Invoice) => <StatusBadge status={i.status} /> },
   ];
 
   return (
