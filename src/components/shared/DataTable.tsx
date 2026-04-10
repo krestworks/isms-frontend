@@ -161,13 +161,13 @@ export function DataTable<T extends Record<string, any>>({
                   </span>
                 </TableHead>
               ))}
-              {actions && <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</TableHead>}
+              {hasActions && <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {paged.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (actions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={columns.length + (hasActions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
                   No records found
                 </TableCell>
               </TableRow>
@@ -183,9 +183,9 @@ export function DataTable<T extends Record<string, any>>({
                       {col.render ? col.render(item) : String(item[col.key] ?? "")}
                     </TableCell>
                   ))}
-                  {actions && (
+                  {hasActions && (
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      {actions(item)}
+                      {renderActions(item)}
                     </TableCell>
                   )}
                 </TableRow>
