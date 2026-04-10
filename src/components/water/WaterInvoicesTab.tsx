@@ -80,7 +80,7 @@ export function WaterInvoicesTab() {
         <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Create Invoice</Button>
       </div>
       <DataTable data={data} columns={columns} searchKeys={["id", "client"]}
-        filterOptions={[{ key: "type", label: "Type", values: ["TAX INVOICE", "RECEIPT"] }, { key: "status", label: "Status", values: ["paid", "pending", "unpaid"] }]}
+        filters={[{ key: "type", label: "Type", options: [{ label: "Tax Invoice", value: "TAX INVOICE" }, { label: "Receipt", value: "RECEIPT" }] }, { key: "status", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Unpaid", value: "unpaid" }] }]}
         onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
       {modal && (
         <ModalForm open title={modal.mode === "view" ? form.type : modal.mode === "add" ? "Create Invoice" : "Edit Invoice"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>

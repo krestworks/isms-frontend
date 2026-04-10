@@ -71,7 +71,7 @@ export function ProductionTab() {
       <DataTable
         data={data} columns={columns}
         searchKeys={["id", "operator", "machineId"]}
-        filterOptions={[{ key: "status", label: "Status", values: ["active", "completed"] }, { key: "shift", label: "Shift", values: ["Morning", "Afternoon", "Night"] }]}
+        filters={[{ key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Completed", value: "completed" }] }, { key: "shift", label: "Shift", options: [{ label: "Morning", value: "Morning" }, { label: "Afternoon", value: "Afternoon" }, { label: "Night", value: "Night" }] }]}
         onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove}
       />
       {modal && (

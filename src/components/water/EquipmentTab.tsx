@@ -62,7 +62,7 @@ export function EquipmentTab() {
         <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Equipment</Button>
       </div>
       <DataTable data={data} columns={columns} searchKeys={["name", "serialNo", "type"]}
-        filterOptions={[{ key: "status", label: "Status", values: ["operational", "maintenance", "inactive"] }, { key: "type", label: "Type", values: ["Reverse Osmosis", "UV Treatment", "Storage", "Pump"] }]}
+        filters={[{ key: "status", label: "Status", options: [{ label: "Operational", value: "operational" }, { label: "Maintenance", value: "maintenance" }, { label: "Inactive", value: "inactive" }] }, { key: "type", label: "Type", options: [{ label: "Reverse Osmosis", value: "Reverse Osmosis" }, { label: "Uv Treatment", value: "UV Treatment" }, { label: "Storage", value: "Storage" }, { label: "Pump", value: "Pump" }] }]}
         onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Add Equipment" : modal.mode === "edit" ? "Edit Equipment" : "Equipment Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>

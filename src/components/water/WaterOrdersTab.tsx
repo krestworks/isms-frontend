@@ -68,7 +68,7 @@ export function WaterOrdersTab() {
         <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />New Order</Button>
       </div>
       <DataTable data={data} columns={columns} searchKeys={["id", "client", "processedBy", "deliveredBy"]}
-        filterOptions={[{ key: "status", label: "Status", values: ["pending", "processing", "dispatched", "delivered", "completed"] }]}
+        filters={[{ key: "status", label: "Status", options: [{ label: "Pending", value: "pending" }, { label: "Processing", value: "processing" }, { label: "Dispatched", value: "dispatched" }, { label: "Delivered", value: "delivered" }, { label: "Completed", value: "completed" }] }]}
         onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "New Order" : modal.mode === "edit" ? "Edit Order" : "Order Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>

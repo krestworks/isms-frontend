@@ -68,7 +68,7 @@ export function DistributionTab() {
         <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Log Delivery</Button>
       </div>
       <DataTable data={data} columns={columns} searchKeys={["id", "vehicle", "driver", "client", "destination"]}
-        filterOptions={[{ key: "status", label: "Status", values: ["active", "completed"] }]}
+        filters={[{ key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Completed", value: "completed" }] }]}
         onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Log Delivery" : modal.mode === "edit" ? "Edit Delivery" : "Delivery Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
