@@ -47,7 +47,10 @@ export function DataTable<T extends Record<string, any>>({
   filters = [],
   pageSize = 10,
   onRowClick,
-  actions,
+  onView,
+  onEdit,
+  onDelete,
+  actions: actionsProp,
 }: DataTableProps<T>) {
   const [search, setSearch] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
