@@ -33,6 +33,9 @@ interface DataTableProps<T> {
   filters?: FilterOption[];
   pageSize?: number;
   onRowClick?: (item: T) => void;
+  onView?: (item: T) => void;
+  onEdit?: (item: T) => void;
+  onDelete?: (item: T) => void;
   actions?: (item: T) => React.ReactNode;
 }
 
