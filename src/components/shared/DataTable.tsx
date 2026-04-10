@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
+import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Pencil, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,6 +33,9 @@ interface DataTableProps<T> {
   filters?: FilterOption[];
   pageSize?: number;
   onRowClick?: (item: T) => void;
+  onView?: (item: T) => void;
+  onEdit?: (item: T) => void;
+  onDelete?: (item: T) => void;
   actions?: (item: T) => React.ReactNode;
 }
 
@@ -44,8 +47,20 @@ export function DataTable<T extends Record<string, any>>({
   filters = [],
   pageSize = 10,
   onRowClick,
-  actions,
+  onView,
+  onEdit,
+  onDelete,
+  actions: actionsProp,
 }: DataTableProps<T>) {
+  const hasActions = !!(actionsProp || onView || onEdit || onDelete);
+  const renderActions = (item: T) => (
+    <div className="flex items-center gap-1">
+      {onView && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(item)}><Eye className="h-3.5 w-3.5" /></Button>}
+      {onEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>}
+      {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>}
+      {actionsProp?.(item)}
+    </div>
+  );
   const [search, setSearch] = useState("");
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
@@ -146,13 +161,13 @@ export function DataTable<T extends Record<string, any>>({
                   </span>
                 </TableHead>
               ))}
-              {actions && <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</TableHead>}
+              {hasActions && <TableHead className="text-xs font-semibold text-muted-foreground uppercase tracking-wider w-[100px]">Actions</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
             {paged.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={columns.length + (actions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
+                <TableCell colSpan={columns.length + (hasActions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
                   No records found
                 </TableCell>
               </TableRow>
@@ -168,9 +183,9 @@ export function DataTable<T extends Record<string, any>>({
                       {col.render ? col.render(item) : String(item[col.key] ?? "")}
                     </TableCell>
                   ))}
-                  {actions && (
+                  {hasActions && (
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      {actions(item)}
+                      {renderActions(item)}
                     </TableCell>
                   )}
                 </TableRow>
