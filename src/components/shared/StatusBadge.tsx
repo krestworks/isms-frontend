@@ -25,6 +25,12 @@ const statusMap: Record<string, { label: string; variant: Variant }> = {
   over: { label: "Over", variant: "destructive" },
   under: { label: "Under", variant: "destructive" },
   matched: { label: "Matched", variant: "default" },
+  waiting: { label: "Waiting", variant: "secondary" },
+  in_progress: { label: "In Progress", variant: "default" },
+  confirmed: { label: "Confirmed", variant: "default" },
+  cancelled: { label: "Cancelled", variant: "destructive" },
+  processing: { label: "Processing", variant: "secondary" },
+  invoiced: { label: "Invoiced", variant: "default" },
 };
 
 export function StatusBadge({ status }: { status: string }) {
