@@ -66,7 +66,7 @@ export default function MyLeaveTab() {
         <Card><CardContent className="p-4 text-center"><div className="text-2xl font-bold text-primary">{leaveBalance.annual}</div><div className="text-xs text-muted-foreground">Annual Leave</div></CardContent></Card>
         <Card><CardContent className="p-4 text-center"><div className="text-2xl font-bold text-primary">{leaveBalance.sick}</div><div className="text-xs text-muted-foreground">Sick Leave</div></CardContent></Card>
         <Card><CardContent className="p-4 text-center"><div className="text-2xl font-bold text-destructive">{leaveBalance.used}</div><div className="text-xs text-muted-foreground">Used</div></CardContent></Card>
-        <Card><CardContent className="p-4 text-center"><div className="text-2xl font-bold text-green-500">{leaveBalance.remaining}</div><div className="text-xs text-muted-foreground">Remaining</div></CardContent></Card>
+        <Card><CardContent className="p-4 text-center"><div className="text-2xl font-bold text-primary">{leaveBalance.remaining}</div><div className="text-xs text-muted-foreground">Remaining</div></CardContent></Card>
       </div>
 
       <div className="flex items-center justify-between">

@@ -92,7 +92,7 @@ export default function MyAttendanceTab() {
         <h3 className="text-lg font-semibold">Attendance Log</h3>
         <div className="flex gap-2">
           {!clockedIn ? (
-            <Button onClick={handleClockIn} className="bg-green-600 hover:bg-green-700"><LogIn className="h-4 w-4 mr-2" /> Clock In</Button>
+            <Button onClick={handleClockIn} className="bg-primary hover:bg-primary/90"><LogIn className="h-4 w-4 mr-2" /> Clock In</Button>
           ) : (
             <Button onClick={handleClockOut} variant="destructive"><LogOut className="h-4 w-4 mr-2" /> Clock Out</Button>
           )}
