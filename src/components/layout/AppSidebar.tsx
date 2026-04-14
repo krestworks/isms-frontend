@@ -1,4 +1,4 @@
-import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, ChevronDown } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, ChevronDown, UserCog, UserCircle } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import {
@@ -26,6 +26,8 @@ const modules = [
 
 const management = [
   { title: "Revenue & Finance", url: "/finance", icon: DollarSign },
+  { title: "HR Management", url: "/hr", icon: UserCog },
+  { title: "Employee Portal", url: "/employee-portal", icon: UserCircle },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Settings", url: "/settings", icon: Settings },

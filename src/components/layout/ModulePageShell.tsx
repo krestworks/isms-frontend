@@ -1,10 +1,10 @@
 import { LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 
-interface ModulePageShellProps {
+export interface ModulePageShellProps {
   title: string;
   description: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
   children?: React.ReactNode;
 }
 
