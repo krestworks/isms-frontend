@@ -1,5 +1,5 @@
+import { UserCog } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StaffOnboardingTab from "@/components/hr/StaffOnboardingTab";
 import LeaveManagementTab from "@/components/hr/LeaveManagementTab";
 import PayrollTab from "@/components/hr/PayrollTab";

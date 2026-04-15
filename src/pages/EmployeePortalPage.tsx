@@ -1,5 +1,5 @@
+import { UserCircle } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MyLeaveTab from "@/components/employee/MyLeaveTab";
 import MyAttendanceTab from "@/components/employee/MyAttendanceTab";
 import MyShiftsTab from "@/components/employee/MyShiftsTab";
