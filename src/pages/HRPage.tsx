@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import StaffOnboardingTab from "@/components/hr/StaffOnboardingTab";
 import LeaveManagementTab from "@/components/hr/LeaveManagementTab";
 import PayrollTab from "@/components/hr/PayrollTab";
+import PayrollSettingsTab from "@/components/hr/PayrollSettingsTab";
 import AttendanceTab from "@/components/hr/AttendanceTab";
 
 export default function HRPage() {
@@ -14,11 +15,13 @@ export default function HRPage() {
           <TabsTrigger value="onboarding">Staff Onboarding</TabsTrigger>
           <TabsTrigger value="leave">Leave Management</TabsTrigger>
           <TabsTrigger value="payroll">Payroll</TabsTrigger>
+          <TabsTrigger value="payroll-settings">Payroll Settings</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
         </TabsList>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
         <TabsContent value="leave"><LeaveManagementTab /></TabsContent>
         <TabsContent value="payroll"><PayrollTab /></TabsContent>
+        <TabsContent value="payroll-settings"><PayrollSettingsTab /></TabsContent>
         <TabsContent value="attendance"><AttendanceTab /></TabsContent>
       </Tabs>
     </ModulePageShell>
