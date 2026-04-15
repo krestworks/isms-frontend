@@ -1,3 +1,4 @@
+import { UserCircle } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MyLeaveTab from "@/components/employee/MyLeaveTab";
@@ -6,7 +7,7 @@ import MyShiftsTab from "@/components/employee/MyShiftsTab";
 
 export default function EmployeePortalPage() {
   return (
-    <ModulePageShell title="Employee Portal" description="Your leave, attendance & shift management">
+    <ModulePageShell title="Employee Portal" description="Your leave, attendance & shift management" icon={UserCircle}>
       <Tabs defaultValue="attendance" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="attendance">Clock In/Out</TabsTrigger>
