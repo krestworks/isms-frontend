@@ -6,23 +6,35 @@ import LeaveManagementTab from "@/components/hr/LeaveManagementTab";
 import PayrollTab from "@/components/hr/PayrollTab";
 import PayrollSettingsTab from "@/components/hr/PayrollSettingsTab";
 import AttendanceTab from "@/components/hr/AttendanceTab";
+import DisciplinaryTab from "@/components/hr/DisciplinaryTab";
+import PerformanceTab from "@/components/hr/PerformanceTab";
+import DocumentsTab from "@/components/hr/DocumentsTab";
+import HRReportsTab from "@/components/hr/HRReportsTab";
 
 export default function HRPage() {
   return (
-    <ModulePageShell title="HR Management" description="Staff onboarding, leave, payroll & attendance" icon={UserCog}>
+    <ModulePageShell title="HR Management" description="Central staff hub — onboarding, leave, payroll, attendance, discipline, performance" icon={UserCog}>
       <Tabs defaultValue="onboarding" className="w-full">
-        <TabsList className="mb-4">
+        <TabsList className="bg-muted/50 p-1 h-auto flex-wrap">
           <TabsTrigger value="onboarding">Staff Onboarding</TabsTrigger>
-          <TabsTrigger value="leave">Leave Management</TabsTrigger>
+          <TabsTrigger value="leave">Leave</TabsTrigger>
+          <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="payroll">Payroll</TabsTrigger>
           <TabsTrigger value="payroll-settings">Payroll Settings</TabsTrigger>
-          <TabsTrigger value="attendance">Attendance</TabsTrigger>
+          <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
         <TabsContent value="leave"><LeaveManagementTab /></TabsContent>
+        <TabsContent value="attendance"><AttendanceTab /></TabsContent>
         <TabsContent value="payroll"><PayrollTab /></TabsContent>
         <TabsContent value="payroll-settings"><PayrollSettingsTab /></TabsContent>
-        <TabsContent value="attendance"><AttendanceTab /></TabsContent>
+        <TabsContent value="disciplinary"><DisciplinaryTab /></TabsContent>
+        <TabsContent value="performance"><PerformanceTab /></TabsContent>
+        <TabsContent value="documents"><DocumentsTab /></TabsContent>
+        <TabsContent value="reports"><HRReportsTab /></TabsContent>
       </Tabs>
     </ModulePageShell>
   );

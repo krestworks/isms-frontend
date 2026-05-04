@@ -7,6 +7,8 @@ import { RefillsTab } from "@/components/lpg/RefillsTab";
 import { SuppliersTab } from "@/components/lpg/SuppliersTab";
 import { OrdersTab } from "@/components/lpg/OrdersTab";
 import { InvoicesTab } from "@/components/lpg/InvoicesTab";
+import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
+import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 
 export default function LpgPage() {
   return (
@@ -18,7 +20,9 @@ export default function LpgPage() {
           <TabsTrigger value="refills" className="text-xs">Refills</TabsTrigger>
           <TabsTrigger value="suppliers" className="text-xs">Suppliers</TabsTrigger>
           <TabsTrigger value="orders" className="text-xs">Client Orders</TabsTrigger>
-          <TabsTrigger value="invoices" className="text-xs">Invoices & Receipts</TabsTrigger>
+          <TabsTrigger value="invoices" className="text-xs">Invoices</TabsTrigger>
+          <TabsTrigger value="staff" className="text-xs">Staff</TabsTrigger>
+          <TabsTrigger value="shifts" className="text-xs">Shifts</TabsTrigger>
         </TabsList>
         <TabsContent value="cylinders"><CylindersTab /></TabsContent>
         <TabsContent value="sales"><LpgSalesTab /></TabsContent>
@@ -26,6 +30,8 @@ export default function LpgPage() {
         <TabsContent value="suppliers"><SuppliersTab /></TabsContent>
         <TabsContent value="orders"><OrdersTab /></TabsContent>
         <TabsContent value="invoices"><InvoicesTab /></TabsContent>
+        <TabsContent value="staff"><ModuleStaffTab department="LPG" /></TabsContent>
+        <TabsContent value="shifts"><ShiftScheduleTab department="LPG" /></TabsContent>
       </Tabs>
     </ModulePageShell>
   );
