@@ -1,0 +1,215 @@
+import { useState } from "react";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { useStaff } from "@/data/staffStore";
+
+export const DISCIPLINARY_STAGES = [
+  "Informal Action",
+  "Investigation",
+  "Suspension",
+  "Notification to Hearing",
+  "Disciplinary Hearing",
+  "Decision Outcome",
+  "Appeal",
+  "Closed",
+];
+
+export const DECISION_OUTCOMES = [
+  "No Action",
+  "Verbal Warning",
+  "First Written Warning",
+  "Final Written Warning",
+  "Dismissal",
+  "Summary Dismissal",
+];
+
+export interface DisciplinaryCase {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  offence: string;
+  category: string;
+  reportedBy: string;
+  reportedOn: string;
+  stage: string;
+  outcome: string;
+  hearingDate: string;
+  appealStatus: string;
+  notes: string;
+}
+
+const initial: DisciplinaryCase[] = [
+  { id: "DC-001", employeeId: "EMP-003", employeeName: "Peter Ochieng", offence: "Late arrivals (5 occurrences in month)", category: "Misconduct", reportedBy: "Grace Wanjiku", reportedOn: "2026-04-10", stage: "Investigation", outcome: "—", hearingDate: "", appealStatus: "—", notes: "Pattern began after shift reassignment" },
+  { id: "DC-002", employeeId: "EMP-005", employeeName: "David Kimani", offence: "Cash discrepancy KES 12,500", category: "Gross Misconduct", reportedBy: "James Mwangi", reportedOn: "2026-03-25", stage: "Decision Outcome", outcome: "Final Written Warning", hearingDate: "2026-04-02", appealStatus: "—", notes: "Repaid; final warning issued" },
+  { id: "DC-003", employeeId: "EMP-001", employeeName: "James Mwangi", offence: "Customer complaint — rudeness", category: "Misconduct", reportedBy: "Mary Akinyi", reportedOn: "2026-04-15", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" },
+];
+
+const emptyForm = { employeeId: "", offence: "", category: "Misconduct", reportedBy: "", reportedOn: "", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" };
+
+const stageColor: Record<string, string> = {
+  "Informal Action": "bg-blue-100 text-blue-800",
+  "Investigation": "bg-amber-100 text-amber-800",
+  "Suspension": "bg-orange-100 text-orange-800",
+  "Notification to Hearing": "bg-purple-100 text-purple-800",
+  "Disciplinary Hearing": "bg-pink-100 text-pink-800",
+  "Decision Outcome": "bg-indigo-100 text-indigo-800",
+  "Appeal": "bg-yellow-100 text-yellow-800",
+  "Closed": "bg-green-100 text-green-800",
+};
+
+export default function DisciplinaryTab() {
+  const staff = useStaff();
+  const [data, setData] = useState(initial);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<DisciplinaryCase | null>(null);
+  const [viewing, setViewing] = useState<DisciplinaryCase | null>(null);
+  const [form, setForm] = useState(emptyForm);
+
+  const stats = {
+    open: data.filter(d => d.stage !== "Closed").length,
+    investigation: data.filter(d => d.stage === "Investigation").length,
+    hearing: data.filter(d => d.stage === "Disciplinary Hearing" || d.stage === "Notification to Hearing").length,
+    closed: data.filter(d => d.stage === "Closed").length,
+  };
+
+  const columns: Column<DisciplinaryCase>[] = [
+    { key: "id", label: "Case ID", sortable: true },
+    { key: "employeeName", label: "Employee" },
+    { key: "category", label: "Category", render: i => <Badge variant="outline">{i.category}</Badge> },
+    { key: "offence", label: "Offence", render: i => <span className="line-clamp-1">{i.offence}</span> },
+    { key: "reportedOn", label: "Reported", sortable: true },
+    { key: "stage", label: "Stage", render: i => <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[i.stage] || "bg-muted"}`}>{i.stage}</span> },
+    { key: "outcome", label: "Outcome" },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "stage", label: "Stage", options: DISCIPLINARY_STAGES.map(s => ({ label: s, value: s })) },
+    { key: "category", label: "Category", options: ["Misconduct", "Gross Misconduct", "Performance", "Attendance", "Other"].map(c => ({ label: c, value: c })) },
+  ];
+
+  const openNew = () => { setEditing(null); setForm({ ...emptyForm, reportedOn: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
+  const openEdit = (c: DisciplinaryCase) => { setEditing(c); setForm({ employeeId: c.employeeId, offence: c.offence, category: c.category, reportedBy: c.reportedBy, reportedOn: c.reportedOn, stage: c.stage, outcome: c.outcome, hearingDate: c.hearingDate, appealStatus: c.appealStatus, notes: c.notes }); setModalOpen(true); };
+
+  const handleSave = () => {
+    const emp = staff.find(s => s.id === form.employeeId);
+    const employeeName = emp?.name || form.employeeId;
+    if (editing) setData(d => d.map(i => i.id === editing.id ? { ...i, ...form, employeeName } : i));
+    else setData(d => [...d, { id: `DC-${String(d.length + 1).padStart(3, "0")}`, ...form, employeeName }]);
+    setModalOpen(false);
+  };
+  const handleDelete = (c: DisciplinaryCase) => setData(d => d.filter(i => i.id !== c.id));
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Disciplinary</h3>
+          <p className="text-sm text-muted-foreground">Track disciplinary process from informal action through appeal</p>
+        </div>
+        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> New Case</Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Open Cases", value: stats.open, color: "text-amber-600" },
+          { label: "Under Investigation", value: stats.investigation, color: "text-orange-600" },
+          { label: "Pending Hearing", value: stats.hearing, color: "text-pink-600" },
+          { label: "Closed", value: stats.closed, color: "text-green-600" },
+        ].map(s => (
+          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color}`}>{s.value}</p></CardContent></Card>
+        ))}
+      </div>
+
+      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} onDelete={handleDelete} />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Case" : "New Disciplinary Case"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Open Case"}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label>Employee *</Label>
+              <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
+                <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+                <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name} — {s.id}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Category</Label>
+              <Select value={form.category} onValueChange={v => set("category", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{["Misconduct", "Gross Misconduct", "Performance", "Attendance", "Other"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2"><Label>Offence / Incident *</Label><Textarea value={form.offence} onChange={e => set("offence", e.target.value)} /></div>
+            <div><Label>Reported By</Label><Input value={form.reportedBy} onChange={e => set("reportedBy", e.target.value)} /></div>
+            <div><Label>Reported On</Label><Input type="date" value={form.reportedOn} onChange={e => set("reportedOn", e.target.value)} /></div>
+            <div><Label>Stage</Label>
+              <Select value={form.stage} onValueChange={v => set("stage", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{DISCIPLINARY_STAGES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Hearing Date</Label><Input type="date" value={form.hearingDate} onChange={e => set("hearingDate", e.target.value)} /></div>
+            <div><Label>Decision Outcome</Label>
+              <Select value={form.outcome} onValueChange={v => set("outcome", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="—">— Pending —</SelectItem>
+                  {DECISION_OUTCOMES.map(o => <SelectItem key={o} value={o}>{o}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Appeal Status</Label>
+              <Select value={form.appealStatus} onValueChange={v => set("appealStatus", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{["—", "Not Filed", "Filed", "Under Review", "Upheld", "Overturned"].map(a => <SelectItem key={a} value={a}>{a}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
+          </div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Disciplinary Case" isView>
+        {viewing && (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center justify-between">
+              <Badge variant="outline">{viewing.id}</Badge>
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
+            </div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName} ({viewing.employeeId})</div>
+            <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
+            <div><span className="text-muted-foreground">Offence:</span> {viewing.offence}</div>
+            <div><span className="text-muted-foreground">Reported:</span> {viewing.reportedOn} by {viewing.reportedBy}</div>
+            <div><span className="text-muted-foreground">Hearing:</span> {viewing.hearingDate || "—"}</div>
+            <div><span className="text-muted-foreground">Outcome:</span> {viewing.outcome}</div>
+            <div><span className="text-muted-foreground">Appeal:</span> {viewing.appealStatus}</div>
+            {viewing.notes && <div><span className="text-muted-foreground">Notes:</span> {viewing.notes}</div>}
+
+            <div className="pt-3 border-t">
+              <p className="text-xs font-semibold text-muted-foreground mb-2">Process Timeline</p>
+              <ol className="space-y-1">
+                {DISCIPLINARY_STAGES.map((s, i) => {
+                  const currentIdx = DISCIPLINARY_STAGES.indexOf(viewing.stage);
+                  const passed = i <= currentIdx;
+                  return (
+                    <li key={s} className={`flex items-center gap-2 ${passed ? "" : "text-muted-foreground/50"}`}>
+                      <span className={`h-2 w-2 rounded-full ${passed ? "bg-primary" : "bg-muted-foreground/30"}`} />
+                      <span className="text-xs">{s}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+            </div>
+          </div>
+        )}
+      </ModalForm>
+    </div>
+  );
+}
