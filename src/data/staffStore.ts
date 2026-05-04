@@ -71,7 +71,7 @@ import { useEffect, useState } from "react";
 
 export function useStaff(filter?: (s: StaffRecord) => boolean): StaffRecord[] {
   const [, force] = useState(0);
-  useEffect(() => staffStore.subscribe(() => force(n => n + 1)), []);
+  useEffect(() => { const u = staffStore.subscribe(() => force(n => n + 1)); return () => { u(); }; }, []);
   const list = staffStore.all();
   return filter ? list.filter(filter) : list;
 }

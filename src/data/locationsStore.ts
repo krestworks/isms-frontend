@@ -45,6 +45,6 @@ export const locationsStore = {
 
 export function useLocations(): Location[] {
   const [, force] = useState(0);
-  useEffect(() => locationsStore.subscribe(() => force(n => n + 1)), []);
+  useEffect(() => { const u = locationsStore.subscribe(() => force(n => n + 1)); return () => { u(); }; }, []);
   return locationsStore.all();
 }
