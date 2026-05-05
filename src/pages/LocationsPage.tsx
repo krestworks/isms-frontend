@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, MapPin } from "lucide-react";
+import { Plus, MapPin, ArrowRight } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { locationsStore, useLocations, Location } from "@/data/locationsStore";
+import { useStaff } from "@/data/staffStore";
+import { useShifts } from "@/data/shiftsStore";
+import { sessionStore, useSession } from "@/data/sessionStore";
+import { toast } from "sonner";
 
 const TYPES = ["Branch", "Region", "Country", "Depot", "Outlet"];
 const ALL_MODULES = ["Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory"];
@@ -21,6 +25,10 @@ const emptyForm: Omit<Location, "id"> = { name: "", type: "Branch", country: "Ke
 
 export default function LocationsPage() {
   const data = useLocations();
+  const staff = useStaff();
+  const shifts = useShifts();
+  const { user, activeLocation } = useSession();
+  const switchTo = (name: string) => { sessionStore.switchLocation(name); toast.success(`Switched scope → ${name}`); };
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Location | null>(null);
   const [viewing, setViewing] = useState<Location | null>(null);
@@ -81,6 +89,39 @@ export default function LocationsPage() {
           ].map(s => (
             <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p></CardContent></Card>
           ))}
+        </div>
+
+        {/* Per-location operational cards — staff count, scheduled shifts, modules, switch */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {data.map(loc => {
+            const locStaff = staff.filter(s => s.location === loc.name).length;
+            const locShifts = shifts.filter(s => s.location === loc.name).length;
+            const isActive = activeLocation === loc.name;
+            const isHome = user.homeLocation === loc.name;
+            const canSwitch = user.activeRole === "Admin" || user.activeRole === "Manager" || isHome;
+            return (
+              <Card key={loc.id} className={isActive ? "border-primary shadow-md" : ""}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold text-sm flex items-center gap-2">{loc.name} {isActive && <Badge variant="default" className="text-[9px]">Active</Badge>} {isHome && <Badge variant="outline" className="text-[9px]">Home</Badge>}</p>
+                      <p className="text-xs text-muted-foreground">{loc.type} · {loc.city}</p>
+                    </div>
+                    <StatusBadge status={loc.status} />
+                  </div>
+                  <div className="flex gap-3 text-xs">
+                    <span><strong>{locStaff}</strong> staff</span>
+                    <span><strong>{locShifts}</strong> shifts</span>
+                    <span><strong>{loc.modules.length}</strong> modules</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">{loc.modules.map(m => <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>)}</div>
+                  <Button size="sm" variant={isActive ? "secondary" : "outline"} className="w-full" disabled={!canSwitch || isActive} onClick={() => switchTo(loc.name)}>
+                    {isActive ? "Currently viewing" : <>Switch to this location <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         <DataTable data={data} columns={columns} searchKeys={["name", "city", "manager"]} searchPlaceholder="Search locations..." filters={filters} onView={l => setViewing(l)} onEdit={openEdit} onDelete={handleDelete} />

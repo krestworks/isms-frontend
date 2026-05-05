@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Plus, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,52 +9,31 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { useStaffByDepartment } from "@/data/staffStore";
-
-interface Shift {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  date: string;
-  shift: string;
-  startTime: string;
-  endTime: string;
-  location: string;
-  notes: string;
-}
+import { shiftsStore, useShifts, Shift } from "@/data/shiftsStore";
+import { exportToCsv } from "@/lib/exportCsv";
+import { sessionStore } from "@/data/sessionStore";
 
 const SHIFT_TYPES = ["Morning (6am-2pm)", "Afternoon (2pm-10pm)", "Night (10pm-6am)", "Full Day", "Half Day"];
 
-interface Props {
-  department: string;
-}
+interface Props { department: string; }
 
 const emptyForm = { employeeId: "", date: "", shift: "Morning (6am-2pm)", startTime: "06:00", endTime: "14:00", location: "", notes: "" };
 
 export function ShiftScheduleTab({ department }: Props) {
   const staff = useStaffByDepartment(department);
-  const [data, setData] = useState<Shift[]>(() => {
-    const today = new Date();
-    return staff.slice(0, 4).map((s, i) => ({
-      id: `SH-${String(i + 1).padStart(3, "0")}`,
-      employeeId: s.id,
-      employeeName: s.name,
-      date: new Date(today.getTime() + i * 86400000).toISOString().split("T")[0],
-      shift: SHIFT_TYPES[i % 3],
-      startTime: ["06:00", "14:00", "22:00"][i % 3],
-      endTime: ["14:00", "22:00", "06:00"][i % 3],
-      location: s.location || "—",
-      notes: "",
-    }));
-  });
+  const activeLoc = sessionStore.activeLocation();
+  const all = useShifts(s => s.department === department);
+  const data = useMemo(() => activeLoc === "All Locations" ? all : all.filter(s => s.location === activeLoc), [all, activeLoc]);
+
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Shift | null>(null);
   const [form, setForm] = useState(emptyForm);
 
-  const stats = useMemo(() => ({
+  const stats = {
     total: data.length,
     today: data.filter(d => d.date === new Date().toISOString().split("T")[0]).length,
     upcoming: data.filter(d => d.date > new Date().toISOString().split("T")[0]).length,
-  }), [data]);
+  };
 
   const columns: Column<Shift>[] = [
     { key: "id", label: "Shift ID" },
@@ -70,27 +49,31 @@ export function ShiftScheduleTab({ department }: Props) {
     { key: "shift", label: "Shift", options: SHIFT_TYPES.map(s => ({ label: s, value: s })) },
   ];
 
-  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: new Date().toISOString().split("T")[0], location: activeLoc !== "All Locations" ? activeLoc : "" }); setModalOpen(true); };
   const openEdit = (s: Shift) => { setEditing(s); setForm({ employeeId: s.employeeId, date: s.date, shift: s.shift, startTime: s.startTime, endTime: s.endTime, location: s.location, notes: s.notes }); setModalOpen(true); };
   const handleSave = () => {
     const emp = staff.find(s => s.id === form.employeeId);
     const employeeName = emp?.name || form.employeeId;
     const location = form.location || emp?.location || "—";
-    if (editing) setData(d => d.map(i => i.id === editing.id ? { ...i, ...form, employeeName, location } : i));
-    else setData(d => [...d, { id: `SH-${String(d.length + 1).padStart(3, "0")}`, ...form, employeeName, location }]);
+    if (editing) shiftsStore.update(editing.id, { ...form, employeeName, location, department });
+    else shiftsStore.add({ ...form, employeeName, location, department });
     setModalOpen(false);
   };
-  const handleDelete = (s: Shift) => setData(d => d.filter(i => i.id !== s.id));
+  const handleDelete = (s: Shift) => shiftsStore.remove(s.id);
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const handleExport = () => exportToCsv(`${department}-shifts.csv`, data);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Shift Management</h3>
-          <p className="text-sm text-muted-foreground">Work schedule for {department} staff</p>
+          <p className="text-sm text-muted-foreground">Work schedule for {department} staff · scope: {activeLoc}</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Schedule Shift</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleExport}><Download className="h-4 w-4 mr-2" /> Export</Button>
+          <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Schedule Shift</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -109,9 +92,10 @@ export function ShiftScheduleTab({ department }: Props) {
         <div className="space-y-4">
           <div><Label>Employee *</Label>
             <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
-              <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Assign staff" /></SelectTrigger>
               <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name} — {s.role}</SelectItem>)}</SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground mt-1">Staff sourced from HR onboarding ({staff.length} in {department})</p>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>

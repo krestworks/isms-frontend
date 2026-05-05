@@ -3,6 +3,7 @@ import { AppSidebar } from "./AppSidebar";
 import { Outlet } from "react-router-dom";
 import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { HeaderSwitchers } from "./HeaderSwitchers";
 
 export function AppLayout() {
   return (
@@ -21,7 +22,8 @@ export function AppLayout() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <HeaderSwitchers />
               <button className="relative p-2 rounded-lg hover:bg-muted transition-colors">
                 <Bell className="h-4 w-4 text-muted-foreground" />
                 <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive" />

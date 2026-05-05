@@ -43,16 +43,21 @@ export interface DisciplinaryCase {
   outcome: string;
   hearingDate: string;
   appealStatus: string;
+  appealFiledOn: string;
+  appealGrounds: string;
+  appealHearingDate: string;
+  appealDecision: string;
+  appealDecidedOn: string;
   notes: string;
 }
 
 const initial: DisciplinaryCase[] = [
-  { id: "DC-001", employeeId: "EMP-003", employeeName: "Peter Ochieng", offence: "Late arrivals (5 occurrences in month)", category: "Misconduct", reportedBy: "Grace Wanjiku", reportedOn: "2026-04-10", stage: "Investigation", outcome: "—", hearingDate: "", appealStatus: "—", notes: "Pattern began after shift reassignment" },
-  { id: "DC-002", employeeId: "EMP-005", employeeName: "David Kimani", offence: "Cash discrepancy KES 12,500", category: "Gross Misconduct", reportedBy: "James Mwangi", reportedOn: "2026-03-25", stage: "Decision Outcome", outcome: "Final Written Warning", hearingDate: "2026-04-02", appealStatus: "—", notes: "Repaid; final warning issued" },
-  { id: "DC-003", employeeId: "EMP-001", employeeName: "James Mwangi", offence: "Customer complaint — rudeness", category: "Misconduct", reportedBy: "Mary Akinyi", reportedOn: "2026-04-15", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" },
+  { id: "DC-001", employeeId: "EMP-003", employeeName: "Peter Ochieng", offence: "Late arrivals (5 occurrences in month)", category: "Misconduct", reportedBy: "Grace Wanjiku", reportedOn: "2026-04-10", stage: "Investigation", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "Pattern began after shift reassignment" },
+  { id: "DC-002", employeeId: "EMP-005", employeeName: "David Kimani", offence: "Cash discrepancy KES 12,500", category: "Gross Misconduct", reportedBy: "James Mwangi", reportedOn: "2026-03-25", stage: "Appeal", outcome: "Final Written Warning", hearingDate: "2026-04-02", appealStatus: "Under Review", appealFiledOn: "2026-04-05", appealGrounds: "Procedural irregularity in hearing", appealHearingDate: "2026-04-20", appealDecision: "—", appealDecidedOn: "", notes: "Repaid; final warning issued" },
+  { id: "DC-003", employeeId: "EMP-001", employeeName: "James Mwangi", offence: "Customer complaint — rudeness", category: "Misconduct", reportedBy: "Mary Akinyi", reportedOn: "2026-04-15", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "" },
 ];
 
-const emptyForm = { employeeId: "", offence: "", category: "Misconduct", reportedBy: "", reportedOn: "", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" };
+const emptyForm = { employeeId: "", offence: "", category: "Misconduct", reportedBy: "", reportedOn: "", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "" };
 
 const stageColor: Record<string, string> = {
   "Informal Action": "bg-blue-100 text-blue-800",
@@ -96,7 +101,7 @@ export default function DisciplinaryTab() {
   ];
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, reportedOn: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const openEdit = (c: DisciplinaryCase) => { setEditing(c); setForm({ employeeId: c.employeeId, offence: c.offence, category: c.category, reportedBy: c.reportedBy, reportedOn: c.reportedOn, stage: c.stage, outcome: c.outcome, hearingDate: c.hearingDate, appealStatus: c.appealStatus, notes: c.notes }); setModalOpen(true); };
+  const openEdit = (c: DisciplinaryCase) => { setEditing(c); setForm({ employeeId: c.employeeId, offence: c.offence, category: c.category, reportedBy: c.reportedBy, reportedOn: c.reportedOn, stage: c.stage, outcome: c.outcome, hearingDate: c.hearingDate, appealStatus: c.appealStatus, appealFiledOn: c.appealFiledOn || "", appealGrounds: c.appealGrounds || "", appealHearingDate: c.appealHearingDate || "", appealDecision: c.appealDecision || "—", appealDecidedOn: c.appealDecidedOn || "", notes: c.notes }); setModalOpen(true); };
 
   const handleSave = () => {
     const emp = staff.find(s => s.id === form.employeeId);
@@ -173,6 +178,25 @@ export default function DisciplinaryTab() {
             </div>
             <div className="col-span-2"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
           </div>
+
+          {/* Appeal flow — only relevant if appeal opened */}
+          {form.appealStatus !== "—" && form.appealStatus !== "Not Filed" && (
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-700">Appeal Process</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Appeal Filed On</Label><Input type="date" value={form.appealFiledOn} onChange={e => set("appealFiledOn", e.target.value)} /></div>
+                <div><Label>Appeal Hearing Date</Label><Input type="date" value={form.appealHearingDate} onChange={e => set("appealHearingDate", e.target.value)} /></div>
+                <div className="col-span-2"><Label>Grounds of Appeal</Label><Textarea value={form.appealGrounds} onChange={e => set("appealGrounds", e.target.value)} placeholder="Reasons given by employee for appealing..." /></div>
+                <div><Label>Appeal Decision</Label>
+                  <Select value={form.appealDecision} onValueChange={v => set("appealDecision", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{["—", "Upheld (original stands)", "Overturned (cleared)", "Reduced sanction", "Increased sanction", "Remitted for re-hearing"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Decision Date</Label><Input type="date" value={form.appealDecidedOn} onChange={e => set("appealDecidedOn", e.target.value)} /></div>
+              </div>
+            </div>
+          )}
         </div>
       </ModalForm>
 
@@ -189,7 +213,9 @@ export default function DisciplinaryTab() {
             <div><span className="text-muted-foreground">Reported:</span> {viewing.reportedOn} by {viewing.reportedBy}</div>
             <div><span className="text-muted-foreground">Hearing:</span> {viewing.hearingDate || "—"}</div>
             <div><span className="text-muted-foreground">Outcome:</span> {viewing.outcome}</div>
-            <div><span className="text-muted-foreground">Appeal:</span> {viewing.appealStatus}</div>
+            <div><span className="text-muted-foreground">Appeal:</span> {viewing.appealStatus} {viewing.appealDecision !== "—" && viewing.appealDecision && <Badge variant="outline" className="ml-2">{viewing.appealDecision}</Badge>}</div>
+            {viewing.appealFiledOn && <div className="text-xs text-muted-foreground pl-3">Filed {viewing.appealFiledOn} · Hearing {viewing.appealHearingDate || "—"} · Decided {viewing.appealDecidedOn || "pending"}</div>}
+            {viewing.appealGrounds && <div className="text-xs pl-3 italic">"{viewing.appealGrounds}"</div>}
             {viewing.notes && <div><span className="text-muted-foreground">Notes:</span> {viewing.notes}</div>}
 
             <div className="pt-3 border-t">
