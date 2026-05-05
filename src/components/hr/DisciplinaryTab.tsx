@@ -178,6 +178,25 @@ export default function DisciplinaryTab() {
             </div>
             <div className="col-span-2"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
           </div>
+
+          {/* Appeal flow — only relevant if appeal opened */}
+          {form.appealStatus !== "—" && form.appealStatus !== "Not Filed" && (
+            <div className="border-t pt-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-700">Appeal Process</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div><Label>Appeal Filed On</Label><Input type="date" value={form.appealFiledOn} onChange={e => set("appealFiledOn", e.target.value)} /></div>
+                <div><Label>Appeal Hearing Date</Label><Input type="date" value={form.appealHearingDate} onChange={e => set("appealHearingDate", e.target.value)} /></div>
+                <div className="col-span-2"><Label>Grounds of Appeal</Label><Textarea value={form.appealGrounds} onChange={e => set("appealGrounds", e.target.value)} placeholder="Reasons given by employee for appealing..." /></div>
+                <div><Label>Appeal Decision</Label>
+                  <Select value={form.appealDecision} onValueChange={v => set("appealDecision", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{["—", "Upheld (original stands)", "Overturned (cleared)", "Reduced sanction", "Increased sanction", "Remitted for re-hearing"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Decision Date</Label><Input type="date" value={form.appealDecidedOn} onChange={e => set("appealDecidedOn", e.target.value)} /></div>
+              </div>
+            </div>
+          )}
         </div>
       </ModalForm>
 
@@ -194,7 +213,9 @@ export default function DisciplinaryTab() {
             <div><span className="text-muted-foreground">Reported:</span> {viewing.reportedOn} by {viewing.reportedBy}</div>
             <div><span className="text-muted-foreground">Hearing:</span> {viewing.hearingDate || "—"}</div>
             <div><span className="text-muted-foreground">Outcome:</span> {viewing.outcome}</div>
-            <div><span className="text-muted-foreground">Appeal:</span> {viewing.appealStatus}</div>
+            <div><span className="text-muted-foreground">Appeal:</span> {viewing.appealStatus} {viewing.appealDecision !== "—" && viewing.appealDecision && <Badge variant="outline" className="ml-2">{viewing.appealDecision}</Badge>}</div>
+            {viewing.appealFiledOn && <div className="text-xs text-muted-foreground pl-3">Filed {viewing.appealFiledOn} · Hearing {viewing.appealHearingDate || "—"} · Decided {viewing.appealDecidedOn || "pending"}</div>}
+            {viewing.appealGrounds && <div className="text-xs pl-3 italic">"{viewing.appealGrounds}"</div>}
             {viewing.notes && <div><span className="text-muted-foreground">Notes:</span> {viewing.notes}</div>}
 
             <div className="pt-3 border-t">
