@@ -25,6 +25,10 @@ const emptyForm: Omit<Location, "id"> = { name: "", type: "Branch", country: "Ke
 
 export default function LocationsPage() {
   const data = useLocations();
+  const staff = useStaff();
+  const shifts = useShifts();
+  const { user, activeLocation } = useSession();
+  const switchTo = (name: string) => { sessionStore.switchLocation(name); toast.success(`Switched scope → ${name}`); };
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Location | null>(null);
   const [viewing, setViewing] = useState<Location | null>(null);
