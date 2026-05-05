@@ -43,16 +43,21 @@ export interface DisciplinaryCase {
   outcome: string;
   hearingDate: string;
   appealStatus: string;
+  appealFiledOn: string;
+  appealGrounds: string;
+  appealHearingDate: string;
+  appealDecision: string;
+  appealDecidedOn: string;
   notes: string;
 }
 
 const initial: DisciplinaryCase[] = [
-  { id: "DC-001", employeeId: "EMP-003", employeeName: "Peter Ochieng", offence: "Late arrivals (5 occurrences in month)", category: "Misconduct", reportedBy: "Grace Wanjiku", reportedOn: "2026-04-10", stage: "Investigation", outcome: "—", hearingDate: "", appealStatus: "—", notes: "Pattern began after shift reassignment" },
-  { id: "DC-002", employeeId: "EMP-005", employeeName: "David Kimani", offence: "Cash discrepancy KES 12,500", category: "Gross Misconduct", reportedBy: "James Mwangi", reportedOn: "2026-03-25", stage: "Decision Outcome", outcome: "Final Written Warning", hearingDate: "2026-04-02", appealStatus: "—", notes: "Repaid; final warning issued" },
-  { id: "DC-003", employeeId: "EMP-001", employeeName: "James Mwangi", offence: "Customer complaint — rudeness", category: "Misconduct", reportedBy: "Mary Akinyi", reportedOn: "2026-04-15", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" },
+  { id: "DC-001", employeeId: "EMP-003", employeeName: "Peter Ochieng", offence: "Late arrivals (5 occurrences in month)", category: "Misconduct", reportedBy: "Grace Wanjiku", reportedOn: "2026-04-10", stage: "Investigation", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "Pattern began after shift reassignment" },
+  { id: "DC-002", employeeId: "EMP-005", employeeName: "David Kimani", offence: "Cash discrepancy KES 12,500", category: "Gross Misconduct", reportedBy: "James Mwangi", reportedOn: "2026-03-25", stage: "Appeal", outcome: "Final Written Warning", hearingDate: "2026-04-02", appealStatus: "Under Review", appealFiledOn: "2026-04-05", appealGrounds: "Procedural irregularity in hearing", appealHearingDate: "2026-04-20", appealDecision: "—", appealDecidedOn: "", notes: "Repaid; final warning issued" },
+  { id: "DC-003", employeeId: "EMP-001", employeeName: "James Mwangi", offence: "Customer complaint — rudeness", category: "Misconduct", reportedBy: "Mary Akinyi", reportedOn: "2026-04-15", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "" },
 ];
 
-const emptyForm = { employeeId: "", offence: "", category: "Misconduct", reportedBy: "", reportedOn: "", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", notes: "" };
+const emptyForm = { employeeId: "", offence: "", category: "Misconduct", reportedBy: "", reportedOn: "", stage: "Informal Action", outcome: "—", hearingDate: "", appealStatus: "—", appealFiledOn: "", appealGrounds: "", appealHearingDate: "", appealDecision: "—", appealDecidedOn: "", notes: "" };
 
 const stageColor: Record<string, string> = {
   "Informal Action": "bg-blue-100 text-blue-800",
