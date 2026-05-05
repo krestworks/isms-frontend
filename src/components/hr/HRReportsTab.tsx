@@ -21,7 +21,7 @@ const REPORTS = [
   { id: "documents", title: "Document Compliance", desc: "Expiring & expired employee documents", icon: FileWarning },
 ];
 
-function buildRows(reportId: string, department: string) {
+function buildRows(reportId: string, department: string): Record<string, any>[] {
   const staff = department === "all" ? staffStore.all() : staffStore.all().filter(s => s.department === department);
   switch (reportId) {
     case "headcount":
