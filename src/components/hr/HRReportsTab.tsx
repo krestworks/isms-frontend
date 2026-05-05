@@ -6,6 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { useToast } from "@/hooks/use-toast";
+import { staffStore } from "@/data/staffStore";
+import { deriveAttendance } from "@/data/shiftsStore";
+import { exportToCsv } from "@/lib/exportCsv";
 
 const REPORTS = [
   { id: "headcount", title: "Headcount & Turnover", desc: "Active, onboarding, exits by department & location", icon: Users },
@@ -18,15 +21,38 @@ const REPORTS = [
   { id: "documents", title: "Document Compliance", desc: "Expiring & expired employee documents", icon: FileWarning },
 ];
 
+function buildRows(reportId: string, department: string) {
+  const staff = department === "all" ? staffStore.all() : staffStore.all().filter(s => s.department === department);
+  switch (reportId) {
+    case "headcount":
+      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, role: s.role, location: s.location || "—", joinDate: s.joinDate, status: s.status }));
+    case "attendance": {
+      const att = deriveAttendance().filter(a => department === "all" || a.department === department);
+      return att.map(a => ({ id: a.id, employee: a.employeeName, date: a.date, shift: a.shift, scheduled: `${a.scheduledStart}-${a.scheduledEnd}`, clockIn: a.clockIn, clockOut: a.clockOut, hours: a.hoursWorked, status: a.status }));
+    }
+    case "payroll":
+      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, kraPin: s.kraPin || "—", nhif: s.nhifNo || "—", nssf: s.nssfNo || "—", bank: s.bankName || "—", account: s.bankAccount || "—" }));
+    case "statutory":
+      return staff.filter(s => s.kraPin).map(s => ({ id: s.id, name: s.name, kraPin: s.kraPin, nhif: s.nhifNo, nssf: s.nssfNo }));
+    default:
+      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, role: s.role, status: s.status }));
+  }
+}
+
 export default function HRReportsTab() {
   const { toast } = useToast();
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState("this_month");
   const [department, setDepartment] = useState("all");
-  const [format, setFormat] = useState("pdf");
+  const [format, setFormat] = useState("csv");
 
   const generate = () => {
-    toast({ title: "Report queued", description: `${REPORTS.find(r => r.id === open)?.title} (${format.toUpperCase()}) — generation started.` });
+    if (!open) return;
+    const rows = buildRows(open, department);
+    if (!rows.length) { toast({ title: "No data", description: "Nothing to export for this filter." }); return; }
+    const filename = `hr-${open}-${period}.${format === "csv" ? "csv" : "csv"}`;
+    exportToCsv(filename, rows);
+    toast({ title: "Report exported", description: `${REPORTS.find(r => r.id === open)?.title} — ${rows.length} rows` });
     setOpen(null);
   };
 
@@ -60,7 +86,7 @@ export default function HRReportsTab() {
         })}
       </div>
 
-      <ModalForm open={!!open} onClose={() => setOpen(null)} title={current?.title || ""} description={current?.desc} onSubmit={generate} submitLabel="Generate">
+      <ModalForm open={!!open} onClose={() => setOpen(null)} title={current?.title || ""} description={current?.desc} onSubmit={generate} submitLabel="Export">
         <div className="space-y-4">
           <div><Label>Period</Label>
             <Select value={period} onValueChange={setPeriod}>
@@ -82,8 +108,9 @@ export default function HRReportsTab() {
           <div><Label>Format</Label>
             <Select value={format} onValueChange={setFormat}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{["pdf", "excel", "csv"].map(f => <SelectItem key={f} value={f}>{f.toUpperCase()}</SelectItem>)}</SelectContent>
+              <SelectContent>{["csv", "excel"].map(f => <SelectItem key={f} value={f}>{f.toUpperCase()}</SelectItem>)}</SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground mt-1">Excel exports as CSV (Excel-compatible).</p>
           </div>
         </div>
       </ModalForm>
