@@ -75,7 +75,7 @@ export default function AttendanceTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id"]} searchPlaceholder="Search attendance..." filters={filters} onView={setViewing} actions={r => (
+      <DataTable<DerivedAttendance> data={data} columns={columns} searchKeys={["employeeName", "id"]} searchPlaceholder="Search attendance..." filters={filters} onView={(i) => setViewing(i)} actions={(r) => (
         <div className="flex gap-1">
           {!r.clockIn && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "in")}>In</Button>}
           {r.clockIn && !r.clockOut && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "out")}>Out</Button>}
