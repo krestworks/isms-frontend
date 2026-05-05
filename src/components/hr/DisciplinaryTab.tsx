@@ -101,7 +101,7 @@ export default function DisciplinaryTab() {
   ];
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, reportedOn: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const openEdit = (c: DisciplinaryCase) => { setEditing(c); setForm({ employeeId: c.employeeId, offence: c.offence, category: c.category, reportedBy: c.reportedBy, reportedOn: c.reportedOn, stage: c.stage, outcome: c.outcome, hearingDate: c.hearingDate, appealStatus: c.appealStatus, notes: c.notes }); setModalOpen(true); };
+  const openEdit = (c: DisciplinaryCase) => { setEditing(c); setForm({ employeeId: c.employeeId, offence: c.offence, category: c.category, reportedBy: c.reportedBy, reportedOn: c.reportedOn, stage: c.stage, outcome: c.outcome, hearingDate: c.hearingDate, appealStatus: c.appealStatus, appealFiledOn: c.appealFiledOn || "", appealGrounds: c.appealGrounds || "", appealHearingDate: c.appealHearingDate || "", appealDecision: c.appealDecision || "—", appealDecidedOn: c.appealDecidedOn || "", notes: c.notes }); setModalOpen(true); };
 
   const handleSave = () => {
     const emp = staff.find(s => s.id === form.employeeId);
