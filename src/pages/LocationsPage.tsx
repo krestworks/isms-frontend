@@ -91,6 +91,39 @@ export default function LocationsPage() {
           ))}
         </div>
 
+        {/* Per-location operational cards — staff count, scheduled shifts, modules, switch */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {data.map(loc => {
+            const locStaff = staff.filter(s => s.location === loc.name).length;
+            const locShifts = shifts.filter(s => s.location === loc.name).length;
+            const isActive = activeLocation === loc.name;
+            const isHome = user.homeLocation === loc.name;
+            const canSwitch = user.activeRole === "Admin" || user.activeRole === "Manager" || isHome;
+            return (
+              <Card key={loc.id} className={isActive ? "border-primary shadow-md" : ""}>
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="font-semibold text-sm flex items-center gap-2">{loc.name} {isActive && <Badge variant="default" className="text-[9px]">Active</Badge>} {isHome && <Badge variant="outline" className="text-[9px]">Home</Badge>}</p>
+                      <p className="text-xs text-muted-foreground">{loc.type} · {loc.city}</p>
+                    </div>
+                    <StatusBadge status={loc.status} />
+                  </div>
+                  <div className="flex gap-3 text-xs">
+                    <span><strong>{locStaff}</strong> staff</span>
+                    <span><strong>{locShifts}</strong> shifts</span>
+                    <span><strong>{loc.modules.length}</strong> modules</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">{loc.modules.map(m => <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>)}</div>
+                  <Button size="sm" variant={isActive ? "secondary" : "outline"} className="w-full" disabled={!canSwitch || isActive} onClick={() => switchTo(loc.name)}>
+                    {isActive ? "Currently viewing" : <>Switch to this location <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
+                  </Button>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+
         <DataTable data={data} columns={columns} searchKeys={["name", "city", "manager"]} searchPlaceholder="Search locations..." filters={filters} onView={l => setViewing(l)} onEdit={openEdit} onDelete={handleDelete} />
 
         <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Location" : "Add Location"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Create"}>
