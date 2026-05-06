@@ -1,21 +1,28 @@
 import { useMemo, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { useDerivedAttendance, attendanceStore, DerivedAttendance } from "@/data/shiftsStore";
 import { exportToCsv } from "@/lib/exportCsv";
-import { sessionStore } from "@/data/sessionStore";
+import { sessionStore, useSession } from "@/data/sessionStore";
+import { isLocationVisible } from "@/lib/permissions";
 import { toast } from "sonner";
 
 export default function AttendanceTab() {
+  useSession();
   const all = useDerivedAttendance();
   const activeLoc = sessionStore.activeLocation();
-  const data = useMemo(() => all, [all]);
+  const data = useMemo(() => all.filter(a => isLocationVisible(a.location)), [all, activeLoc]);
   const [viewing, setViewing] = useState<DerivedAttendance | null>(null);
+  const [editing, setEditing] = useState<DerivedAttendance | null>(null);
+  const [form, setForm] = useState({ clockIn: "", clockOut: "", reason: "" });
 
   const stats = {
     total: data.length,
