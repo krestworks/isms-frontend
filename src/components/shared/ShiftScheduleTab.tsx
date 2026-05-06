@@ -1,17 +1,22 @@
 import { useMemo, useState } from "react";
-import { Plus, Download } from "lucide-react";
+import { Plus, Download, CalendarRange, Repeat } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { MultiSelect } from "@/components/shared/MultiSelect";
 import { useStaffByDepartment } from "@/data/staffStore";
 import { shiftsStore, useShifts, Shift } from "@/data/shiftsStore";
+import { shiftTemplatesStore, useShiftTemplates, ShiftTemplate, DAY_LABELS } from "@/data/shiftTemplatesStore";
 import { exportToCsv } from "@/lib/exportCsv";
 import { sessionStore } from "@/data/sessionStore";
+import { isLocationVisible } from "@/lib/permissions";
+import { toast } from "sonner";
 
 const SHIFT_TYPES = ["Morning (6am-2pm)", "Afternoon (2pm-10pm)", "Night (10pm-6am)", "Full Day", "Half Day"];
 
