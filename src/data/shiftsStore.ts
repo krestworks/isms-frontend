@@ -66,7 +66,7 @@ export function useShifts(filter?: (s: Shift) => boolean): Shift[] {
 }
 
 // Attendance overrides keyed by `${employeeId}|${date}`
-export interface AttendancePunch { clockIn?: string; clockOut?: string; }
+export interface AttendancePunch { clockIn?: string; clockOut?: string; correctedBy?: string; correctionReason?: string; correctedAt?: string; }
 const attendance: Record<string, AttendancePunch> = {};
 const attListeners = new Set<() => void>();
 
@@ -75,6 +75,12 @@ export const attendanceStore = {
     const key = `${employeeId}|${date}`;
     const cur = attendance[key] || {};
     attendance[key] = kind === "in" ? { ...cur, clockIn: time } : { ...cur, clockOut: time };
+    attListeners.forEach(l => l());
+  },
+  // Manual correction by HR/Manager — both fields plus audit reason.
+  correct(employeeId: string, date: string, clockIn: string, clockOut: string, correctedBy: string, reason: string) {
+    const key = `${employeeId}|${date}`;
+    attendance[key] = { clockIn, clockOut, correctedBy, correctionReason: reason, correctedAt: new Date().toISOString() };
     attListeners.forEach(l => l());
   },
   get(employeeId: string, date: string): AttendancePunch | undefined {
