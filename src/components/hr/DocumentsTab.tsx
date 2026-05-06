@@ -56,18 +56,19 @@ export default function DocumentsTab() {
   ];
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, uploadedOn: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const openEdit = (d: EmployeeDocument) => { setEditing(d); setForm({ employeeId: d.employeeId, type: d.type, fileName: d.fileName, fileSize: d.fileSize, fileData: d.fileData || "", uploadedOn: d.uploadedOn, expiresOn: d.expiresOn, status: d.status, notes: d.notes }); setModalOpen(true); };
+  const openEdit = (d: EmployeeDocument) => { setEditing(d); setForm({ employeeId: d.employeeId, type: d.type, fileName: d.fileName, fileSize: d.fileSize, fileData: d.fileData || "", uploadedOn: d.uploadedOn, expiresOn: d.expiresOn, status: d.status, notes: d.notes, caseId: d.caseId || "" }); setModalOpen(true); };
   const handleSave = () => {
     if (!form.employeeId) return toast.error("Select an employee");
     if (!editing && !form.fileData) return toast.error("Choose a file to upload");
     const emp = staff.find(s => s.id === form.employeeId);
     const employeeName = emp?.name || form.employeeId;
-    if (editing) setData(d => d.map(i => i.id === editing.id ? { ...i, ...form, employeeName } : i));
-    else setData(d => [...d, { id: `DOC-${String(d.length + 1).padStart(3, "0")}`, ...form, employeeName }]);
+    const payload = { ...form, employeeName, caseId: form.caseId || undefined };
+    if (editing) documentsStore.update(editing.id, payload);
+    else documentsStore.add(payload);
     setModalOpen(false);
     toast.success(editing ? "Document updated" : "Document uploaded");
   };
-  const handleDelete = (d: EmployeeDocument) => setData(arr => arr.filter(i => i.id !== d.id));
+  const handleDelete = (d: EmployeeDocument) => documentsStore.remove(d.id);
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const handleDownload = (d: EmployeeDocument) => {
     if (d.fileData) downloadDataUrl(d.fileName, d.fileData);
