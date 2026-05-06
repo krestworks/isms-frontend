@@ -83,9 +83,31 @@ export function ShiftScheduleTab({ department }: Props) {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleExport}><Download className="h-4 w-4 mr-2" /> Export</Button>
+          <Button variant="outline" onClick={() => { setEditingTpl(null); setTplForm({ name: "", shift: "Morning (6am-2pm)", startTime: "06:00", endTime: "14:00", daysOfWeek: [1,2,3,4,5], employeeIds: [], location: activeLoc !== "All Locations" ? activeLoc : "", notes: "" }); setTplOpen(true); }}><Repeat className="h-4 w-4 mr-2" /> New Template</Button>
           <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Schedule Shift</Button>
         </div>
       </div>
+
+      {templates.length > 0 && (
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Recurring Templates</p>
+            {templates.map(t => (
+              <div key={t.id} className="flex items-center justify-between p-2 rounded bg-muted/40 text-sm">
+                <div>
+                  <span className="font-medium">{t.name}</span>
+                  <span className="text-xs text-muted-foreground ml-2">{t.shift} · {t.daysOfWeek.map(d => DAY_LABELS[d]).join(", ")} · {t.employeeIds.length} staff</span>
+                </div>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setApplyOpen(t); setApplyRange({ from: new Date().toISOString().split("T")[0], to: "" }); }}><CalendarRange className="h-3 w-3 mr-1" /> Apply</Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditingTpl(t); setTplForm({ name: t.name, shift: t.shift, startTime: t.startTime, endTime: t.endTime, daysOfWeek: t.daysOfWeek, employeeIds: t.employeeIds, location: t.location || "", notes: t.notes }); setTplOpen(true); }}>Edit</Button>
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => shiftTemplatesStore.remove(t.id)}>Delete</Button>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         {[
