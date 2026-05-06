@@ -1,21 +1,28 @@
 import { useMemo, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { useDerivedAttendance, attendanceStore, DerivedAttendance } from "@/data/shiftsStore";
 import { exportToCsv } from "@/lib/exportCsv";
-import { sessionStore } from "@/data/sessionStore";
+import { sessionStore, useSession } from "@/data/sessionStore";
+import { isLocationVisible } from "@/lib/permissions";
 import { toast } from "sonner";
 
 export default function AttendanceTab() {
+  useSession();
   const all = useDerivedAttendance();
   const activeLoc = sessionStore.activeLocation();
-  const data = useMemo(() => all, [all]);
+  const data = useMemo(() => all.filter(a => isLocationVisible(a.location)), [all, activeLoc]);
   const [viewing, setViewing] = useState<DerivedAttendance | null>(null);
+  const [editing, setEditing] = useState<DerivedAttendance | null>(null);
+  const [form, setForm] = useState({ clockIn: "", clockOut: "", reason: "" });
 
   const stats = {
     total: data.length,
@@ -79,6 +86,7 @@ export default function AttendanceTab() {
         <div className="flex gap-1">
           {!r.clockIn && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "in")}>In</Button>}
           {r.clockIn && !r.clockOut && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "out")}>Out</Button>}
+          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditing(r); setForm({ clockIn: r.clockIn, clockOut: r.clockOut, reason: "" }); }}><Pencil className="h-3 w-3" /></Button>
         </div>
       )} />
 
@@ -92,7 +100,29 @@ export default function AttendanceTab() {
             <div><span className="text-muted-foreground">Clock In:</span> {viewing.clockIn || "—"}</div>
             <div><span className="text-muted-foreground">Clock Out:</span> {viewing.clockOut || "—"}</div>
             <div><span className="text-muted-foreground">Hours:</span> {viewing.hoursWorked || "—"}</div>
+            <div><span className="text-muted-foreground">Location:</span> {viewing.location || "—"}</div>
             <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+            {viewing.corrected && <div className="col-span-2 p-2 rounded bg-amber-50 text-xs"><Badge variant="outline" className="mr-2">Manually corrected</Badge>by {viewing.correctedBy} — "{viewing.correctionReason}"</div>}
+          </div>
+        )}
+      </ModalForm>
+
+      <ModalForm open={!!editing} onClose={() => setEditing(null)} title="Manual Attendance Correction" submitLabel="Save Correction" onSubmit={() => {
+        if (!editing) return;
+        if (!form.reason.trim()) return toast.error("Reason is required for audit");
+        attendanceStore.correct(editing.employeeId, editing.date, form.clockIn, form.clockOut, sessionStore.user().name, form.reason);
+        toast.success("Attendance corrected");
+        setEditing(null);
+      }}>
+        {editing && (
+          <div className="space-y-3">
+            <div className="text-sm text-muted-foreground">{editing.employeeName} · {editing.date} · scheduled {editing.scheduledStart}–{editing.scheduledEnd}</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Clock In</Label><Input type="time" value={form.clockIn} onChange={e => setForm(f => ({ ...f, clockIn: e.target.value }))} /></div>
+              <div><Label>Clock Out</Label><Input type="time" value={form.clockOut} onChange={e => setForm(f => ({ ...f, clockOut: e.target.value }))} /></div>
+            </div>
+            <div><Label>Reason for correction *</Label><Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g., biometric scanner failure, employee forgot to clock out" /></div>
+            <p className="text-xs text-muted-foreground">Logged as audit entry by {sessionStore.user().name}</p>
           </div>
         )}
       </ModalForm>

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, Paperclip, Download, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,9 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useStaff } from "@/data/staffStore";
+import { documentsStore, useDocuments } from "@/data/documentsStore";
+import { downloadDataUrl } from "@/lib/exportCsv";
+import { toast } from "sonner";
 
 export const DISCIPLINARY_STAGES = [
   "Informal Action",
@@ -72,11 +75,27 @@ const stageColor: Record<string, string> = {
 
 export default function DisciplinaryTab() {
   const staff = useStaff();
+  const allDocs = useDocuments();
   const [data, setData] = useState(initial);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DisciplinaryCase | null>(null);
   const [viewing, setViewing] = useState<DisciplinaryCase | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const attachFile = (caseId: string, employeeId: string, employeeName: string, file: File, docType: string) => {
+    if (file.size > 5 * 1024 * 1024) return toast.error("Max 5MB");
+    const reader = new FileReader();
+    reader.onload = () => {
+      documentsStore.add({
+        employeeId, employeeName, type: docType, fileName: file.name, fileSize: file.size,
+        fileData: reader.result as string, uploadedOn: new Date().toISOString().split("T")[0],
+        expiresOn: "—", status: "valid", notes: `Attached to ${caseId}`, caseId,
+      });
+      toast.success("Document attached to case");
+    };
+    reader.readAsDataURL(file);
+  };
 
   const stats = {
     open: data.filter(d => d.stage !== "Closed").length,
@@ -232,6 +251,32 @@ export default function DisciplinaryTab() {
                   );
                 })}
               </ol>
+            </div>
+
+            <div className="pt-3 border-t">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> Attached Documents ({allDocs.filter(d => d.caseId === viewing.id).length})</p>
+                <div>
+                  <input ref={fileRef} type="file" className="hidden" onChange={e => {
+                    const f = e.target.files?.[0]; if (!f || !viewing) return;
+                    attachFile(viewing.id, viewing.employeeId, viewing.employeeName, f, "Disciplinary Evidence");
+                    e.target.value = "";
+                  }} />
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fileRef.current?.click()}><Upload className="h-3 w-3 mr-1" /> Attach</Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {allDocs.filter(d => d.caseId === viewing.id).map(d => (
+                  <div key={d.id} className="flex items-center justify-between p-2 rounded bg-muted/40 text-xs">
+                    <span className="flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> {d.fileName} <Badge variant="outline" className="text-[9px]">{d.type}</Badge></span>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => d.fileData ? downloadDataUrl(d.fileName, d.fileData) : toast.info("No stored file")}><Download className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => documentsStore.remove(d.id)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                  </div>
+                ))}
+                {allDocs.filter(d => d.caseId === viewing.id).length === 0 && <p className="text-xs text-muted-foreground italic">No documents linked yet</p>}
+              </div>
             </div>
           </div>
         )}

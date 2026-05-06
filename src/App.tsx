@@ -19,8 +19,11 @@ import EmployeePortalPage from "./pages/EmployeePortalPage";
 import LocationsPage from "./pages/LocationsPage";
 import InventoryPage from "./pages/InventoryPage";
 import NotFound from "./pages/NotFound";
+import { RouteGuard } from "./components/layout/RouteGuard";
 
 const queryClient = new QueryClient();
+
+const guard = (el: JSX.Element) => <RouteGuard>{el}</RouteGuard>;
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -31,19 +34,19 @@ const App = () => (
         <Routes>
           <Route element={<AppLayout />}>
             <Route path="/" element={<DashboardPage />} />
-            <Route path="/fuel" element={<FuelPage />} />
-            <Route path="/lpg" element={<LpgPage />} />
-            <Route path="/water" element={<WaterPage />} />
-            <Route path="/automotive" element={<AutomotivePage />} />
-            <Route path="/carwash" element={<CarwashPage />} />
-            <Route path="/finance" element={<FinancePage />} />
-            <Route path="/clients" element={<ClientsPage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/hr" element={<HRPage />} />
+            <Route path="/fuel" element={guard(<FuelPage />)} />
+            <Route path="/lpg" element={guard(<LpgPage />)} />
+            <Route path="/water" element={guard(<WaterPage />)} />
+            <Route path="/automotive" element={guard(<AutomotivePage />)} />
+            <Route path="/carwash" element={guard(<CarwashPage />)} />
+            <Route path="/finance" element={guard(<FinancePage />)} />
+            <Route path="/clients" element={guard(<ClientsPage />)} />
+            <Route path="/reports" element={guard(<ReportsPage />)} />
+            <Route path="/settings" element={guard(<SettingsPage />)} />
+            <Route path="/hr" element={guard(<HRPage />)} />
             <Route path="/employee-portal" element={<EmployeePortalPage />} />
-            <Route path="/locations" element={<LocationsPage />} />
-            <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/locations" element={guard(<LocationsPage />)} />
+            <Route path="/inventory" element={guard(<InventoryPage />)} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

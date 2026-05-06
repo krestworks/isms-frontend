@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { useLocations } from "@/data/locationsStore";
+import { canSwitchLocation } from "@/lib/permissions";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
   const locations = useLocations();
-  const canSwitchLocation = user.activeRole === "Admin" || user.activeRole === "Manager";
-  const visibleLocations = canSwitchLocation
+  const canSwitch = canSwitchLocation();
+  const visibleLocations = canSwitch
     ? ["All Locations", ...locations.map(l => l.name)]
     : user.homeLocation ? [user.homeLocation] : ["All Locations"];
 
@@ -41,14 +42,14 @@ export function HeaderSwitchers() {
 
       {/* Location switcher */}
       <DropdownMenu>
-        <DropdownMenuTrigger asChild disabled={!canSwitchLocation}>
+        <DropdownMenuTrigger asChild disabled={!canSwitch}>
           <Button variant="ghost" size="sm" className="h-9 gap-2 px-2">
             <MapPin className="h-4 w-4 text-amber-600" />
             <div className="flex flex-col items-start leading-tight">
               <span className="text-[10px] text-muted-foreground">Location</span>
               <span className="text-xs font-semibold max-w-[140px] truncate">{activeLocation}</span>
             </div>
-            {canSwitchLocation && <ChevronDown className="h-3 w-3 opacity-60" />}
+            {canSwitch && <ChevronDown className="h-3 w-3 opacity-60" />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">

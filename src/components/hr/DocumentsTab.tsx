@@ -12,36 +12,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useStaff } from "@/data/staffStore";
 import { downloadDataUrl, exportToCsv } from "@/lib/exportCsv";
 import { toast } from "sonner";
+import { documentsStore, useDocuments, EmployeeDocument, DOC_TYPES } from "@/data/documentsStore";
 
-export interface EmployeeDocument {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  type: string;
-  fileName: string;
-  fileSize: number;
-  fileData?: string; // data URL for download
-  uploadedOn: string;
-  expiresOn: string;
-  status: string;
-  notes: string;
-}
+export type { EmployeeDocument } from "@/data/documentsStore";
+export { DOC_TYPES } from "@/data/documentsStore";
 
-export const DOC_TYPES = ["ID Card", "Passport", "KRA PIN Cert.", "NHIF/SHIF Card", "NSSF Card", "Academic Cert.", "Contract", "Driving Licence", "Medical Cert.", "Police Clearance", "Other"];
-
-const initial: EmployeeDocument[] = [
-  { id: "DOC-001", employeeId: "EMP-001", employeeName: "James Mwangi", type: "ID Card", fileName: "james_id.pdf", fileSize: 245678, uploadedOn: "2025-01-16", expiresOn: "2030-01-15", status: "valid", notes: "" },
-  { id: "DOC-002", employeeId: "EMP-001", employeeName: "James Mwangi", type: "Contract", fileName: "james_contract.pdf", fileSize: 189234, uploadedOn: "2025-01-15", expiresOn: "2026-12-31", status: "expiring", notes: "Renewal due Dec 2026" },
-  { id: "DOC-003", employeeId: "EMP-002", employeeName: "Grace Wanjiku", type: "KRA PIN Cert.", fileName: "grace_kra.pdf", fileSize: 87123, uploadedOn: "2024-11-02", expiresOn: "—", status: "valid", notes: "" },
-];
-
-const emptyForm = { employeeId: "", type: "ID Card", fileName: "", fileSize: 0, fileData: "", uploadedOn: "", expiresOn: "", status: "valid", notes: "" };
+const emptyForm = { employeeId: "", type: "ID Card", fileName: "", fileSize: 0, fileData: "", uploadedOn: "", expiresOn: "", status: "valid", notes: "", caseId: "" };
 
 const formatBytes = (b: number) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
 export default function DocumentsTab() {
   const staff = useStaff();
-  const [data, setData] = useState(initial);
+  const data = useDocuments();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeDocument | null>(null);
   const [viewing, setViewing] = useState<EmployeeDocument | null>(null);
@@ -62,6 +44,7 @@ export default function DocumentsTab() {
     { key: "fileName", label: "File", render: d => <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {d.fileName} <span className="text-[10px] text-muted-foreground">({formatBytes(d.fileSize)})</span></span> },
     { key: "uploadedOn", label: "Uploaded", sortable: true },
     { key: "expiresOn", label: "Expires" },
+    { key: "caseId", label: "Linked Case", render: d => d.caseId ? <Badge variant="outline" className="text-[10px]">{d.caseId}</Badge> : "—" },
     { key: "status", label: "Status", render: d => {
       const cls = d.status === "valid" ? "bg-green-100 text-green-800" : d.status === "expiring" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
       return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{d.status}</span>;
@@ -74,18 +57,19 @@ export default function DocumentsTab() {
   ];
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, uploadedOn: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const openEdit = (d: EmployeeDocument) => { setEditing(d); setForm({ employeeId: d.employeeId, type: d.type, fileName: d.fileName, fileSize: d.fileSize, fileData: d.fileData || "", uploadedOn: d.uploadedOn, expiresOn: d.expiresOn, status: d.status, notes: d.notes }); setModalOpen(true); };
+  const openEdit = (d: EmployeeDocument) => { setEditing(d); setForm({ employeeId: d.employeeId, type: d.type, fileName: d.fileName, fileSize: d.fileSize, fileData: d.fileData || "", uploadedOn: d.uploadedOn, expiresOn: d.expiresOn, status: d.status, notes: d.notes, caseId: d.caseId || "" }); setModalOpen(true); };
   const handleSave = () => {
     if (!form.employeeId) return toast.error("Select an employee");
     if (!editing && !form.fileData) return toast.error("Choose a file to upload");
     const emp = staff.find(s => s.id === form.employeeId);
     const employeeName = emp?.name || form.employeeId;
-    if (editing) setData(d => d.map(i => i.id === editing.id ? { ...i, ...form, employeeName } : i));
-    else setData(d => [...d, { id: `DOC-${String(d.length + 1).padStart(3, "0")}`, ...form, employeeName }]);
+    const payload = { ...form, employeeName, caseId: form.caseId || undefined };
+    if (editing) documentsStore.update(editing.id, payload);
+    else documentsStore.add(payload);
     setModalOpen(false);
     toast.success(editing ? "Document updated" : "Document uploaded");
   };
-  const handleDelete = (d: EmployeeDocument) => setData(arr => arr.filter(i => i.id !== d.id));
+  const handleDelete = (d: EmployeeDocument) => documentsStore.remove(d.id);
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const handleDownload = (d: EmployeeDocument) => {
     if (d.fileData) downloadDataUrl(d.fileName, d.fileData);
@@ -160,6 +144,7 @@ export default function DocumentsTab() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">Max 5MB. Stored locally in this browser.</p>
           </div>
+          <div><Label>Link to Disciplinary Case (optional)</Label><Input value={form.caseId} onChange={e => set("caseId", e.target.value)} placeholder="e.g. DC-002" /></div>
           <div><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
         </div>
       </ModalForm>
