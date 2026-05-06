@@ -1,6 +1,8 @@
 import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, UserCog, UserCircle, MapPin, Package } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { canAccessRoute } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import {
   Sidebar,
   SidebarContent,
