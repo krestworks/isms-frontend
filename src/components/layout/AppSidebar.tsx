@@ -41,17 +41,21 @@ const management = [
 ];
 
 export function AppSidebar() {
+  useSession();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path || (path !== "/" && location.pathname.startsWith(path));
 
-  const renderGroup = (label: string, items: typeof modules) => (
+  const renderGroup = (label: string, items: typeof modules) => {
+    const visible = items.filter(i => canAccessRoute(i.url));
+    if (visible.length === 0) return null;
+    return (
     <SidebarGroup>
       <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">{label}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => (
+          {visible.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
                 <NavLink
