@@ -1,4 +1,4 @@
-import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, ShoppingCart, Users, AlertTriangle, MapPin } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, ShoppingCart, Users, MapPin } from "lucide-react";
 import { useMemo } from "react";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ModuleCard } from "@/components/dashboard/ModuleCard";
