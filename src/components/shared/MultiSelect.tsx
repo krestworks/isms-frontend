@@ -11,11 +11,13 @@ interface Props {
   onChange: (next: string[]) => void;
   placeholder?: string;
   disabled?: boolean;
+  renderLabel?: (option: string) => string;
 }
 
-export function MultiSelect({ options, value, onChange, placeholder = "Select...", disabled }: Props) {
+export function MultiSelect({ options, value, onChange, placeholder = "Select...", disabled, renderLabel }: Props) {
   const [open, setOpen] = useState(false);
   const toggle = (o: string) => onChange(value.includes(o) ? value.filter(v => v !== o) : [...value, o]);
+  const label = (o: string) => renderLabel ? renderLabel(o) : o;
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild disabled={disabled}>
@@ -24,7 +26,7 @@ export function MultiSelect({ options, value, onChange, placeholder = "Select...
             {value.length === 0 && <span>{placeholder}</span>}
             {value.map(v => (
               <Badge key={v} variant="secondary" className="gap-1">
-                {v}
+                {label(v)}
                 {!disabled && (
                   <span onClick={(e) => { e.stopPropagation(); toggle(v); }} className="cursor-pointer hover:text-destructive"><X className="h-3 w-3" /></span>
                 )}
@@ -41,7 +43,7 @@ export function MultiSelect({ options, value, onChange, placeholder = "Select...
             return (
               <button key={o} type="button" onClick={() => toggle(o)} className="flex items-center w-full px-2 py-1.5 text-sm rounded hover:bg-muted text-left">
                 <Check className={cn("h-4 w-4 mr-2", selected ? "opacity-100" : "opacity-0")} />
-                {o}
+                {label(o)}
               </button>
             );
           })}
