@@ -252,6 +252,32 @@ export default function DisciplinaryTab() {
                 })}
               </ol>
             </div>
+
+            <div className="pt-3 border-t">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> Attached Documents ({allDocs.filter(d => d.caseId === viewing.id).length})</p>
+                <div>
+                  <input ref={fileRef} type="file" className="hidden" onChange={e => {
+                    const f = e.target.files?.[0]; if (!f || !viewing) return;
+                    attachFile(viewing.id, viewing.employeeId, viewing.employeeName, f, "Disciplinary Evidence");
+                    e.target.value = "";
+                  }} />
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fileRef.current?.click()}><Upload className="h-3 w-3 mr-1" /> Attach</Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                {allDocs.filter(d => d.caseId === viewing.id).map(d => (
+                  <div key={d.id} className="flex items-center justify-between p-2 rounded bg-muted/40 text-xs">
+                    <span className="flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> {d.fileName} <Badge variant="outline" className="text-[9px]">{d.type}</Badge></span>
+                    <div className="flex gap-1">
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => d.fileData ? downloadDataUrl(d.fileName, d.fileData) : toast.info("No stored file")}><Download className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => documentsStore.remove(d.id)}><Trash2 className="h-3 w-3" /></Button>
+                    </div>
+                  </div>
+                ))}
+                {allDocs.filter(d => d.caseId === viewing.id).length === 0 && <p className="text-xs text-muted-foreground italic">No documents linked yet</p>}
+              </div>
+            </div>
           </div>
         )}
       </ModalForm>
