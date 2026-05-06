@@ -75,11 +75,27 @@ const stageColor: Record<string, string> = {
 
 export default function DisciplinaryTab() {
   const staff = useStaff();
+  const allDocs = useDocuments();
   const [data, setData] = useState(initial);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<DisciplinaryCase | null>(null);
   const [viewing, setViewing] = useState<DisciplinaryCase | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const attachFile = (caseId: string, employeeId: string, employeeName: string, file: File, docType: string) => {
+    if (file.size > 5 * 1024 * 1024) return toast.error("Max 5MB");
+    const reader = new FileReader();
+    reader.onload = () => {
+      documentsStore.add({
+        employeeId, employeeName, type: docType, fileName: file.name, fileSize: file.size,
+        fileData: reader.result as string, uploadedOn: new Date().toISOString().split("T")[0],
+        expiresOn: "—", status: "valid", notes: `Attached to ${caseId}`, caseId,
+      });
+      toast.success("Document attached to case");
+    };
+    reader.readAsDataURL(file);
+  };
 
   const stats = {
     open: data.filter(d => d.stage !== "Closed").length,
