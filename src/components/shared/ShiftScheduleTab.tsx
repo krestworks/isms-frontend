@@ -145,6 +145,60 @@ export function ShiftScheduleTab({ department }: Props) {
           </div>
         </div>
       </ModalForm>
+
+      <ModalForm open={tplOpen} onClose={() => setTplOpen(false)} title={editingTpl ? "Edit Template" : "New Shift Template"} submitLabel={editingTpl ? "Update" : "Create"} onSubmit={() => {
+        if (!tplForm.name) return toast.error("Name required");
+        if (tplForm.employeeIds.length === 0) return toast.error("Pick at least one employee");
+        if (editingTpl) shiftTemplatesStore.update(editingTpl.id, { ...tplForm, department });
+        else shiftTemplatesStore.add({ ...tplForm, department });
+        setTplOpen(false);
+      }}>
+        <div className="space-y-3">
+          <div><Label>Template Name</Label><Input value={tplForm.name} onChange={e => setTplForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g., Weekend Crew" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Shift Type</Label>
+              <Select value={tplForm.shift} onValueChange={v => setTplForm(f => ({ ...f, shift: v }))}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{SHIFT_TYPES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Location</Label><Input value={tplForm.location} onChange={e => setTplForm(f => ({ ...f, location: e.target.value }))} /></div>
+            <div><Label>Start</Label><Input type="time" value={tplForm.startTime} onChange={e => setTplForm(f => ({ ...f, startTime: e.target.value }))} /></div>
+            <div><Label>End</Label><Input type="time" value={tplForm.endTime} onChange={e => setTplForm(f => ({ ...f, endTime: e.target.value }))} /></div>
+          </div>
+          <div>
+            <Label>Days of Week</Label>
+            <div className="flex gap-2 flex-wrap mt-1">
+              {DAY_LABELS.map((d, i) => (
+                <label key={d} className="flex items-center gap-1.5 text-xs cursor-pointer">
+                  <Checkbox checked={tplForm.daysOfWeek.includes(i)} onCheckedChange={() => setTplForm(f => ({ ...f, daysOfWeek: f.daysOfWeek.includes(i) ? f.daysOfWeek.filter(x => x !== i) : [...f.daysOfWeek, i].sort() }))} />
+                  {d}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <Label>Assigned Employees</Label>
+            <MultiSelect options={staff.map(s => s.id)} value={tplForm.employeeIds} onChange={v => setTplForm(f => ({ ...f, employeeIds: v }))} placeholder="Pick staff..." renderLabel={(id) => staff.find(s => s.id === id)?.name || id} />
+          </div>
+          <div><Label>Notes</Label><Input value={tplForm.notes} onChange={e => setTplForm(f => ({ ...f, notes: e.target.value }))} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!applyOpen} onClose={() => setApplyOpen(null)} title={`Apply Template: ${applyOpen?.name || ""}`} submitLabel="Generate Shifts" onSubmit={() => {
+        if (!applyOpen || !applyRange.from || !applyRange.to) return toast.error("Pick a date range");
+        const n = shiftTemplatesStore.apply(applyOpen, applyRange.from, applyRange.to);
+        toast.success(`${n} shifts generated`);
+        setApplyOpen(null);
+      }}>
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">{applyOpen?.shift} on {applyOpen?.daysOfWeek.map(d => DAY_LABELS[d]).join(", ")} for {applyOpen?.employeeIds.length} staff</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>From</Label><Input type="date" value={applyRange.from} onChange={e => setApplyRange(r => ({ ...r, from: e.target.value }))} /></div>
+            <div><Label>To</Label><Input type="date" value={applyRange.to} onChange={e => setApplyRange(r => ({ ...r, to: e.target.value }))} /></div>
+          </div>
+        </div>
+      </ModalForm>
     </div>
   );
 }
