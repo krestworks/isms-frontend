@@ -102,6 +102,10 @@ export interface DerivedAttendance {
   clockOut: string;
   hoursWorked: number;
   status: "completed" | "in_progress" | "pending" | "absent";
+  corrected?: boolean;
+  correctedBy?: string;
+  correctionReason?: string;
+  location?: string;
 }
 
 function diffHours(a: string, b: string): number {
@@ -136,6 +140,10 @@ export function deriveAttendance(): DerivedAttendance[] {
       clockOut,
       hoursWorked: diffHours(clockIn, clockOut),
       status,
+      corrected: !!punch?.correctedBy,
+      correctedBy: punch?.correctedBy,
+      correctionReason: punch?.correctionReason,
+      location: s.location,
     };
   });
 }
