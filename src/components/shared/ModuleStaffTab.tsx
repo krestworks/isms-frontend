@@ -6,6 +6,8 @@ import { Link } from "react-router-dom";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useStaffByDepartment, StaffRecord } from "@/data/staffStore";
+import { isLocationVisible } from "@/lib/permissions";
+import { sessionStore, useSession } from "@/data/sessionStore";
 
 interface Props {
   department: string;
@@ -22,7 +24,9 @@ const columns: Column<StaffRecord>[] = [
 ];
 
 export function ModuleStaffTab({ department }: Props) {
-  const data = useStaffByDepartment(department);
+  useSession();
+  const all = useStaffByDepartment(department);
+  const data = all.filter(s => isLocationVisible(s.location));
   const filters: FilterOption[] = [
     { key: "role", label: "Role", options: Array.from(new Set(data.map(d => d.role))).map(r => ({ label: r, value: r })) },
     { key: "status", label: "Status", options: ["active", "onboarding", "inactive"].map(s => ({ label: s, value: s })) },
