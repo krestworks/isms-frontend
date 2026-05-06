@@ -144,6 +144,7 @@ export default function DocumentsTab() {
             </div>
             <p className="text-xs text-muted-foreground mt-1">Max 5MB. Stored locally in this browser.</p>
           </div>
+          <div><Label>Link to Disciplinary Case (optional)</Label><Input value={form.caseId} onChange={e => set("caseId", e.target.value)} placeholder="e.g. DC-002" /></div>
           <div><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
         </div>
       </ModalForm>
