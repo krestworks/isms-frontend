@@ -44,6 +44,7 @@ export default function DocumentsTab() {
     { key: "fileName", label: "File", render: d => <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {d.fileName} <span className="text-[10px] text-muted-foreground">({formatBytes(d.fileSize)})</span></span> },
     { key: "uploadedOn", label: "Uploaded", sortable: true },
     { key: "expiresOn", label: "Expires" },
+    { key: "caseId", label: "Linked Case", render: d => d.caseId ? <Badge variant="outline" className="text-[10px]">{d.caseId}</Badge> : "—" },
     { key: "status", label: "Status", render: d => {
       const cls = d.status === "valid" ? "bg-green-100 text-green-800" : d.status === "expiring" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
       return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{d.status}</span>;
