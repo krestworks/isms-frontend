@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, Paperclip, Download, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +10,9 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useStaff } from "@/data/staffStore";
+import { documentsStore, useDocuments } from "@/data/documentsStore";
+import { downloadDataUrl } from "@/lib/exportCsv";
+import { toast } from "sonner";
 
 export const DISCIPLINARY_STAGES = [
   "Informal Action",
