@@ -4,12 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { useLocations } from "@/data/locationsStore";
+import { canSwitchLocation } from "@/lib/permissions";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
   const locations = useLocations();
-  const canSwitchLocation = user.activeRole === "Admin" || user.activeRole === "Manager";
-  const visibleLocations = canSwitchLocation
+  const canSwitch = canSwitchLocation();
+  const visibleLocations = canSwitch
     ? ["All Locations", ...locations.map(l => l.name)]
     : user.homeLocation ? [user.homeLocation] : ["All Locations"];
 
