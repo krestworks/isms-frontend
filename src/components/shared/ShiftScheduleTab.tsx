@@ -28,11 +28,17 @@ export function ShiftScheduleTab({ department }: Props) {
   const staff = useStaffByDepartment(department);
   const activeLoc = sessionStore.activeLocation();
   const all = useShifts(s => s.department === department);
-  const data = useMemo(() => activeLoc === "All Locations" ? all : all.filter(s => s.location === activeLoc), [all, activeLoc]);
+  const data = useMemo(() => all.filter(s => isLocationVisible(s.location)), [all, activeLoc]);
+  const templates = useShiftTemplates(t => t.department === department);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Shift | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [tplOpen, setTplOpen] = useState(false);
+  const [editingTpl, setEditingTpl] = useState<ShiftTemplate | null>(null);
+  const [tplForm, setTplForm] = useState({ name: "", shift: "Morning (6am-2pm)", startTime: "06:00", endTime: "14:00", daysOfWeek: [1, 2, 3, 4, 5] as number[], employeeIds: [] as string[], location: "", notes: "" });
+  const [applyOpen, setApplyOpen] = useState<ShiftTemplate | null>(null);
+  const [applyRange, setApplyRange] = useState({ from: "", to: "" });
 
   const stats = {
     total: data.length,
