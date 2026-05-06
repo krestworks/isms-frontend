@@ -12,36 +12,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useStaff } from "@/data/staffStore";
 import { downloadDataUrl, exportToCsv } from "@/lib/exportCsv";
 import { toast } from "sonner";
+import { documentsStore, useDocuments, EmployeeDocument, DOC_TYPES } from "@/data/documentsStore";
 
-export interface EmployeeDocument {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  type: string;
-  fileName: string;
-  fileSize: number;
-  fileData?: string; // data URL for download
-  uploadedOn: string;
-  expiresOn: string;
-  status: string;
-  notes: string;
-}
+export type { EmployeeDocument } from "@/data/documentsStore";
+export { DOC_TYPES } from "@/data/documentsStore";
 
-export const DOC_TYPES = ["ID Card", "Passport", "KRA PIN Cert.", "NHIF/SHIF Card", "NSSF Card", "Academic Cert.", "Contract", "Driving Licence", "Medical Cert.", "Police Clearance", "Other"];
-
-const initial: EmployeeDocument[] = [
-  { id: "DOC-001", employeeId: "EMP-001", employeeName: "James Mwangi", type: "ID Card", fileName: "james_id.pdf", fileSize: 245678, uploadedOn: "2025-01-16", expiresOn: "2030-01-15", status: "valid", notes: "" },
-  { id: "DOC-002", employeeId: "EMP-001", employeeName: "James Mwangi", type: "Contract", fileName: "james_contract.pdf", fileSize: 189234, uploadedOn: "2025-01-15", expiresOn: "2026-12-31", status: "expiring", notes: "Renewal due Dec 2026" },
-  { id: "DOC-003", employeeId: "EMP-002", employeeName: "Grace Wanjiku", type: "KRA PIN Cert.", fileName: "grace_kra.pdf", fileSize: 87123, uploadedOn: "2024-11-02", expiresOn: "—", status: "valid", notes: "" },
-];
-
-const emptyForm = { employeeId: "", type: "ID Card", fileName: "", fileSize: 0, fileData: "", uploadedOn: "", expiresOn: "", status: "valid", notes: "" };
+const emptyForm = { employeeId: "", type: "ID Card", fileName: "", fileSize: 0, fileData: "", uploadedOn: "", expiresOn: "", status: "valid", notes: "", caseId: "" };
 
 const formatBytes = (b: number) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
 export default function DocumentsTab() {
   const staff = useStaff();
-  const [data, setData] = useState(initial);
+  const data = useDocuments();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeDocument | null>(null);
   const [viewing, setViewing] = useState<EmployeeDocument | null>(null);
