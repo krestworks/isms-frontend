@@ -66,9 +66,31 @@ export function useShifts(filter?: (s: Shift) => boolean): Shift[] {
 }
 
 // Attendance overrides keyed by `${employeeId}|${date}`
-export interface AttendancePunch { clockIn?: string; clockOut?: string; correctedBy?: string; correctionReason?: string; correctedAt?: string; }
+export interface AttendancePunch { clockIn?: string; clockOut?: string; correctedBy?: string; correctionReason?: string; correctedAt?: string; approvedBy?: string; approvedAt?: string; }
 const attendance: Record<string, AttendancePunch> = {};
 const attListeners = new Set<() => void>();
+
+// Pending correction requests awaiting manager approval.
+export interface CorrectionRequest {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  date: string;
+  currentClockIn: string;
+  currentClockOut: string;
+  proposedClockIn: string;
+  proposedClockOut: string;
+  reason: string;
+  requestedBy: string;
+  requestedAt: string;
+  status: "pending" | "approved" | "rejected";
+  reviewedBy?: string;
+  reviewedAt?: string;
+  reviewNotes?: string;
+}
+let requests: CorrectionRequest[] = [];
+const reqListeners = new Set<() => void>();
+const notifyReq = () => reqListeners.forEach(l => l());
 
 export const attendanceStore = {
   punch(employeeId: string, date: string, kind: "in" | "out", time: string) {
@@ -77,17 +99,49 @@ export const attendanceStore = {
     attendance[key] = kind === "in" ? { ...cur, clockIn: time } : { ...cur, clockOut: time };
     attListeners.forEach(l => l());
   },
-  // Manual correction by HR/Manager — both fields plus audit reason.
-  correct(employeeId: string, date: string, clockIn: string, clockOut: string, correctedBy: string, reason: string) {
+  // Direct correction (used internally on approval). UIs should call requestCorrection().
+  correct(employeeId: string, date: string, clockIn: string, clockOut: string, correctedBy: string, reason: string, approvedBy?: string) {
     const key = `${employeeId}|${date}`;
-    attendance[key] = { clockIn, clockOut, correctedBy, correctionReason: reason, correctedAt: new Date().toISOString() };
+    attendance[key] = { clockIn, clockOut, correctedBy, correctionReason: reason, correctedAt: new Date().toISOString(), approvedBy, approvedAt: approvedBy ? new Date().toISOString() : undefined };
     attListeners.forEach(l => l());
   },
+  // Submit a correction for manager review.
+  requestCorrection(rec: Omit<CorrectionRequest, "id" | "requestedAt" | "status">) {
+    const req: CorrectionRequest = { ...rec, id: `CR-${Date.now().toString(36)}`, requestedAt: new Date().toISOString(), status: "pending" };
+    requests = [...requests, req];
+    notifyReq();
+    try { require("./auditLogStore").auditLog.log("attendance.correction.requested", req.id, `${req.employeeName} ${req.date}: ${req.proposedClockIn || "—"}–${req.proposedClockOut || "—"} (${req.reason})`); } catch {}
+    return req.id;
+  },
+  approveCorrection(id: string, reviewer: string, notes?: string) {
+    const req = requests.find(r => r.id === id); if (!req) return;
+    requests = requests.map(r => r.id === id ? { ...r, status: "approved", reviewedBy: reviewer, reviewedAt: new Date().toISOString(), reviewNotes: notes } : r);
+    attendanceStore.correct(req.employeeId, req.date, req.proposedClockIn, req.proposedClockOut, req.requestedBy, req.reason, reviewer);
+    notifyReq();
+    try { require("./auditLogStore").auditLog.log("attendance.correction.approved", id, `${req.employeeName} ${req.date} approved by ${reviewer}`); } catch {}
+  },
+  rejectCorrection(id: string, reviewer: string, notes?: string) {
+    const req = requests.find(r => r.id === id); if (!req) return;
+    requests = requests.map(r => r.id === id ? { ...r, status: "rejected", reviewedBy: reviewer, reviewedAt: new Date().toISOString(), reviewNotes: notes } : r);
+    notifyReq();
+    try { require("./auditLogStore").auditLog.log("attendance.correction.rejected", id, `${req.employeeName} ${req.date} rejected by ${reviewer}: ${notes || ""}`); } catch {}
+  },
+  pendingRequests: () => requests.filter(r => r.status === "pending"),
+  allRequests: () => requests,
+  requestsForEmployee: (eid: string) => requests.filter(r => r.employeeId === eid),
   get(employeeId: string, date: string): AttendancePunch | undefined {
     return attendance[`${employeeId}|${date}`];
   },
   subscribe(l: () => void) { attListeners.add(l); return () => attListeners.delete(l); },
+  subscribeRequests(l: () => void) { reqListeners.add(l); return () => reqListeners.delete(l); },
 };
+
+export function useCorrectionRequests(filter?: (r: CorrectionRequest) => boolean): CorrectionRequest[] {
+  const [, force] = useState(0);
+  useEffect(() => { const u = attendanceStore.subscribeRequests(() => force(n => n + 1)); return () => { u(); }; }, []);
+  const list = attendanceStore.allRequests();
+  return filter ? list.filter(filter) : list;
+}
 
 export interface DerivedAttendance {
   id: string;
