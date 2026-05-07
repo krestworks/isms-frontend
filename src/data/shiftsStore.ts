@@ -110,7 +110,7 @@ export const attendanceStore = {
     const req: CorrectionRequest = { ...rec, id: `CR-${Date.now().toString(36)}`, requestedAt: new Date().toISOString(), status: "pending" };
     requests = [...requests, req];
     notifyReq();
-    try { require("./auditLogStore").auditLog.log("attendance.correction.requested", req.id, `${req.employeeName} ${req.date}: ${req.proposedClockIn || "—"}–${req.proposedClockOut || "—"} (${req.reason})`); } catch {}
+    try { auditLog.log("attendance.correction.requested", req.id, `${req.employeeName} ${req.date}: ${req.proposedClockIn || "—"}–${req.proposedClockOut || "—"} (${req.reason})`); } catch {}
     return req.id;
   },
   approveCorrection(id: string, reviewer: string, notes?: string) {
@@ -118,13 +118,13 @@ export const attendanceStore = {
     requests = requests.map(r => r.id === id ? { ...r, status: "approved", reviewedBy: reviewer, reviewedAt: new Date().toISOString(), reviewNotes: notes } : r);
     attendanceStore.correct(req.employeeId, req.date, req.proposedClockIn, req.proposedClockOut, req.requestedBy, req.reason, reviewer);
     notifyReq();
-    try { require("./auditLogStore").auditLog.log("attendance.correction.approved", id, `${req.employeeName} ${req.date} approved by ${reviewer}`); } catch {}
+    try { auditLog.log("attendance.correction.approved", id, `${req.employeeName} ${req.date} approved by ${reviewer}`); } catch {}
   },
   rejectCorrection(id: string, reviewer: string, notes?: string) {
     const req = requests.find(r => r.id === id); if (!req) return;
     requests = requests.map(r => r.id === id ? { ...r, status: "rejected", reviewedBy: reviewer, reviewedAt: new Date().toISOString(), reviewNotes: notes } : r);
     notifyReq();
-    try { require("./auditLogStore").auditLog.log("attendance.correction.rejected", id, `${req.employeeName} ${req.date} rejected by ${reviewer}: ${notes || ""}`); } catch {}
+    try { auditLog.log("attendance.correction.rejected", id, `${req.employeeName} ${req.date} rejected by ${reviewer}: ${notes || ""}`); } catch {}
   },
   pendingRequests: () => requests.filter(r => r.status === "pending"),
   allRequests: () => requests,
