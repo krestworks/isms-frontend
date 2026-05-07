@@ -56,14 +56,18 @@ export const sessionStore = {
   },
   switchRole(role: Role) {
     if (!user.roles.includes(role)) return;
+    const prev = user.activeRole;
     user = { ...user, activeRole: role };
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(user)); } catch {}
     notify();
+    try { require("./auditLogStore").auditLog.log("role.switch", role, `Switched role from ${prev} to ${role}`); } catch {}
   },
   switchLocation(loc: string) {
+    const prev = activeLocation;
     activeLocation = loc;
     try { localStorage.setItem(LOC_KEY, loc); } catch {}
     notify();
+    try { require("./auditLogStore").auditLog.log("location.switch", loc, `Switched location from ${prev} to ${loc}`); } catch {}
   },
   reset() { user = defaultUser; activeLocation = "All Locations"; notify(); },
   subscribe(l: () => void) { listeners.add(l); return () => listeners.delete(l); },
