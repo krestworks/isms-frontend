@@ -227,7 +227,10 @@ export default function DisciplinaryTab() {
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
               <Badge variant="outline">{viewing.id}</Badge>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { generateDisciplinaryPdf(viewing); toast.success("PDF generated"); }}><FileDown className="h-3 w-3 mr-1" /> Download PDF</Button>
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
+              </div>
             </div>
             <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName} ({viewing.employeeId})</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
