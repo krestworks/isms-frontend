@@ -35,14 +35,21 @@ export const documentsStore = {
   byEmployee: (id: string) => docs.filter(d => d.employeeId === id),
   byCase: (caseId: string) => docs.filter(d => d.caseId === caseId),
   add(rec: Omit<EmployeeDocument, "id">) {
-    docs = [...docs, { ...rec, id: `DOC-${String(docs.length + 1).padStart(3, "0")}` }];
+    const id = `DOC-${String(docs.length + 1).padStart(3, "0")}`;
+    docs = [...docs, { ...rec, id }];
     notify();
+    try { require("./auditLogStore").auditLog.log("document.attach", id, `${rec.fileName} → ${rec.employeeName}${rec.caseId ? ` (case ${rec.caseId})` : ""}`); } catch {}
   },
   update(id: string, patch: Partial<EmployeeDocument>) {
     docs = docs.map(d => d.id === id ? { ...d, ...patch } : d);
     notify();
   },
-  remove(id: string) { docs = docs.filter(d => d.id !== id); notify(); },
+  remove(id: string) {
+    const doc = docs.find(d => d.id === id);
+    docs = docs.filter(d => d.id !== id);
+    notify();
+    if (doc) try { require("./auditLogStore").auditLog.log("document.remove", id, `${doc.fileName} (${doc.employeeName})${doc.caseId ? ` from case ${doc.caseId}` : ""}`); } catch {}
+  },
   subscribe(l: () => void) { listeners.add(l); return () => listeners.delete(l); },
 };
 
