@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Plus, Paperclip, Download, Upload, Trash2 } from "lucide-react";
+import { Plus, Paperclip, Download, Upload, Trash2, FileDown } from "lucide-react";
+import { generateDisciplinaryPdf } from "@/lib/disciplinaryPdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -153,7 +154,9 @@ export default function DisciplinaryTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} onDelete={handleDelete} actions={(c) => (
+        <Button size="sm" variant="ghost" className="h-7 text-xs" title="Download PDF" onClick={() => { generateDisciplinaryPdf(c); toast.success("PDF generated"); }}><FileDown className="h-3.5 w-3.5" /></Button>
+      )} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Case" : "New Disciplinary Case"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Open Case"}>
         <div className="space-y-4">
@@ -224,7 +227,10 @@ export default function DisciplinaryTab() {
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
               <Badge variant="outline">{viewing.id}</Badge>
-              <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { generateDisciplinaryPdf(viewing); toast.success("PDF generated"); }}><FileDown className="h-3 w-3 mr-1" /> Download PDF</Button>
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
+              </div>
             </div>
             <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName} ({viewing.employeeId})</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>

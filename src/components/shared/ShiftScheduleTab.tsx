@@ -39,6 +39,8 @@ export function ShiftScheduleTab({ department }: Props) {
   const [tplForm, setTplForm] = useState({ name: "", shift: "Morning (6am-2pm)", startTime: "06:00", endTime: "14:00", daysOfWeek: [1, 2, 3, 4, 5] as number[], employeeIds: [] as string[], location: "", notes: "" });
   const [applyOpen, setApplyOpen] = useState<ShiftTemplate | null>(null);
   const [applyRange, setApplyRange] = useState({ from: "", to: "" });
+  const [conflicts, setConflicts] = useState<{ date: string; employeeId: string; employeeName: string; existing: string }[]>([]);
+  const [conflictMode, setConflictMode] = useState<"skip" | "create">("skip");
 
   const stats = {
     total: data.length,
@@ -185,18 +187,44 @@ export function ShiftScheduleTab({ department }: Props) {
         </div>
       </ModalForm>
 
-      <ModalForm open={!!applyOpen} onClose={() => setApplyOpen(null)} title={`Apply Template: ${applyOpen?.name || ""}`} submitLabel="Generate Shifts" onSubmit={() => {
+      <ModalForm open={!!applyOpen} onClose={() => { setApplyOpen(null); setConflicts([]); }} title={`Apply Template: ${applyOpen?.name || ""}`} submitLabel={conflicts.length > 0 && conflictMode === "create" ? "Generate (override)" : "Generate Shifts"} onSubmit={() => {
         if (!applyOpen || !applyRange.from || !applyRange.to) return toast.error("Pick a date range");
-        const n = shiftTemplatesStore.apply(applyOpen, applyRange.from, applyRange.to);
-        toast.success(`${n} shifts generated`);
+        const result = shiftTemplatesStore.apply(applyOpen, applyRange.from, applyRange.to, conflictMode === "skip");
+        toast.success(`${result.created} shifts generated${result.skipped > 0 ? ` · ${result.skipped} skipped (conflicts)` : ""}`);
         setApplyOpen(null);
+        setConflicts([]);
       }}>
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">{applyOpen?.shift} on {applyOpen?.daysOfWeek.map(d => DAY_LABELS[d]).join(", ")} for {applyOpen?.employeeIds.length} staff</p>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>From</Label><Input type="date" value={applyRange.from} onChange={e => setApplyRange(r => ({ ...r, from: e.target.value }))} /></div>
-            <div><Label>To</Label><Input type="date" value={applyRange.to} onChange={e => setApplyRange(r => ({ ...r, to: e.target.value }))} /></div>
+            <div><Label>From</Label><Input type="date" value={applyRange.from} onChange={e => { setApplyRange(r => ({ ...r, from: e.target.value })); setConflicts([]); }} /></div>
+            <div><Label>To</Label><Input type="date" value={applyRange.to} onChange={e => { setApplyRange(r => ({ ...r, to: e.target.value })); setConflicts([]); }} /></div>
           </div>
+          <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => {
+            if (!applyOpen || !applyRange.from || !applyRange.to) return toast.error("Pick a date range first");
+            const c = shiftTemplatesStore.detectConflicts(applyOpen, applyRange.from, applyRange.to);
+            setConflicts(c);
+            if (c.length === 0) toast.success("No conflicts detected");
+            else toast.warning(`${c.length} potential conflict${c.length === 1 ? "" : "s"} found`);
+          }}>Check for conflicts</Button>
+          {conflicts.length > 0 && (
+            <div className="border border-amber-300 bg-amber-50/50 rounded p-2 max-h-48 overflow-auto space-y-1">
+              <p className="text-xs font-semibold text-amber-700">⚠ {conflicts.length} overlapping shift{conflicts.length === 1 ? "" : "s"}</p>
+              {conflicts.map((c, i) => (
+                <div key={i} className="text-[11px] flex items-center justify-between border-b border-amber-200/60 last:border-0 py-1">
+                  <span><strong>{c.employeeName}</strong> on {c.date}</span>
+                  <span className="text-muted-foreground">already booked: {c.existing}</span>
+                </div>
+              ))}
+              <div className="pt-2 flex gap-2 items-center text-xs">
+                <Label className="text-xs">On conflict:</Label>
+                <select className="text-xs border rounded px-2 py-1 bg-background" value={conflictMode} onChange={e => setConflictMode(e.target.value as "skip" | "create")}>
+                  <option value="skip">Skip conflicting shifts</option>
+                  <option value="create">Create anyway (double-book)</option>
+                </select>
+              </div>
+            </div>
+          )}
         </div>
       </ModalForm>
     </div>

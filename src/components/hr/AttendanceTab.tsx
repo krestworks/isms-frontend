@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, RefreshCw, Pencil } from "lucide-react";
+import { Download, RefreshCw, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,20 +9,27 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { useDerivedAttendance, attendanceStore, DerivedAttendance } from "@/data/shiftsStore";
+import { useDerivedAttendance, attendanceStore, DerivedAttendance, useCorrectionRequests, CorrectionRequest } from "@/data/shiftsStore";
 import { exportToCsv } from "@/lib/exportCsv";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { isLocationVisible } from "@/lib/permissions";
 import { toast } from "sonner";
 
+const APPROVER_ROLES = ["Admin", "Manager"];
+
 export default function AttendanceTab() {
   useSession();
   const all = useDerivedAttendance();
+  const requests = useCorrectionRequests();
   const activeLoc = sessionStore.activeLocation();
   const data = useMemo(() => all.filter(a => isLocationVisible(a.location)), [all, activeLoc]);
+  const pending = requests.filter(r => r.status === "pending");
+  const isApprover = APPROVER_ROLES.includes(sessionStore.user().activeRole);
   const [viewing, setViewing] = useState<DerivedAttendance | null>(null);
   const [editing, setEditing] = useState<DerivedAttendance | null>(null);
   const [form, setForm] = useState({ clockIn: "", clockOut: "", reason: "" });
+  const [reviewing, setReviewing] = useState<CorrectionRequest | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
 
   const stats = {
     total: data.length,
@@ -82,6 +89,25 @@ export default function AttendanceTab() {
         ))}
       </div>
 
+      {pending.length > 0 && (
+        <Card className="border-amber-300/50">
+          <CardContent className="p-4 space-y-2">
+            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Pending Correction Requests ({pending.length})</p>
+            {pending.map(r => (
+              <div key={r.id} className="flex items-center justify-between p-2 rounded bg-amber-50/60 text-xs">
+                <div>
+                  <span className="font-medium">{r.employeeName}</span> · {r.date} · proposed {r.proposedClockIn || "—"}–{r.proposedClockOut || "—"}
+                  <div className="text-muted-foreground italic">"{r.reason}" — by {r.requestedBy}</div>
+                </div>
+                {isApprover ? (
+                  <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-700" onClick={() => { setReviewing(r); setReviewNotes(""); }}>Review</Button>
+                ) : <Badge variant="outline">Awaiting Manager</Badge>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
       <DataTable<DerivedAttendance> data={data} columns={columns} searchKeys={["employeeName", "id"]} searchPlaceholder="Search attendance..." filters={filters} onView={(i) => setViewing(i)} actions={(r) => (
         <div className="flex gap-1">
           {!r.clockIn && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "in")}>In</Button>}
@@ -107,11 +133,22 @@ export default function AttendanceTab() {
         )}
       </ModalForm>
 
-      <ModalForm open={!!editing} onClose={() => setEditing(null)} title="Manual Attendance Correction" submitLabel="Save Correction" onSubmit={() => {
+      <ModalForm open={!!editing} onClose={() => setEditing(null)} title={isApprover ? "Manual Attendance Correction" : "Request Attendance Correction"} submitLabel={isApprover ? "Save (auto-approved)" : "Submit for Approval"} onSubmit={() => {
         if (!editing) return;
         if (!form.reason.trim()) return toast.error("Reason is required for audit");
-        attendanceStore.correct(editing.employeeId, editing.date, form.clockIn, form.clockOut, sessionStore.user().name, form.reason);
-        toast.success("Attendance corrected");
+        const u = sessionStore.user();
+        if (isApprover) {
+          attendanceStore.correct(editing.employeeId, editing.date, form.clockIn, form.clockOut, u.name, form.reason, u.name);
+          toast.success("Attendance corrected and approved");
+        } else {
+          attendanceStore.requestCorrection({
+            employeeId: editing.employeeId, employeeName: editing.employeeName, date: editing.date,
+            currentClockIn: editing.clockIn, currentClockOut: editing.clockOut,
+            proposedClockIn: form.clockIn, proposedClockOut: form.clockOut,
+            reason: form.reason, requestedBy: u.name,
+          });
+          toast.success("Correction submitted for manager approval");
+        }
         setEditing(null);
       }}>
         {editing && (
@@ -122,7 +159,29 @@ export default function AttendanceTab() {
               <div><Label>Clock Out</Label><Input type="time" value={form.clockOut} onChange={e => setForm(f => ({ ...f, clockOut: e.target.value }))} /></div>
             </div>
             <div><Label>Reason for correction *</Label><Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g., biometric scanner failure, employee forgot to clock out" /></div>
-            <p className="text-xs text-muted-foreground">Logged as audit entry by {sessionStore.user().name}</p>
+            <p className="text-xs text-muted-foreground">{isApprover ? "Auto-approved — you have manager privileges." : "A manager will review before this is finalized."}</p>
+          </div>
+        )}
+      </ModalForm>
+
+      <ModalForm open={!!reviewing} onClose={() => setReviewing(null)} title="Review Correction Request" submitLabel="Approve" onSubmit={() => {
+        if (!reviewing) return;
+        attendanceStore.approveCorrection(reviewing.id, sessionStore.user().name, reviewNotes);
+        toast.success("Correction approved");
+        setReviewing(null);
+      }}>
+        {reviewing && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div><span className="text-muted-foreground">Employee:</span> {reviewing.employeeName}</div>
+              <div><span className="text-muted-foreground">Date:</span> {reviewing.date}</div>
+              <div><span className="text-muted-foreground">Current:</span> {reviewing.currentClockIn || "—"} – {reviewing.currentClockOut || "—"}</div>
+              <div><span className="text-muted-foreground">Proposed:</span> <strong>{reviewing.proposedClockIn || "—"} – {reviewing.proposedClockOut || "—"}</strong></div>
+            </div>
+            <div className="p-2 rounded bg-muted/40"><span className="text-muted-foreground">Reason: </span>{reviewing.reason}</div>
+            <div className="text-xs text-muted-foreground">Requested by {reviewing.requestedBy} · {new Date(reviewing.requestedAt).toLocaleString()}</div>
+            <div><Label>Review Notes (optional)</Label><Textarea value={reviewNotes} onChange={e => setReviewNotes(e.target.value)} /></div>
+            <Button variant="outline" className="w-full text-destructive" onClick={() => { attendanceStore.rejectCorrection(reviewing.id, sessionStore.user().name, reviewNotes); toast.success("Request rejected"); setReviewing(null); }}><X className="h-3.5 w-3.5 mr-1.5" /> Reject Instead</Button>
           </div>
         )}
       </ModalForm>

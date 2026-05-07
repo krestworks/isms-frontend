@@ -10,6 +10,7 @@ import DisciplinaryTab from "@/components/hr/DisciplinaryTab";
 import PerformanceTab from "@/components/hr/PerformanceTab";
 import DocumentsTab from "@/components/hr/DocumentsTab";
 import HRReportsTab from "@/components/hr/HRReportsTab";
+import AuditLogTab from "@/components/hr/AuditLogTab";
 
 export default function HRPage() {
   return (
@@ -25,6 +26,7 @@ export default function HRPage() {
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
+          <TabsTrigger value="audit">Audit Log</TabsTrigger>
         </TabsList>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
         <TabsContent value="leave"><LeaveManagementTab /></TabsContent>
@@ -35,6 +37,7 @@ export default function HRPage() {
         <TabsContent value="performance"><PerformanceTab /></TabsContent>
         <TabsContent value="documents"><DocumentsTab /></TabsContent>
         <TabsContent value="reports"><HRReportsTab /></TabsContent>
+        <TabsContent value="audit"><AuditLogTab /></TabsContent>
       </Tabs>
     </ModulePageShell>
   );
