@@ -39,6 +39,8 @@ export function ShiftScheduleTab({ department }: Props) {
   const [tplForm, setTplForm] = useState({ name: "", shift: "Morning (6am-2pm)", startTime: "06:00", endTime: "14:00", daysOfWeek: [1, 2, 3, 4, 5] as number[], employeeIds: [] as string[], location: "", notes: "" });
   const [applyOpen, setApplyOpen] = useState<ShiftTemplate | null>(null);
   const [applyRange, setApplyRange] = useState({ from: "", to: "" });
+  const [conflicts, setConflicts] = useState<{ date: string; employeeId: string; employeeName: string; existing: string }[]>([]);
+  const [conflictMode, setConflictMode] = useState<"skip" | "create">("skip");
 
   const stats = {
     total: data.length,
