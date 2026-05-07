@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
-import { Plus, Paperclip, Download, Upload, Trash2 } from "lucide-react";
+import { Plus, Paperclip, Download, Upload, Trash2, FileDown } from "lucide-react";
+import { generateDisciplinaryPdf } from "@/lib/disciplinaryPdf";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -153,7 +154,9 @@ export default function DisciplinaryTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} onDelete={handleDelete} actions={(c) => (
+        <Button size="sm" variant="ghost" className="h-7 text-xs" title="Download PDF" onClick={() => { generateDisciplinaryPdf(c); toast.success("PDF generated"); }}><FileDown className="h-3.5 w-3.5" /></Button>
+      )} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Case" : "New Disciplinary Case"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Open Case"}>
         <div className="space-y-4">
