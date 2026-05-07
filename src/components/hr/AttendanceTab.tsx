@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Download, RefreshCw, Pencil } from "lucide-react";
+import { Download, RefreshCw, Pencil, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,11 +9,13 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { useDerivedAttendance, attendanceStore, DerivedAttendance } from "@/data/shiftsStore";
+import { useDerivedAttendance, attendanceStore, DerivedAttendance, useCorrectionRequests, CorrectionRequest } from "@/data/shiftsStore";
 import { exportToCsv } from "@/lib/exportCsv";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { isLocationVisible } from "@/lib/permissions";
 import { toast } from "sonner";
+
+const APPROVER_ROLES = ["Admin", "Manager"];
 
 export default function AttendanceTab() {
   useSession();
