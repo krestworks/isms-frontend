@@ -1,6 +1,7 @@
 // Audit log — append-only record of sensitive actions (location/role switches,
 // document add/remove, attendance corrections, permission denials).
 import { useEffect, useState } from "react";
+import { sessionStore } from "./sessionStore";
 
 export type AuditAction =
   | "location.switch"
@@ -38,8 +39,6 @@ const notify = () => { persist(); listeners.forEach(l => l()); };
 export const auditLog = {
   all: () => entries,
   log(action: AuditAction, target: string, details: string) {
-    // Lazy-import to avoid circular deps
-    const { sessionStore } = require("./sessionStore");
     const u = sessionStore.user();
     entries = [...entries, {
       id: `AL-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
