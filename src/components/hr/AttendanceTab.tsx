@@ -20,11 +20,16 @@ const APPROVER_ROLES = ["Admin", "Manager"];
 export default function AttendanceTab() {
   useSession();
   const all = useDerivedAttendance();
+  const requests = useCorrectionRequests();
   const activeLoc = sessionStore.activeLocation();
   const data = useMemo(() => all.filter(a => isLocationVisible(a.location)), [all, activeLoc]);
+  const pending = requests.filter(r => r.status === "pending");
+  const isApprover = APPROVER_ROLES.includes(sessionStore.user().activeRole);
   const [viewing, setViewing] = useState<DerivedAttendance | null>(null);
   const [editing, setEditing] = useState<DerivedAttendance | null>(null);
   const [form, setForm] = useState({ clockIn: "", clockOut: "", reason: "" });
+  const [reviewing, setReviewing] = useState<CorrectionRequest | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
 
   const stats = {
     total: data.length,
