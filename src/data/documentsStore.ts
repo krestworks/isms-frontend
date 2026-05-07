@@ -1,4 +1,5 @@
 // Centralized employee documents store so they can be linked from other
+import { auditLog } from "./auditLogStore";
 // modules (e.g., disciplinary cases attach evidence documents).
 import { useEffect, useState } from "react";
 

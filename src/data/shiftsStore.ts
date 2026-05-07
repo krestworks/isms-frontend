@@ -1,4 +1,5 @@
 // Centralized shift store — used by every module's shift schedule and by the
+import { auditLog } from "./auditLogStore";
 // HR Attendance tab to auto-derive expected attendance records.
 import { useEffect, useState } from "react";
 import { staffStore } from "./staffStore";
