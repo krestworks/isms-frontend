@@ -4,6 +4,7 @@ import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ModuleCard } from "@/components/dashboard/ModuleCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { AlertsFeed } from "@/components/dashboard/AlertsFeed";
+import { ApproverInbox } from "@/components/dashboard/ApproverInbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useLocations } from "@/data/locationsStore";
@@ -103,6 +104,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+
+      <ApproverInbox />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2"><RevenueChart /></div>
