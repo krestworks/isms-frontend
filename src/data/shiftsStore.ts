@@ -1,5 +1,6 @@
 // Centralized shift store — used by every module's shift schedule and by the
 import { auditLog } from "./auditLogStore";
+import { notifications } from "./notificationsStore";
 // HR Attendance tab to auto-derive expected attendance records.
 import { useEffect, useState } from "react";
 import { staffStore } from "./staffStore";
@@ -120,13 +121,17 @@ export const attendanceStore = {
     attendanceStore.correct(req.employeeId, req.date, req.proposedClockIn, req.proposedClockOut, req.requestedBy, req.reason, reviewer);
     notifyReq();
     try { auditLog.log("attendance.correction.approved", id, `${req.employeeName} ${req.date} approved by ${reviewer}`); } catch {}
+    try { notifications.push({ userId: req.employeeId, employeeId: req.employeeId, kind: "correction.approved", title: "Attendance correction approved", body: `${req.date} ${req.proposedClockIn || "—"}–${req.proposedClockOut || "—"} approved by ${reviewer}${notes ? ` — "${notes}"` : ""}`, link: "/employee-portal" }); } catch {}
   },
   rejectCorrection(id: string, reviewer: string, notes?: string) {
     const req = requests.find(r => r.id === id); if (!req) return;
     requests = requests.map(r => r.id === id ? { ...r, status: "rejected", reviewedBy: reviewer, reviewedAt: new Date().toISOString(), reviewNotes: notes } : r);
     notifyReq();
     try { auditLog.log("attendance.correction.rejected", id, `${req.employeeName} ${req.date} rejected by ${reviewer}: ${notes || ""}`); } catch {}
+    try { notifications.push({ userId: req.employeeId, employeeId: req.employeeId, kind: "correction.rejected", title: "Attendance correction rejected", body: `${req.date} request was rejected by ${reviewer}${notes ? ` — "${notes}"` : ""}`, link: "/employee-portal" }); } catch {}
   },
+  approveMany(ids: string[], reviewer: string, notes?: string) { ids.forEach(id => attendanceStore.approveCorrection(id, reviewer, notes)); },
+  rejectMany(ids: string[], reviewer: string, notes?: string) { ids.forEach(id => attendanceStore.rejectCorrection(id, reviewer, notes)); },
   pendingRequests: () => requests.filter(r => r.status === "pending"),
   allRequests: () => requests,
   requestsForEmployee: (eid: string) => requests.filter(r => r.employeeId === eid),
