@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { staffStore, useStaff, StaffRecord } from "@/data/staffStore";
 import { useLocations } from "@/data/locationsStore";
+import { usePermission } from "@/lib/actionPermissions";
 
 const departments = ["Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory", "HR", "Finance", "Admin"];
 const roles = ["Attendant", "Technician", "Manager", "Accountant", "Supervisor", "Driver", "Cashier", "Pharmacist"];
@@ -32,6 +33,7 @@ const emptyForm = { name: "", email: "", phone: "", department: "Fuel", role: "A
 export default function StaffOnboardingTab() {
   const data = useStaff();
   const locations = useLocations();
+  const canCreate = usePermission("hr.staff.create");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<StaffRecord | null>(null);
   const [viewing, setViewing] = useState<StaffRecord | null>(null);
@@ -68,7 +70,7 @@ export default function StaffOnboardingTab() {
           <h3 className="text-lg font-semibold">Staff Onboarding</h3>
           <p className="text-sm text-muted-foreground">Central staff registry — sourced by every module</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Employee</Button>
+        {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Employee</Button>}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

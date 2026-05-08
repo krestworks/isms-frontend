@@ -9,6 +9,7 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
+import { usePermission } from "@/lib/actionPermissions";
 
 interface Tank {
   id: string;
@@ -38,6 +39,9 @@ export function TanksTab() {
   const [form, setForm] = useState<Omit<Tank, "id">>(emptyTank);
   const [deleteConfirm, setDeleteConfirm] = useState<Tank | null>(null);
   const { toast } = useToast();
+  const canCreate = usePermission("fuel.tank.create");
+  const canUpdate = usePermission("fuel.tank.update");
+  const canDelete = usePermission("fuel.tank.delete");
 
   const openCreate = () => { setForm(emptyTank); setModal({ mode: "create", tank: null }); };
   const openEdit = (t: Tank) => { setForm({ ...t }); setModal({ mode: "edit", tank: t }); };
@@ -94,7 +98,7 @@ export function TanksTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Monitor tank levels, deliveries, and dip readings</p>
-        <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Tank</Button>
+        {canCreate && <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Tank</Button>}
       </div>
 
       <DataTable
@@ -106,8 +110,8 @@ export function TanksTab() {
         actions={(t) => (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(t)}><Eye className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}><Pencil className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(t)}><Trash2 className="h-3.5 w-3.5" /></Button>
+            {canUpdate && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(t)}><Pencil className="h-3.5 w-3.5" /></Button>}
+            {canDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(t)}><Trash2 className="h-3.5 w-3.5" /></Button>}
           </div>
         )}
       />
