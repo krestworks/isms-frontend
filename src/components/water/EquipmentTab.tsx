@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Equipment {
   id: string;
@@ -32,17 +33,20 @@ export function EquipmentTab() {
   const [data, setData] = useState(sample);
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Equipment } | null>(null);
   const [form, setForm] = useState<Omit<Equipment, "id">>(blank);
+  const canCreate = usePermission("water.equipment.create");
+  const canUpdate = usePermission("water.equipment.create");
+  const canDelete = usePermission("water.equipment.create");
 
   const open = (mode: "add" | "edit" | "view", item?: Equipment) => {
     setForm(item ? { ...item } : { ...blank });
     setModal({ mode, item: item || { id: "", ...blank } });
   };
   const save = () => {
-    if (modal?.mode === "add") setData([{ ...form, id: `EQ${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-    else if (modal?.mode === "edit") setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d));
+    if (modal?.mode === "add") { if (!guardAction("water.equipment.create", "add equipment")) return; setData([{ ...form, id: `EQ${String(data.length + 1).padStart(3, "0")}` }, ...data]); }
+    else if (modal?.mode === "edit") { if (!guardAction("water.equipment.create", "edit equipment")) return; setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d)); }
     setModal(null);
   };
-  const remove = (item: Equipment) => setData(data.filter(d => d.id !== item.id));
+  const remove = (item: Equipment) => { if (!guardAction("water.equipment.create", "delete equipment")) return; setData(data.filter(d => d.id !== item.id)); };
 
   const columns = [
     { key: "id" as const, label: "ID" },
@@ -59,11 +63,11 @@ export function EquipmentTab() {
     <>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-semibold">Equipment</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Equipment</Button>
+        {canCreate && <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Equipment</Button>}
       </div>
       <DataTable data={data} columns={columns} searchKeys={["name", "serialNo", "type"]}
         filters={[{ key: "status", label: "Status", options: [{ label: "Operational", value: "operational" }, { label: "Maintenance", value: "maintenance" }, { label: "Inactive", value: "inactive" }] }, { key: "type", label: "Type", options: [{ label: "Reverse Osmosis", value: "Reverse Osmosis" }, { label: "Uv Treatment", value: "UV Treatment" }, { label: "Storage", value: "Storage" }, { label: "Pump", value: "Pump" }] }]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
+        onView={i => open("view", i)} onEdit={canUpdate ? (i => open("edit", i)) : undefined} onDelete={canDelete ? remove : undefined} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Add Equipment" : modal.mode === "edit" ? "Edit Equipment" : "Equipment Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
           <div className="grid grid-cols-2 gap-4">

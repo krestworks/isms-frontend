@@ -5,6 +5,7 @@
 // Naming convention: "<module>.<entity>.<verb>" — e.g. "fuel.tank.create".
 
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { sessionStore, Role } from "@/data/sessionStore";
 import { auditLog } from "@/data/auditLogStore";
 
@@ -79,6 +80,18 @@ export function can(action: Action): boolean {
 export function requireAction(action: Action): boolean {
   if (can(action)) return true;
   try { auditLog.log("permission.denied", action, `Blocked attempt by ${sessionStore.user().activeRole} on ${action}`); } catch {}
+  return false;
+}
+
+// Server-style guard: returns true if allowed; otherwise toasts + audit-logs.
+// Use at the top of every write handler (create/update/delete).
+export function guardAction(action: Action, label?: string): boolean {
+  if (can(action)) return true;
+  const role = sessionStore.user().activeRole;
+  try { auditLog.log("permission.denied", action, `Blocked ${role} from "${label || action}"`); } catch {}
+  toast.error("Permission denied", {
+    description: `Your role (${role}) cannot ${label || action}. Contact an administrator.`,
+  });
   return false;
 }
 

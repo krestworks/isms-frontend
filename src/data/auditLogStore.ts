@@ -11,6 +11,8 @@ export type AuditAction =
   | "attendance.correction.requested"
   | "attendance.correction.approved"
   | "attendance.correction.rejected"
+  | "attendance.bulk.approved"
+  | "attendance.bulk.rejected"
   | "permission.denied";
 
 export interface AuditEntry {

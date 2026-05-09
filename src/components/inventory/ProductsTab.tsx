@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus, AlertTriangle } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,14 +73,18 @@ export default function ProductsTab() {
     { key: "subBusiness", label: "Sub-Business", options: SUB_BUSINESSES.map(s => ({ label: s, value: s })) },
   ];
 
+  const canCreate = usePermission("inventory.product.create");
+  const canUpdate = usePermission("inventory.product.create");
+  const canDelete = usePermission("inventory.product.delete");
+
   const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (p: Product) => { setEditing(p); setForm({ sku: p.sku, name: p.name, category: p.category, subBusiness: p.subBusiness, unit: p.unit, costPrice: p.costPrice, sellPrice: p.sellPrice, stock: p.stock, reorderLevel: p.reorderLevel, status: p.status }); setModalOpen(true); };
   const handleSave = () => {
-    if (editing) setData(d => d.map(x => x.id === editing.id ? { ...x, ...form } : x));
-    else setData(d => [...d, { id: `PRD-${String(d.length + 1).padStart(3, "0")}`, ...form }]);
+    if (editing) { if (!guardAction("inventory.product.create", "edit a product")) return; setData(d => d.map(x => x.id === editing.id ? { ...x, ...form } : x)); }
+    else { if (!guardAction("inventory.product.create", "add a product")) return; setData(d => [...d, { id: `PRD-${String(d.length + 1).padStart(3, "0")}`, ...form }]); }
     setModalOpen(false);
   };
-  const handleDelete = (p: Product) => setData(d => d.filter(x => x.id !== p.id));
+  const handleDelete = (p: Product) => { if (!guardAction("inventory.product.delete", "delete a product")) return; setData(d => d.filter(x => x.id !== p.id)); };
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   return (
@@ -89,7 +94,7 @@ export default function ProductsTab() {
           <h3 className="text-lg font-semibold">Products & Stock</h3>
           <p className="text-sm text-muted-foreground">Inventory across mini marts, pharmacies & cafes</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Product</Button>
+        {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Product</Button>}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -113,7 +118,7 @@ export default function ProductsTab() {
         </Card>
       )}
 
-      <DataTable data={computed} columns={columns} searchKeys={["sku", "name"]} searchPlaceholder="Search products..." filters={filters} onView={p => setViewing(p)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={computed} columns={columns} searchKeys={["sku", "name"]} searchPlaceholder="Search products..." filters={filters} onView={p => setViewing(p)} onEdit={canUpdate ? openEdit : undefined} onDelete={canDelete ? handleDelete : undefined} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Product" : "Add Product"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Add"}>
         <div className="space-y-4">

@@ -130,8 +130,14 @@ export const attendanceStore = {
     try { auditLog.log("attendance.correction.rejected", id, `${req.employeeName} ${req.date} rejected by ${reviewer}: ${notes || ""}`); } catch {}
     try { notifications.push({ userId: req.employeeId, employeeId: req.employeeId, kind: "correction.rejected", title: "Attendance correction rejected", body: `${req.date} request was rejected by ${reviewer}${notes ? ` — "${notes}"` : ""}`, link: "/employee-portal" }); } catch {}
   },
-  approveMany(ids: string[], reviewer: string, notes?: string) { ids.forEach(id => attendanceStore.approveCorrection(id, reviewer, notes)); },
-  rejectMany(ids: string[], reviewer: string, notes?: string) { ids.forEach(id => attendanceStore.rejectCorrection(id, reviewer, notes)); },
+  approveMany(ids: string[], reviewer: string, notes?: string) {
+    ids.forEach(id => attendanceStore.approveCorrection(id, reviewer, notes));
+    try { auditLog.log("attendance.bulk.approved", ids.join(","), `${reviewer} bulk-approved ${ids.length} request(s): [${ids.join(", ")}]${notes ? ` — "${notes}"` : ""}`); } catch {}
+  },
+  rejectMany(ids: string[], reviewer: string, notes?: string) {
+    ids.forEach(id => attendanceStore.rejectCorrection(id, reviewer, notes));
+    try { auditLog.log("attendance.bulk.rejected", ids.join(","), `${reviewer} bulk-rejected ${ids.length} request(s): [${ids.join(", ")}]${notes ? ` — "${notes}"` : ""}`); } catch {}
+  },
   pendingRequests: () => requests.filter(r => r.status === "pending"),
   allRequests: () => requests,
   requestsForEmployee: (eid: string) => requests.filter(r => r.employeeId === eid),

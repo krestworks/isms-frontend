@@ -13,6 +13,7 @@ import { usersStore, useUsers, UserAccount } from "@/data/usersStore";
 import { useLocations } from "@/data/locationsStore";
 import { Badge } from "@/components/ui/badge";
 import type { Role } from "@/data/sessionStore";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 const ALL_ROLES: Role[] = ["Admin", "Manager", "Accountant", "Attendant", "LocationHead", "Employee"];
 const ALL_MODULES = ["All", "Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory", "HR", "Finance", "Reports", "Settings", "Locations"];
@@ -24,14 +25,17 @@ export function UsersTab() {
   const locations = useLocations();
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: UserAccount } | null>(null);
   const [form, setForm] = useState<Omit<UserAccount, "id" | "lastLogin">>(blank);
+  const canCreate = usePermission("settings.user.create");
+  const canUpdate = usePermission("settings.user.update");
+  const canDelete = usePermission("settings.user.update");
 
   const openAdd = () => { setForm(blank); setModal({ mode: "add", item: {} as UserAccount }); };
   const openView = (u: UserAccount) => { setForm(u); setModal({ mode: "view", item: u }); };
   const openEdit = (u: UserAccount) => { setForm(u); setModal({ mode: "edit", item: u }); };
-  const handleDelete = (u: UserAccount) => { usersStore.remove(u.id); toast.success("User removed"); };
+  const handleDelete = (u: UserAccount) => { if (!guardAction("settings.user.update", "remove a user")) return; usersStore.remove(u.id); toast.success("User removed"); };
   const handleSave = () => {
-    if (modal?.mode === "add") { usersStore.add(form); toast.success("User created"); }
-    else if (modal) { usersStore.update(modal.item.id, form); toast.success("User updated"); }
+    if (modal?.mode === "add") { if (!guardAction("settings.user.create", "create a user")) return; usersStore.add(form); toast.success("User created"); }
+    else if (modal) { if (!guardAction("settings.user.update", "update a user")) return; usersStore.update(modal.item.id, form); toast.success("User updated"); }
     setModal(null);
   };
 
@@ -59,9 +63,9 @@ export function UsersTab() {
           <h3 className="text-lg font-semibold">System Users</h3>
           <p className="text-sm text-muted-foreground">Each onboarded staff gets a portal login automatically</p>
         </div>
-        <Button onClick={openAdd} size="sm"><Plus className="h-4 w-4 mr-1" /> Add User</Button>
+        {canCreate && <Button onClick={openAdd} size="sm"><Plus className="h-4 w-4 mr-1" /> Add User</Button>}
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["name", "email"]} searchPlaceholder="Search users..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["name", "email"]} searchPlaceholder="Search users..." filters={filters} onView={openView} onEdit={canUpdate ? openEdit : undefined} onDelete={canDelete ? handleDelete : undefined} />
       {modal && (
         <ModalForm open onClose={() => setModal(null)} title={isView ? "User Details" : modal.mode === "add" ? "Add User" : "Edit User"} onSubmit={handleSave} isView={isView}>
           <div className="space-y-3">

@@ -9,7 +9,7 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { usePermission } from "@/lib/actionPermissions";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Tank {
   id: string;
@@ -50,10 +50,12 @@ export function TanksTab() {
   const handleSave = () => {
     if (!form.name) { toast({ title: "Error", description: "Tank name is required", variant: "destructive" }); return; }
     if (modal?.mode === "create") {
+      if (!guardAction("fuel.tank.create", "add a tank")) return;
       const newTank: Tank = { ...form, id: `T${String(tanks.length + 1).padStart(3, "0")}` };
       setTanks([...tanks, newTank]);
       toast({ title: "Tank Added", description: `${newTank.name} has been created.` });
     } else if (modal?.mode === "edit" && modal.tank) {
+      if (!guardAction("fuel.tank.update", "edit a tank")) return;
       setTanks(tanks.map((t) => (t.id === modal.tank!.id ? { ...modal.tank!, ...form } : t)));
       toast({ title: "Tank Updated", description: `${form.name} has been updated.` });
     }
@@ -61,6 +63,7 @@ export function TanksTab() {
   };
 
   const handleDelete = () => {
+    if (!guardAction("fuel.tank.delete", "delete a tank")) return;
     if (deleteConfirm) {
       setTanks(tanks.filter((t) => t.id !== deleteConfirm.id));
       toast({ title: "Tank Deleted", description: `${deleteConfirm.name} has been removed.` });

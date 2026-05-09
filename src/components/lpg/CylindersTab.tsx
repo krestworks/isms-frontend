@@ -8,6 +8,7 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { useToast } from "@/hooks/use-toast";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Cylinder {
   id: string;
@@ -50,6 +51,9 @@ export function CylindersTab() {
   const [form, setForm] = useState<Omit<Cylinder, "id">>(emptyForm);
   const [deleteConfirm, setDeleteConfirm] = useState<Cylinder | null>(null);
   const { toast } = useToast();
+  const canCreate = usePermission("lpg.cylinder.create");
+  const canUpdate = usePermission("lpg.cylinder.update");
+  const canDelete = usePermission("lpg.cylinder.delete");
 
   const openCreate = () => { setForm(emptyForm); setModal({ mode: "create", item: null }); };
   const openEdit = (c: Cylinder) => { setForm({ ...c }); setModal({ mode: "edit", item: c }); };
@@ -58,9 +62,11 @@ export function CylindersTab() {
   const handleSave = () => {
     if (!form.serialNo) { toast({ title: "Error", description: "Serial number is required", variant: "destructive" }); return; }
     if (modal?.mode === "create") {
+      if (!guardAction("lpg.cylinder.create", "add a cylinder")) return;
       setData([...data, { ...form, id: `CY${String(data.length + 1).padStart(3, "0")}` }]);
       toast({ title: "Cylinder Added" });
     } else if (modal?.mode === "edit" && modal.item) {
+      if (!guardAction("lpg.cylinder.update", "edit a cylinder")) return;
       setData(data.map((d) => (d.id === modal.item!.id ? { ...modal.item!, ...form } : d)));
       toast({ title: "Cylinder Updated" });
     }
@@ -68,6 +74,7 @@ export function CylindersTab() {
   };
 
   const handleDelete = () => {
+    if (!guardAction("lpg.cylinder.delete", "delete a cylinder")) return;
     if (deleteConfirm) {
       setData(data.filter((d) => d.id !== deleteConfirm.id));
       toast({ title: "Cylinder Deleted" });
@@ -118,15 +125,15 @@ export function CylindersTab() {
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Track all cylinders: full, empty, damaged</p>
-        <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Cylinder</Button>
+        {canCreate && <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Cylinder</Button>}
       </div>
 
       <DataTable data={data} columns={columns} searchKeys={["serialNo", "supplier", "location"]} searchPlaceholder="Search cylinders..." filters={filters}
         actions={(c) => (
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(c)}><Eye className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(c)}><Trash2 className="h-3.5 w-3.5" /></Button>
+            {canUpdate && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>}
+            {canDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(c)}><Trash2 className="h-3.5 w-3.5" /></Button>}
           </div>
         )}
       />
