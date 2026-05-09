@@ -83,6 +83,18 @@ export function requireAction(action: Action): boolean {
   return false;
 }
 
+// Server-style guard: returns true if allowed; otherwise toasts + audit-logs.
+// Use at the top of every write handler (create/update/delete).
+export function guardAction(action: Action, label?: string): boolean {
+  if (can(action)) return true;
+  const role = sessionStore.user().activeRole;
+  try { auditLog.log("permission.denied", action, `Blocked ${role} from "${label || action}"`); } catch {}
+  toast.error("Permission denied", {
+    description: `Your role (${role}) cannot ${label || action}. Contact an administrator.`,
+  });
+  return false;
+}
+
 // Subscribe to session changes so gated UIs re-render after role switching.
 export function usePermission(action: Action): boolean {
   const [allowed, setAllowed] = useState<boolean>(can(action));
