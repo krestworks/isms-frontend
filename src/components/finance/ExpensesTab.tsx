@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,16 +54,21 @@ export function ExpensesTab() {
   const [data, setData] = useState(demoData);
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item?: Expense } | null>(null);
   const [form, setForm] = useState<Partial<Expense>>({});
+  const canCreate = usePermission("finance.expense.create");
+  const canUpdate = usePermission("finance.expense.create");
+  const canDelete = usePermission("finance.expense.create");
 
   const openAdd = () => { setForm({ date: new Date().toISOString().slice(0, 10), status: "pending" }); setModal({ mode: "add" }); };
   const openEdit = (item: Expense) => { setForm({ ...item }); setModal({ mode: "edit", item }); };
   const openView = (item: Expense) => { setForm({ ...item }); setModal({ mode: "view", item }); };
-  const handleDelete = (item: Expense) => setData(d => d.filter(r => r.id !== item.id));
+  const handleDelete = (item: Expense) => { if (!guardAction("finance.expense.create", "delete an expense")) return; setData(d => d.filter(r => r.id !== item.id)); };
 
   const handleSubmit = () => {
     if (modal?.mode === "add") {
+      if (!guardAction("finance.expense.create", "log an expense")) return;
       setData(d => [...d, { ...form, id: `EXP-${String(d.length + 1).padStart(3, "0")}` } as Expense]);
     } else if (modal?.mode === "edit" && modal.item) {
+      if (!guardAction("finance.expense.create", "edit an expense")) return;
       setData(d => d.map(r => r.id === modal.item!.id ? { ...r, ...form } as Expense : r));
     }
     setModal(null);
@@ -70,8 +76,8 @@ export function ExpensesTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Log Expense</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["id", "vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+      {canCreate && <div className="flex justify-end"><Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Log Expense</Button></div>}
+      <DataTable data={data} columns={columns} searchKeys={["id", "vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={canUpdate ? openEdit : undefined} onDelete={canDelete ? handleDelete : undefined} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Log Expense" : modal.mode === "edit" ? "Edit Expense" : "Expense Details"} onClose={() => setModal(null)} onSubmit={handleSubmit} isView={modal.mode === "view"}>
           <div className="grid grid-cols-2 gap-4">

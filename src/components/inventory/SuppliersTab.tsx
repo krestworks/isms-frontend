@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -43,14 +44,18 @@ export default function SuppliersTab() {
     { key: "status", label: "Status", render: s => <StatusBadge status={s.status} /> },
   ];
 
+  const canCreate = usePermission("inventory.supplier.create");
+  const canUpdate = usePermission("inventory.supplier.create");
+  const canDelete = usePermission("inventory.supplier.create");
+
   const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
   const openEdit = (s: Supplier) => { setEditing(s); setForm(s); setModalOpen(true); };
   const handleSave = () => {
-    if (editing) setData(d => d.map(x => x.id === editing.id ? { ...x, ...form } : x));
-    else setData(d => [...d, { id: `SUP-${String(d.length + 1).padStart(3, "0")}`, ...form }]);
+    if (editing) { if (!guardAction("inventory.supplier.create", "edit a supplier")) return; setData(d => d.map(x => x.id === editing.id ? { ...x, ...form } : x)); }
+    else { if (!guardAction("inventory.supplier.create", "add a supplier")) return; setData(d => [...d, { id: `SUP-${String(d.length + 1).padStart(3, "0")}`, ...form }]); }
     setModalOpen(false);
   };
-  const handleDelete = (s: Supplier) => setData(d => d.filter(x => x.id !== s.id));
+  const handleDelete = (s: Supplier) => { if (!guardAction("inventory.supplier.create", "delete a supplier")) return; setData(d => d.filter(x => x.id !== s.id)); };
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
   return (
@@ -60,7 +65,7 @@ export default function SuppliersTab() {
           <h3 className="text-lg font-semibold">Suppliers</h3>
           <p className="text-sm text-muted-foreground">Vendors supplying the sub-businesses</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Supplier</Button>
+        {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Supplier</Button>}
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -73,7 +78,7 @@ export default function SuppliersTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["name", "contact"]} searchPlaceholder="Search suppliers..." onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["name", "contact"]} searchPlaceholder="Search suppliers..." onEdit={canUpdate ? openEdit : undefined} onDelete={canDelete ? handleDelete : undefined} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Supplier" : "Add Supplier"} onSubmit={handleSave}>
         <div className="space-y-4">

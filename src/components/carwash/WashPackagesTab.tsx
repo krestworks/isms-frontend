@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,17 +35,20 @@ const columns: Column<WashPackage>[] = [
 export default function WashPackagesTab() {
   const [data, setData] = useState(mockData);
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Omit<WashPackage, "id"> & { id?: string } } | null>(null);
+  const canCreate = usePermission("carwash.package.create");
+  const canUpdate = usePermission("carwash.package.create");
+  const canDelete = usePermission("carwash.package.create");
 
   const open = (mode: "add" | "edit" | "view", item?: WashPackage) => setModal({ mode, item: item ? { ...item } : { ...blank } });
   const close = () => setModal(null);
-  const save = () => { if (!modal) return; if (modal.mode === "add") setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as WashPackage]); else if (modal.mode === "edit") setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as WashPackage : r)); close(); };
-  const remove = (item: WashPackage) => setData((d) => d.filter((r) => r.id !== item.id));
+  const save = () => { if (!modal) return; if (modal.mode === "add") { if (!guardAction("carwash.package.create", "add a package")) return; setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as WashPackage]); } else if (modal.mode === "edit") { if (!guardAction("carwash.package.create", "edit a package")) return; setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as WashPackage : r)); } close(); };
+  const remove = (item: WashPackage) => { if (!guardAction("carwash.package.create", "delete a package")) return; setData((d) => d.filter((r) => r.id !== item.id)); };
   const f = modal?.item;
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Add Package</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["name"]} searchPlaceholder="Search packages..." onView={(r) => open("view", r)} onEdit={(r) => open("edit", r)} onDelete={remove} />
+      {canCreate && <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Add Package</Button></div>}
+      <DataTable data={data} columns={columns} searchKeys={["name"]} searchPlaceholder="Search packages..." onView={(r) => open("view", r)} onEdit={canUpdate ? ((r) => open("edit", r)) : undefined} onDelete={canDelete ? remove : undefined} />
       {modal && f && (
         <ModalForm open onClose={close} title={modal.mode === "add" ? "Add Package" : modal.mode === "edit" ? "Edit Package" : "Package Details"} isView={modal.mode === "view"} onSubmit={save}>
           <div className="space-y-3">

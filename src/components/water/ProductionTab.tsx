@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Production {
   id: string;
@@ -33,6 +34,9 @@ export function ProductionTab() {
   const [data, setData] = useState(sample);
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Production } | null>(null);
   const [form, setForm] = useState<Omit<Production, "id">>(blank);
+  const canCreate = usePermission("water.production.create");
+  const canUpdate = usePermission("water.production.create");
+  const canDelete = usePermission("water.production.create");
 
   const open = (mode: "add" | "edit" | "view", item?: Production) => {
     setForm(item ? { ...item } : { ...blank });
@@ -41,8 +45,10 @@ export function ProductionTab() {
 
   const save = () => {
     if (modal?.mode === "add") {
+      if (!guardAction("water.production.create", "record production")) return;
       setData([{ ...form, id: `WP${String(data.length + 1).padStart(3, "0")}`, netOutput: form.litresProduced - form.litresWasted }, ...data]);
     } else if (modal?.mode === "edit") {
+      if (!guardAction("water.production.create", "edit a production log")) return;
       setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id, netOutput: form.litresProduced - form.litresWasted } : d));
     }
     setModal(null);
@@ -66,13 +72,13 @@ export function ProductionTab() {
     <>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-semibold">Production Logs</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Record Production</Button>
+        {canCreate && <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Record Production</Button>}
       </div>
       <DataTable
         data={data} columns={columns}
         searchKeys={["id", "operator", "machineId"]}
         filters={[{ key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Completed", value: "completed" }] }, { key: "shift", label: "Shift", options: [{ label: "Morning", value: "Morning" }, { label: "Afternoon", value: "Afternoon" }, { label: "Night", value: "Night" }] }]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove}
+        onView={i => open("view", i)} onEdit={canUpdate ? (i => open("edit", i)) : undefined} onDelete={canDelete ? remove : undefined}
       />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Record Production" : modal.mode === "edit" ? "Edit Production" : "Production Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
