@@ -9,7 +9,7 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { usePermission } from "@/lib/actionPermissions";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Tank {
   id: string;
