@@ -5,8 +5,9 @@ import { TanksTab } from "@/components/fuel/TanksTab";
 import { PumpSalesTab } from "@/components/fuel/PumpSalesTab";
 import { FuelInventoryTab } from "@/components/fuel/FuelInventoryTab";
 import { SalesHistoryTab } from "@/components/fuel/SalesHistoryTab";
-import { FuelStaffTab } from "@/components/fuel/FuelStaffTab";
 import { ReconciliationTab } from "@/components/fuel/ReconciliationTab";
+import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
+import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 
 export default function FuelPage() {
   return (
@@ -17,15 +18,17 @@ export default function FuelPage() {
           <TabsTrigger value="pump-sales" className="text-xs">Pump Sales</TabsTrigger>
           <TabsTrigger value="inventory" className="text-xs">Inventory</TabsTrigger>
           <TabsTrigger value="sales-history" className="text-xs">Sales History</TabsTrigger>
-          <TabsTrigger value="staff" className="text-xs">Staff</TabsTrigger>
           <TabsTrigger value="reconciliation" className="text-xs">Reconciliation</TabsTrigger>
+          <TabsTrigger value="staff" className="text-xs">Staff</TabsTrigger>
+          <TabsTrigger value="shifts" className="text-xs">Shifts</TabsTrigger>
         </TabsList>
         <TabsContent value="tanks"><TanksTab /></TabsContent>
         <TabsContent value="pump-sales"><PumpSalesTab /></TabsContent>
         <TabsContent value="inventory"><FuelInventoryTab /></TabsContent>
         <TabsContent value="sales-history"><SalesHistoryTab /></TabsContent>
-        <TabsContent value="staff"><FuelStaffTab /></TabsContent>
         <TabsContent value="reconciliation"><ReconciliationTab /></TabsContent>
+        <TabsContent value="staff"><ModuleStaffTab department="Fuel" /></TabsContent>
+        <TabsContent value="shifts"><ShiftScheduleTab department="Fuel" /></TabsContent>
       </Tabs>
     </ModulePageShell>
   );

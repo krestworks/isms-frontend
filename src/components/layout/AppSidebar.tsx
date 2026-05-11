@@ -1,6 +1,8 @@
-import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, ChevronDown, UserCog, UserCircle } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, UserCog, UserCircle, MapPin, Package } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { canAccessRoute } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import {
   Sidebar,
   SidebarContent,
@@ -15,6 +17,12 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
+const organization = [
+  { title: "Locations", url: "/locations", icon: MapPin },
+  { title: "HR Management", url: "/hr", icon: UserCog },
+  { title: "Employee Portal", url: "/employee-portal", icon: UserCircle },
+];
+
 const modules = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Fuel Management", url: "/fuel", icon: Fuel },
@@ -22,22 +30,51 @@ const modules = [
   { title: "Water Production", url: "/water", icon: Droplets },
   { title: "Auto Services", url: "/automotive", icon: Wrench },
   { title: "Car Wash", url: "/carwash", icon: Car },
+  { title: "Inventory", url: "/inventory", icon: Package },
 ];
 
 const management = [
   { title: "Revenue & Finance", url: "/finance", icon: DollarSign },
-  { title: "HR Management", url: "/hr", icon: UserCog },
-  { title: "Employee Portal", url: "/employee-portal", icon: UserCircle },
   { title: "Clients", url: "/clients", icon: Users },
   { title: "Reports", url: "/reports", icon: FileText },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
 export function AppSidebar() {
+  useSession();
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path || (path !== "/" && location.pathname.startsWith(path));
+
+  const renderGroup = (label: string, items: typeof modules) => {
+    const visible = items.filter(i => canAccessRoute(i.url));
+    if (visible.length === 0) return null;
+    return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">{label}</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {visible.map((item) => (
+            <SidebarMenuItem key={item.title}>
+              <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
+                <NavLink
+                  to={item.url}
+                  end={item.url === "/"}
+                  className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
+                  activeClassName="bg-sidebar-accent text-sidebar-primary font-medium shadow-glow"
+                >
+                  <item.icon className="h-4 w-4 shrink-0" />
+                  {!collapsed && <span>{item.title}</span>}
+                </NavLink>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          ))}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+    );
+  };
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -56,62 +93,9 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">
-            Modules
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {modules.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <NavLink
-                      to={item.url}
-                      end={item.url === "/"}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium shadow-glow"
-                    >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">
-            Management
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {management.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={isActive(item.url)}
-                    tooltip={item.title}
-                  >
-                    <NavLink
-                      to={item.url}
-                      className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
-                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
-                    >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {renderGroup("Organization", organization)}
+        {renderGroup("Modules", modules)}
+        {renderGroup("Management", management)}
       </SidebarContent>
 
       <SidebarFooter className="p-3 border-t border-sidebar-border">

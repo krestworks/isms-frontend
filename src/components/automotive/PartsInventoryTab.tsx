@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
+import { usePermission, guardAction } from "@/lib/actionPermissions";
 
 interface Part {
   id: string;
@@ -34,17 +35,20 @@ export function PartsInventoryTab() {
   const [data, setData] = useState(sample);
   const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Part } | null>(null);
   const [form, setForm] = useState<Omit<Part, "id">>(blank);
+  const canCreate = usePermission("automotive.parts.create");
+  const canUpdate = usePermission("automotive.parts.create");
+  const canDelete = usePermission("automotive.parts.create");
 
   const open = (mode: "add" | "edit" | "view", item?: Part) => {
     setForm(item ? { ...item } : { ...blank });
     setModal({ mode, item: item || { id: "", ...blank } });
   };
   const save = () => {
-    if (modal?.mode === "add") setData([{ ...form, id: `PT${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-    else if (modal?.mode === "edit") setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d));
+    if (modal?.mode === "add") { if (!guardAction("automotive.parts.create", "add a part")) return; setData([{ ...form, id: `PT${String(data.length + 1).padStart(3, "0")}` }, ...data]); }
+    else if (modal?.mode === "edit") { if (!guardAction("automotive.parts.create", "edit a part")) return; setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d)); }
     setModal(null);
   };
-  const remove = (item: Part) => setData(data.filter(d => d.id !== item.id));
+  const remove = (item: Part) => { if (!guardAction("automotive.parts.create", "delete a part")) return; setData(data.filter(d => d.id !== item.id)); };
 
   const columns = [
     { key: "id" as const, label: "ID" },
@@ -62,14 +66,14 @@ export function PartsInventoryTab() {
     <>
       <div className="flex justify-between items-center mb-4">
         <h3 className="font-semibold">Parts Inventory</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Part</Button>
+        {canCreate && <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Part</Button>}
       </div>
       <DataTable data={data} columns={columns} searchKeys={["name", "partNumber", "supplier", "category"]}
         filters={[
           { key: "status", label: "Status", options: [{ label: "In Stock", value: "in-stock" }, { label: "Low Stock", value: "low-stock" }, { label: "Out of Stock", value: "out-of-stock" }] },
           { key: "category", label: "Category", options: [{ label: "Filters", value: "Filters" }, { label: "Brakes", value: "Brakes" }, { label: "Lubricants", value: "Lubricants" }, { label: "Ignition", value: "Ignition" }] },
         ]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
+        onView={i => open("view", i)} onEdit={canUpdate ? (i => open("edit", i)) : undefined} onDelete={canDelete ? remove : undefined} />
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Add Part" : modal.mode === "edit" ? "Edit Part" : "Part Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
           <div className="grid grid-cols-2 gap-4">
