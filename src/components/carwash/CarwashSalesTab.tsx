@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,79 +7,194 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { carwashApi, ApiCarwashSale } from "@/lib/carwashApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface Sale {
-  id: string; receiptNo: string; date: string; vehicleReg: string; washPackage: string; attendant: string; paymentMethod: string; amount: number; status: string;
-}
+const PACKAGES = ["Basic Rinse", "Full Wash", "Premium Detail", "Interior Clean"];
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice"];
+const today = () => new Date().toISOString().split("T")[0];
 
-const mockData: Sale[] = [
-  { id: "1", receiptNo: "CWS-001", date: "2025-06-01", vehicleReg: "KDA 123A", washPackage: "Full Wash", attendant: "Peter M.", paymentMethod: "Cash", amount: 800, status: "paid" },
-  { id: "2", receiptNo: "CWS-002", date: "2025-06-01", vehicleReg: "KBZ 456B", washPackage: "Premium Detail", attendant: "James K.", paymentMethod: "M-Pesa", amount: 2500, status: "paid" },
-  { id: "3", receiptNo: "CWS-003", date: "2025-06-01", vehicleReg: "KCC 789C", washPackage: "Basic Rinse", attendant: "Peter M.", paymentMethod: "Cash", amount: 400, status: "paid" },
-  { id: "4", receiptNo: "CWS-004", date: "2025-06-01", vehicleReg: "KAA 012D", washPackage: "Interior Clean", attendant: "James K.", paymentMethod: "Card", amount: 1200, status: "unpaid" },
-];
+const emptyForm = {
+  date: today(), vehicleReg: "", washPackage: "Full Wash",
+  attendant: "", paymentMethod: "Cash", amount: 0, status: "paid",
+};
 
-const blank: Omit<Sale, "id"> = { receiptNo: "", date: new Date().toISOString().slice(0, 10), vehicleReg: "", washPackage: "Basic Rinse", attendant: "", paymentMethod: "Cash", amount: 0, status: "paid" };
+export function CarwashSalesTab() {
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("carwash.sales.record");
 
-const columns: Column<Sale>[] = [
-  { key: "receiptNo", label: "Receipt #", sortable: true },
-  { key: "date", label: "Date", sortable: true },
-  { key: "vehicleReg", label: "Vehicle Reg" },
-  { key: "washPackage", label: "Package" },
-  { key: "attendant", label: "Attendant" },
-  { key: "paymentMethod", label: "Payment" },
-  { key: "amount", label: "Amount (Ksh)", render: (r) => `Ksh ${r.amount.toLocaleString()}`, sortable: true },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
-];
+  const [records, setRecords]   = useState<ApiCarwashSale[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState(today());
+  const [toDate, setToDate]     = useState(today());
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiCarwashSale | null>(null);
+  const [viewing, setViewing]   = useState<ApiCarwashSale | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-const filters: FilterOption[] = [
-  { key: "status", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Unpaid", value: "unpaid" }] },
-  { key: "paymentMethod", label: "Payment", options: [{ label: "Cash", value: "Cash" }, { label: "M-Pesa", value: "M-Pesa" }, { label: "Card", value: "Card" }] },
-];
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await carwashApi.sales.list({ from: fromDate, to: toDate }, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
+    finally { setLoading(false); }
+  }, [stationId, fromDate, toDate]);
 
-export default function CarwashSalesTab() {
-  const [data, setData] = useState(mockData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Omit<Sale, "id"> & { id?: string } } | null>(null);
+  useEffect(() => { if (stationId) load(); }, [load]);
 
-  const open = (mode: "add" | "edit" | "view", item?: Sale) => setModal({ mode, item: item ? { ...item } : { ...blank } });
-  const close = () => setModal(null);
-  const save = () => { if (!modal) return; if (modal.mode === "add") setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as Sale]); else if (modal.mode === "edit") setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as Sale : r)); close(); };
-  const remove = (item: Sale) => setData((d) => d.filter((r) => r.id !== item.id));
-  const f = modal?.item;
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const openEdit = (s: ApiCarwashSale) => {
+    setEditing(s);
+    setForm({
+      date: s.date.split("T")[0], vehicleReg: s.vehicleReg, washPackage: s.washPackage,
+      attendant: s.attendant ?? "", paymentMethod: s.paymentMethod, amount: s.amount, status: s.status,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.vehicleReg || !form.washPackage) return toast.error("Vehicle reg and package are required");
+    setSaving(true);
+    try {
+      const payload = { ...form, attendant: form.attendant || undefined };
+      if (editing) {
+        await carwashApi.sales.update(editing.id, payload, stationId);
+        toast.success("Sale updated");
+      } else {
+        await carwashApi.sales.create(payload, stationId);
+        toast.success("Sale recorded");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save sale"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (s: ApiCarwashSale) => {
+    try {
+      await carwashApi.sales.delete(s.id, stationId);
+      toast.success("Sale deleted");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const totals = {
+    revenue: records.filter(s => s.status !== "voided").reduce((a, s) => a + s.amount, 0),
+    count:   records.filter(s => s.status !== "voided").length,
+  };
+
+  const columns: Column<ApiCarwashSale>[] = [
+    { key: "receiptNo",    label: "Receipt #",   render: s => <span className="font-mono text-xs">{s.receiptNo}</span>, sortable: true },
+    { key: "date",         label: "Date",         render: s => s.date.split("T")[0], sortable: true },
+    { key: "vehicleReg",   label: "Vehicle Reg" },
+    { key: "washPackage",  label: "Package" },
+    { key: "attendant",    label: "Attendant",    render: s => s.attendant || "—" },
+    { key: "paymentMethod",label: "Payment" },
+    { key: "amount",       label: "Amount (Ksh)", render: s => <span className="font-mono">Ksh {s.amount.toLocaleString()}</span>, sortable: true },
+    { key: "status",       label: "Status",       render: s => <StatusBadge status={s.status} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "status",        label: "Status",  options: [{ label: "Paid", value: "paid" }, { label: "Unpaid", value: "unpaid" }] },
+    { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
+    { key: "washPackage",   label: "Package", options: PACKAGES.map(p => ({ label: p, value: p })) },
+  ];
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Record Sale</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["receiptNo", "vehicleReg", "attendant"]} searchPlaceholder="Search sales..." filters={filters} onView={(r) => open("view", r)} onEdit={(r) => open("edit", r)} onDelete={remove} />
-      {modal && f && (
-        <ModalForm open onClose={close} title={modal.mode === "add" ? "Record Sale" : modal.mode === "edit" ? "Edit Sale" : "Sale Details"} isView={modal.mode === "view"} onSubmit={save}>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label>Receipt #</Label><Input value={f.receiptNo} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, receiptNo: e.target.value } })} /></div>
-            <div><Label>Date</Label><Input type="date" value={f.date} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, date: e.target.value } })} /></div>
-            <div><Label>Vehicle Reg</Label><Input value={f.vehicleReg} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, vehicleReg: e.target.value } })} /></div>
-            <div><Label>Package</Label>
-              <Select value={f.washPackage} onValueChange={(v) => setModal({ ...modal, item: { ...f, washPackage: v } })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Basic Rinse", "Full Wash", "Premium Detail", "Interior Clean"].map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Attendant</Label><Input value={f.attendant} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, attendant: e.target.value } })} /></div>
-            <div><Label>Payment Method</Label>
-              <Select value={f.paymentMethod} onValueChange={(v) => setModal({ ...modal, item: { ...f, paymentMethod: v } })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="M-Pesa">M-Pesa</SelectItem><SelectItem value="Card">Card</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div><Label>Amount (Ksh)</Label><Input type="number" value={f.amount} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, amount: +e.target.value } })} /></div>
-            <div><Label>Status</Label>
-              <Select value={f.status} onValueChange={(v) => setModal({ ...modal, item: { ...f, status: v } })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="unpaid">Unpaid</SelectItem></SelectContent>
-              </Select>
-            </div>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-muted-foreground">Record and track car wash sales</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`carwash-sales-${today()}.csv`, records)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+        </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Revenue</p>
+          <p className="text-xl font-bold text-primary">Ksh {totals.revenue.toLocaleString()}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Transactions</p>
+          <p className="text-xl font-bold">{totals.count}</p>
+        </CardContent></Card>
+      </div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["receiptNo", "vehicleReg", "attendant"]}
+        searchPlaceholder="Search sales..."
+        filters={filters}
+        onView={s => setViewing(s)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Sale" : "Record Sale"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Record"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+          <div><Label>Vehicle Reg *</Label><Input value={form.vehicleReg} onChange={e => set("vehicleReg", e.target.value)} placeholder="KBZ 123A" /></div>
+          <div><Label>Package *</Label>
+            <Select value={form.washPackage} onValueChange={v => set("washPackage", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PACKAGES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
+          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+          <div><Label>Payment Method</Label>
+            <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Amount (Ksh)</Label><Input type="number" value={form.amount || ""} onChange={e => set("amount", +e.target.value)} /></div>
+          <div><Label>Status</Label>
+            <Select value={form.status} onValueChange={v => set("status", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="unpaid">Unpaid</SelectItem></SelectContent>
+            </Select>
+          </div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>
+            <div><span className="text-muted-foreground">Date:</span> {viewing.date.split("T")[0]}</div>
+            <div><span className="text-muted-foreground">Vehicle:</span> {viewing.vehicleReg}</div>
+            <div><span className="text-muted-foreground">Package:</span> {viewing.washPackage}</div>
+            <div><span className="text-muted-foreground">Attendant:</span> {viewing.attendant || "—"}</div>
+            <div><span className="text-muted-foreground">Payment:</span> {viewing.paymentMethod}</div>
+            <div><span className="text-muted-foreground">Amount:</span> <strong>Ksh {viewing.amount.toLocaleString()}</strong></div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+          </div>
+        )}
+      </ModalForm>
     </div>
   );
 }
+
+export default CarwashSalesTab;

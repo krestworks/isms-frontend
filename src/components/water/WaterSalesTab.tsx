@@ -1,97 +1,185 @@
-import { useState } from "react";
-import { DataTable } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { waterApi, ApiWaterSale } from "@/lib/waterApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface WaterSale {
-  id: string;
-  date: string;
-  customer: string;
-  litres: number;
-  pricePerLitre: number;
-  discount: number;
-  totalAmount: number;
-  paymentMethod: string;
-  paymentStatus: string;
-  attendant: string;
-}
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
+const today = () => new Date().toISOString().split("T")[0];
 
-const sample: WaterSale[] = [
-  { id: "WS001", date: "2025-06-11", customer: "Walk-in", litres: 20, pricePerLitre: 5, discount: 0, totalAmount: 100, paymentMethod: "Cash", paymentStatus: "paid", attendant: "Mary Wanjiku" },
-  { id: "WS002", date: "2025-06-11", customer: "Oasis Hotel", litres: 1000, pricePerLitre: 4, discount: 200, totalAmount: 3800, paymentMethod: "M-Pesa", paymentStatus: "paid", attendant: "James Mwangi" },
-  { id: "WS003", date: "2025-06-10", customer: "Green Estates", litres: 5000, pricePerLitre: 3.5, discount: 0, totalAmount: 17500, paymentMethod: "Invoice", paymentStatus: "pending", attendant: "Peter Kamau" },
-];
-
-const blank: Omit<WaterSale, "id"> = { date: new Date().toISOString().slice(0, 10), customer: "", litres: 0, pricePerLitre: 0, discount: 0, totalAmount: 0, paymentMethod: "Cash", paymentStatus: "paid", attendant: "" };
+const emptyForm = {
+  date: today(), customer: "", litres: 0, pricePerLitre: 0, discount: 0,
+  paymentMethod: "Cash", paymentStatus: "paid", attendant: "",
+};
 
 export function WaterSalesTab() {
-  const [data, setData] = useState(sample);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: WaterSale } | null>(null);
-  const [form, setForm] = useState<Omit<WaterSale, "id">>(blank);
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canRecord = can("water.sales.record");
+  const canVoid   = can("water.sales.record");
 
-  const open = (mode: "add" | "edit" | "view", item?: WaterSale) => {
-    setForm(item ? { ...item } : { ...blank });
-    setModal({ mode, item: item || { id: "", ...blank } });
-  };
-  const calc = (f: Omit<WaterSale, "id">) => ({ ...f, totalAmount: f.litres * f.pricePerLitre - f.discount });
-  const save = () => {
-    const computed = calc(form);
-    if (modal?.mode === "add") setData([{ ...computed, id: `WS${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-    else if (modal?.mode === "edit") setData(data.map(d => d.id === modal.item.id ? { ...computed, id: modal.item.id } : d));
-    setModal(null);
-  };
-  const remove = (item: WaterSale) => setData(data.filter(d => d.id !== item.id));
+  const [sales, setSales]       = useState<ApiWaterSale[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState(today());
+  const [toDate, setToDate]     = useState(today());
+  const [modalOpen, setModalOpen] = useState(false);
+  const [viewing, setViewing]   = useState<ApiWaterSale | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const columns = [
-    { key: "id" as const, label: "ID" },
-    { key: "date" as const, label: "Date" },
-    { key: "customer" as const, label: "Customer" },
-    { key: "litres" as const, label: "Litres", render: (i: WaterSale) => i.litres.toLocaleString() },
-    { key: "pricePerLitre" as const, label: "Price/L", render: (i: WaterSale) => `Ksh ${i.pricePerLitre}` },
-    { key: "discount" as const, label: "Discount", render: (i: WaterSale) => `Ksh ${i.discount}` },
-    { key: "totalAmount" as const, label: "Total", render: (i: WaterSale) => `Ksh ${i.totalAmount.toLocaleString()}` },
-    { key: "paymentMethod" as const, label: "Payment" },
-    { key: "paymentStatus" as const, label: "Status", render: (i: WaterSale) => <StatusBadge status={i.paymentStatus} /> },
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await waterApi.sales.list({ from: fromDate, to: toDate }, stationId);
+      setSales(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
+    finally { setLoading(false); }
+  }, [stationId, fromDate, toDate]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openNew = () => { setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+
+  const handleSave = async () => {
+    if (!form.litres || !form.pricePerLitre) return toast.error("Litres and price are required");
+    setSaving(true);
+    try {
+      const totalAmount = form.litres * form.pricePerLitre - form.discount;
+      await waterApi.sales.create({
+        date: form.date, customer: form.customer || undefined, litres: form.litres,
+        pricePerLitre: form.pricePerLitre, discount: form.discount, totalAmount,
+        paymentMethod: form.paymentMethod, paymentStatus: form.paymentStatus,
+        attendant: form.attendant || undefined,
+      }, stationId);
+      toast.success("Sale recorded");
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to record sale"); }
+    finally { setSaving(false); }
+  };
+
+  const handleVoid = async (s: ApiWaterSale) => {
+    try {
+      await waterApi.sales.void(s.id, stationId);
+      toast.success("Sale voided");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to void"); }
+  };
+
+  const totals = {
+    revenue:     sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
+    litresSold:  sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.litres, 0),
+    count:       sales.filter(s => s.paymentStatus !== "voided").length,
+  };
+
+  const totalAmount = form.litres * form.pricePerLitre - form.discount;
+
+  const columns: Column<ApiWaterSale>[] = [
+    { key: "receiptNo",    label: "Receipt",    render: s => <span className="font-mono text-xs">{s.receiptNo}</span>, sortable: true },
+    { key: "date",         label: "Date",        render: s => s.date.split("T")[0], sortable: true },
+    { key: "customer",     label: "Customer",    render: s => s.customer || "Walk-in" },
+    { key: "litres",       label: "Litres (L)",  render: s => s.litres.toLocaleString(), sortable: true },
+    { key: "pricePerLitre",label: "Price/L",     render: s => `Ksh ${s.pricePerLitre}` },
+    { key: "totalAmount",  label: "Total (Ksh)", render: s => <span className="font-mono">Ksh {s.totalAmount.toLocaleString()}</span>, sortable: true },
+    { key: "paymentMethod",label: "Payment" },
+    { key: "paymentStatus",label: "Status",      render: s => <StatusBadge status={s.paymentStatus} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "paymentStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Voided", value: "voided" }] },
+    { key: "paymentMethod", label: "Method", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-semibold">Sales</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />New Sale</Button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-muted-foreground">Record and track water sales</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`water-sales-${today()}.csv`, sales)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+        </div>
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["id", "customer", "attendant"]}
-        filters={[{ key: "paymentStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Unpaid", value: "unpaid" }] }, { key: "paymentMethod", label: "Method", options: [{ label: "Cash", value: "Cash" }, { label: "M-Pesa", value: "M-Pesa" }, { label: "Invoice", value: "Invoice" }, { label: "Card", value: "Card" }] }]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
-      {modal && (
-        <ModalForm open title={modal.mode === "add" ? "New Sale" : modal.mode === "edit" ? "Edit Sale" : "Sale Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Customer</Label><Input value={form.customer} onChange={e => setForm({ ...form, customer: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Litres</Label><Input type="number" value={form.litres} onChange={e => setForm({ ...form, litres: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Price/Litre (Ksh)</Label><Input type="number" value={form.pricePerLitre} onChange={e => setForm({ ...form, pricePerLitre: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount} onChange={e => setForm({ ...form, discount: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Payment Method</Label>
-              <Select value={form.paymentMethod} onValueChange={v => setForm({ ...form, paymentMethod: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="M-Pesa">M-Pesa</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Invoice">Invoice</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div><Label>Payment Status</Label>
-              <Select value={form.paymentStatus} onValueChange={v => setForm({ ...form, paymentStatus: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="unpaid">Unpaid</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => setForm({ ...form, attendant: e.target.value })} disabled={modal.mode === "view"} /></div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Revenue</p>
+          <p className="text-xl font-bold text-primary">Ksh {totals.revenue.toLocaleString()}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Litres Sold</p>
+          <p className="text-xl font-bold">{totals.litresSold.toLocaleString()} L</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Transactions</p>
+          <p className="text-xl font-bold">{totals.count}</p>
+        </CardContent></Card>
+      </div>
+
+      <DataTable
+        data={sales} columns={columns}
+        searchKeys={["receiptNo", "customer", "attendant"]}
+        searchPlaceholder="Search sales..."
+        filters={filters}
+        onView={s => setViewing(s)}
+        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? handleVoid(s) : undefined) : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Water Sale"
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+          <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} placeholder="Walk-in" /></div>
+          <div><Label>Litres *</Label><Input type="number" value={form.litres || ""} onChange={e => set("litres", +e.target.value)} /></div>
+          <div><Label>Price/Litre (Ksh) *</Label><Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} /></div>
+          <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
+          <div><Label>Total (Ksh)</Label><Input value={`Ksh ${totalAmount.toLocaleString()}`} disabled className="font-mono" /></div>
+          <div><Label>Payment Method</Label>
+            <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
-    </>
+          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>
+            <div><span className="text-muted-foreground">Date:</span> {viewing.date.split("T")[0]}</div>
+            <div><span className="text-muted-foreground">Customer:</span> {viewing.customer || "Walk-in"}</div>
+            <div><span className="text-muted-foreground">Litres:</span> {viewing.litres.toLocaleString()} L</div>
+            <div><span className="text-muted-foreground">Price/Litre:</span> Ksh {viewing.pricePerLitre}</div>
+            <div><span className="text-muted-foreground">Discount:</span> Ksh {viewing.discount.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Total:</span> <strong>Ksh {viewing.totalAmount.toLocaleString()}</strong></div>
+            <div><span className="text-muted-foreground">Payment:</span> {viewing.paymentMethod} · <StatusBadge status={viewing.paymentStatus} /></div>
+            <div><span className="text-muted-foreground">Attendant:</span> {viewing.attendant || "—"}</div>
+          </div>
+        )}
+      </ModalForm>
+    </div>
   );
 }

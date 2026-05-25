@@ -1,117 +1,189 @@
-import { useState } from "react";
-import { DataTable } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { usePermission, guardAction } from "@/lib/actionPermissions";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { autoApi, ApiAutoPart } from "@/lib/autoApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
 
-interface Part {
-  id: string;
-  name: string;
-  category: string;
-  partNumber: string;
-  supplier: string;
-  buyingPrice: number;
-  sellingPrice: number;
-  stockQty: number;
-  reorderLevel: number;
-  status: string;
-}
+const CATEGORIES = ["Filters", "Brakes", "Lubricants", "Ignition", "Electrical", "Suspension", "Body", "Tyres", "Other"];
 
-const sample: Part[] = [
-  { id: "PT001", name: "Oil Filter (Toyota)", category: "Filters", partNumber: "OF-TY-001", supplier: "AutoParts Kenya", buyingPrice: 450, sellingPrice: 1200, stockQty: 45, reorderLevel: 10, status: "in-stock" },
-  { id: "PT002", name: "Front Brake Pads (Universal)", category: "Brakes", partNumber: "BP-UN-002", supplier: "Brake Masters", buyingPrice: 2500, sellingPrice: 6000, stockQty: 12, reorderLevel: 5, status: "in-stock" },
-  { id: "PT003", name: "Engine Oil 5W-30 (4L)", category: "Lubricants", partNumber: "EO-5W30-4L", supplier: "Shell Lubricants", buyingPrice: 2200, sellingPrice: 3800, stockQty: 3, reorderLevel: 10, status: "low-stock" },
-  { id: "PT004", name: "Spark Plugs (Set of 4)", category: "Ignition", partNumber: "SP-NGK-004", supplier: "AutoParts Kenya", buyingPrice: 1800, sellingPrice: 4500, stockQty: 0, reorderLevel: 5, status: "out-of-stock" },
-];
-
-const blank: Omit<Part, "id"> = { name: "", category: "", partNumber: "", supplier: "", buyingPrice: 0, sellingPrice: 0, stockQty: 0, reorderLevel: 5, status: "in-stock" };
+const emptyForm = {
+  name: "", category: "Filters", partNumber: "", supplier: "",
+  buyingPrice: 0, sellingPrice: 0, stockQty: 0, reorderLevel: 5, status: "in-stock",
+};
 
 export function PartsInventoryTab() {
-  const [data, setData] = useState(sample);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Part } | null>(null);
-  const [form, setForm] = useState<Omit<Part, "id">>(blank);
-  const canCreate = usePermission("automotive.parts.create");
-  const canUpdate = usePermission("automotive.parts.create");
-  const canDelete = usePermission("automotive.parts.create");
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("auto.parts.manage");
 
-  const open = (mode: "add" | "edit" | "view", item?: Part) => {
-    setForm(item ? { ...item } : { ...blank });
-    setModal({ mode, item: item || { id: "", ...blank } });
-  };
-  const save = () => {
-    if (modal?.mode === "add") { if (!guardAction("automotive.parts.create", "add a part")) return; setData([{ ...form, id: `PT${String(data.length + 1).padStart(3, "0")}` }, ...data]); }
-    else if (modal?.mode === "edit") { if (!guardAction("automotive.parts.create", "edit a part")) return; setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d)); }
-    setModal(null);
-  };
-  const remove = (item: Part) => { if (!guardAction("automotive.parts.create", "delete a part")) return; setData(data.filter(d => d.id !== item.id)); };
+  const [records, setRecords]   = useState<ApiAutoPart[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiAutoPart | null>(null);
+  const [viewing, setViewing]   = useState<ApiAutoPart | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const columns = [
-    { key: "id" as const, label: "ID" },
-    { key: "name" as const, label: "Part Name" },
-    { key: "partNumber" as const, label: "Part #" },
-    { key: "category" as const, label: "Category" },
-    { key: "supplier" as const, label: "Supplier" },
-    { key: "buyingPrice" as const, label: "Cost", render: (i: Part) => `Ksh ${i.buyingPrice.toLocaleString()}` },
-    { key: "sellingPrice" as const, label: "Sell Price", render: (i: Part) => `Ksh ${i.sellingPrice.toLocaleString()}` },
-    { key: "stockQty" as const, label: "Stock", render: (i: Part) => <span className={i.stockQty <= i.reorderLevel ? "text-destructive font-medium" : ""}>{i.stockQty}</span> },
-    { key: "status" as const, label: "Status", render: (i: Part) => <StatusBadge status={i.status} /> },
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await autoApi.parts.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load parts"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
+  const openEdit = (p: ApiAutoPart) => {
+    setEditing(p);
+    setForm({
+      name: p.name, category: p.category, partNumber: p.partNumber ?? "",
+      supplier: p.supplier ?? "", buyingPrice: p.buyingPrice, sellingPrice: p.sellingPrice,
+      stockQty: p.stockQty, reorderLevel: p.reorderLevel, status: p.status,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.category) return toast.error("Name and category are required");
+    setSaving(true);
+    try {
+      const payload = { ...form, partNumber: form.partNumber || undefined, supplier: form.supplier || undefined };
+      if (editing) {
+        await autoApi.parts.update(editing.id, payload, stationId);
+        toast.success("Part updated");
+      } else {
+        await autoApi.parts.create(payload, stationId);
+        toast.success("Part added");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save part"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (p: ApiAutoPart) => {
+    try {
+      await autoApi.parts.delete(p.id, stationId);
+      toast.success("Part removed");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const stats = {
+    inStock:    records.filter(r => r.status === "in-stock").length,
+    lowStock:   records.filter(r => r.status === "low-stock").length,
+    outOfStock: records.filter(r => r.status === "out-of-stock").length,
+  };
+
+  const columns: Column<ApiAutoPart>[] = [
+    { key: "name",         label: "Part Name",    sortable: true },
+    { key: "partNumber",   label: "Part #",        render: p => p.partNumber || "—" },
+    { key: "category",     label: "Category",      sortable: true },
+    { key: "supplier",     label: "Supplier",      render: p => p.supplier || "—" },
+    { key: "buyingPrice",  label: "Cost",          render: p => `Ksh ${p.buyingPrice.toLocaleString()}` },
+    { key: "sellingPrice", label: "Sell Price",    render: p => `Ksh ${p.sellingPrice.toLocaleString()}` },
+    { key: "stockQty",     label: "Stock",         render: p => <span className={p.stockQty <= p.reorderLevel ? "text-destructive font-medium" : ""}>{p.stockQty}</span>, sortable: true },
+    { key: "status",       label: "Status",        render: p => <StatusBadge status={p.status} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "status",   label: "Status",   options: [{ label: "In Stock", value: "in-stock" }, { label: "Low Stock", value: "low-stock" }, { label: "Out of Stock", value: "out-of-stock" }] },
+    { key: "category", label: "Category", options: CATEGORIES.map(c => ({ label: c, value: c })) },
   ];
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-semibold">Parts Inventory</h3>
-        {canCreate && <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Part</Button>}
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "In Stock",     value: stats.inStock,    color: "text-green-600" },
+          { label: "Low Stock",    value: stats.lowStock,   color: "text-amber-600" },
+          { label: "Out of Stock", value: stats.outOfStock, color: "text-destructive" },
+        ].map(s => (
+          <Card key={s.label}><CardContent className="p-4 text-center">
+            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+          </CardContent></Card>
+        ))}
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["name", "partNumber", "supplier", "category"]}
-        filters={[
-          { key: "status", label: "Status", options: [{ label: "In Stock", value: "in-stock" }, { label: "Low Stock", value: "low-stock" }, { label: "Out of Stock", value: "out-of-stock" }] },
-          { key: "category", label: "Category", options: [{ label: "Filters", value: "Filters" }, { label: "Brakes", value: "Brakes" }, { label: "Lubricants", value: "Lubricants" }, { label: "Ignition", value: "Ignition" }] },
-        ]}
-        onView={i => open("view", i)} onEdit={canUpdate ? (i => open("edit", i)) : undefined} onDelete={canDelete ? remove : undefined} />
-      {modal && (
-        <ModalForm open title={modal.mode === "add" ? "Add Part" : modal.mode === "edit" ? "Edit Part" : "Part Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Part Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Part Number</Label><Input value={form.partNumber} onChange={e => setForm({ ...form, partNumber: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Category</Label>
-              <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Filters">Filters</SelectItem>
-                  <SelectItem value="Brakes">Brakes</SelectItem>
-                  <SelectItem value="Lubricants">Lubricants</SelectItem>
-                  <SelectItem value="Ignition">Ignition</SelectItem>
-                  <SelectItem value="Electrical">Electrical</SelectItem>
-                  <SelectItem value="Suspension">Suspension</SelectItem>
-                  <SelectItem value="Body">Body</SelectItem>
-                  <SelectItem value="Tyres">Tyres</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label>Supplier</Label><Input value={form.supplier} onChange={e => setForm({ ...form, supplier: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Buying Price (Ksh)</Label><Input type="number" value={form.buyingPrice} onChange={e => setForm({ ...form, buyingPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Selling Price (Ksh)</Label><Input type="number" value={form.sellingPrice} onChange={e => setForm({ ...form, sellingPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Stock Qty</Label><Input type="number" value={form.stockQty} onChange={e => setForm({ ...form, stockQty: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Reorder Level</Label><Input type="number" value={form.reorderLevel} onChange={e => setForm({ ...form, reorderLevel: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Status</Label>
-              <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="in-stock">In Stock</SelectItem>
-                  <SelectItem value="low-stock">Low Stock</SelectItem>
-                  <SelectItem value="out-of-stock">Out of Stock</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Spare parts and consumables inventory</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Add Part</Button>}
+        </div>
+      </div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["name", "partNumber", "supplier", "category"]}
+        searchPlaceholder="Search parts..."
+        filters={filters}
+        onView={p => setViewing(p)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Part" : "Add Part"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Add"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2"><Label>Part Name *</Label><Input value={form.name} onChange={e => set("name", e.target.value)} /></div>
+          <div><Label>Part Number</Label><Input value={form.partNumber} onChange={e => set("partNumber", e.target.value)} /></div>
+          <div><Label>Category *</Label>
+            <Select value={form.category} onValueChange={v => set("category", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
-    </>
+          <div><Label>Supplier</Label><Input value={form.supplier} onChange={e => set("supplier", e.target.value)} /></div>
+          <div><Label>Status</Label>
+            <Select value={form.status} onValueChange={v => set("status", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="in-stock">In Stock</SelectItem>
+                <SelectItem value="low-stock">Low Stock</SelectItem>
+                <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div><Label>Buying Price (Ksh)</Label><Input type="number" value={form.buyingPrice || ""} onChange={e => set("buyingPrice", +e.target.value)} /></div>
+          <div><Label>Selling Price (Ksh)</Label><Input type="number" value={form.sellingPrice || ""} onChange={e => set("sellingPrice", +e.target.value)} /></div>
+          <div><Label>Stock Qty</Label><Input type="number" value={form.stockQty} onChange={e => set("stockQty", +e.target.value)} /></div>
+          <div><Label>Reorder Level</Label><Input type="number" value={form.reorderLevel} onChange={e => set("reorderLevel", +e.target.value)} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Part Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Name:</span> {viewing.name}</div>
+            <div><span className="text-muted-foreground">Part #:</span> {viewing.partNumber || "—"}</div>
+            <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
+            <div><span className="text-muted-foreground">Supplier:</span> {viewing.supplier || "—"}</div>
+            <div><span className="text-muted-foreground">Cost:</span> Ksh {viewing.buyingPrice.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Sell Price:</span> Ksh {viewing.sellingPrice.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Stock:</span> <span className={viewing.stockQty <= viewing.reorderLevel ? "text-destructive font-medium" : ""}>{viewing.stockQty}</span></div>
+            <div><span className="text-muted-foreground">Reorder Level:</span> {viewing.reorderLevel}</div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+          </div>
+        )}
+      </ModalForm>
+    </div>
   );
 }

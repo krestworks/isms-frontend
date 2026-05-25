@@ -1,6 +1,7 @@
 import { UserCog } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import HRSetupTab from "@/components/hr/HRSetupTab";
 import StaffOnboardingTab from "@/components/hr/StaffOnboardingTab";
 import LeaveManagementTab from "@/components/hr/LeaveManagementTab";
 import PayrollTab from "@/components/hr/PayrollTab";
@@ -17,6 +18,7 @@ export default function HRPage() {
     <ModulePageShell title="HR Management" description="Central staff hub — onboarding, leave, payroll, attendance, discipline, performance" icon={UserCog}>
       <Tabs defaultValue="onboarding" className="w-full">
         <TabsList className="bg-muted/50 p-1 h-auto flex-wrap">
+          <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="onboarding">Staff Onboarding</TabsTrigger>
           <TabsTrigger value="leave">Leave</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
@@ -28,6 +30,7 @@ export default function HRPage() {
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
         </TabsList>
+        <TabsContent value="setup"><HRSetupTab /></TabsContent>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
         <TabsContent value="leave"><LeaveManagementTab /></TabsContent>
         <TabsContent value="attendance"><AttendanceTab /></TabsContent>

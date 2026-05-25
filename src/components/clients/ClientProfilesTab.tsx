@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,82 +8,146 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-
-interface Client {
-  id: string; name: string; phone: string; email: string; type: string; modules: string[]; totalSpent: number; visits: number; status: string;
-}
-
-const mockData: Client[] = [
-  { id: "1", name: "John Kamau", phone: "0712345678", email: "john@email.com", type: "Individual", modules: ["Fuel", "Car Wash"], totalSpent: 45000, visits: 32, status: "active" },
-  { id: "2", name: "Wanjiku Enterprises", phone: "0723456789", email: "info@wanjiku.co.ke", type: "Corporate", modules: ["Fuel", "LPG", "Water"], totalSpent: 320000, visits: 86, status: "active" },
-  { id: "3", name: "David Ochieng", phone: "0734567890", email: "david@email.com", type: "Individual", modules: ["Car Wash", "Automotive"], totalSpent: 18500, visits: 12, status: "active" },
-  { id: "4", name: "Mama Njeri Stores", phone: "0745678901", email: "njeri@stores.co.ke", type: "Corporate", modules: ["LPG", "Water"], totalSpent: 156000, visits: 64, status: "inactive" },
-  { id: "5", name: "Alice Muthoni", phone: "0756789012", email: "alice@email.com", type: "Individual", modules: ["Fuel"], totalSpent: 8200, visits: 5, status: "active" },
-];
-
-const blank: Omit<Client, "id"> = { name: "", phone: "", email: "", type: "Individual", modules: [], totalSpent: 0, visits: 0, status: "active" };
-
-const columns: Column<Client>[] = [
-  { key: "name", label: "Client Name", sortable: true },
-  { key: "phone", label: "Phone" },
-  { key: "email", label: "Email" },
-  { key: "type", label: "Type" },
-  { key: "modules", label: "Modules", render: (r) => <div className="flex gap-1 flex-wrap">{r.modules.map((m) => <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>)}</div> },
-  { key: "totalSpent", label: "Total Spent", render: (r) => `Ksh ${r.totalSpent.toLocaleString()}`, sortable: true },
-  { key: "visits", label: "Visits", sortable: true },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
-];
-
-const filters: FilterOption[] = [
-  { key: "type", label: "Type", options: [{ label: "Individual", value: "Individual" }, { label: "Corporate", value: "Corporate" }] },
-  { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
-];
+import { toast } from "sonner";
+import { clientsApi, ApiClient } from "@/lib/clientsApi";
+import { useActiveStation } from "@/lib/useActiveStation";
 
 const allModules = ["Fuel", "LPG", "Water", "Car Wash", "Automotive"];
 
-export default function ClientProfilesTab() {
-  const [data, setData] = useState(mockData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Omit<Client, "id"> & { id?: string } } | null>(null);
+const blank: Omit<ApiClient, "id" | "stationId" | "totalSpent" | "visits" | "createdAt" | "updatedAt"> = {
+  name: "", phone: "", email: "", type: "Individual", modules: [], notes: "", status: "active",
+};
 
-  const open = (mode: "add" | "edit" | "view", item?: Client) => setModal({ mode, item: item ? { ...item } : { ...blank } });
-  const close = () => setModal(null);
-  const save = () => { if (!modal) return; if (modal.mode === "add") setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as Client]); else if (modal.mode === "edit") setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as Client : r)); close(); };
-  const remove = (item: Client) => setData((d) => d.filter((r) => r.id !== item.id));
-  const f = modal?.item;
+const columns: Column<ApiClient>[] = [
+  { key: "name",       label: "Client Name", sortable: true },
+  { key: "phone",      label: "Phone",       render: c => c.phone || "—" },
+  { key: "email",      label: "Email",       render: c => c.email || "—" },
+  { key: "type",       label: "Type" },
+  { key: "modules",    label: "Modules",     render: c => <div className="flex gap-1 flex-wrap">{c.modules.map(m => <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>)}</div> },
+  { key: "totalSpent", label: "Total Spent", render: c => `Ksh ${c.totalSpent.toLocaleString()}`, sortable: true },
+  { key: "visits",     label: "Visits",      sortable: true },
+  { key: "status",     label: "Status",      render: c => <StatusBadge status={c.status} /> },
+];
+
+const filters: FilterOption[] = [
+  { key: "type",   label: "Type",   options: [{ label: "Individual", value: "Individual" }, { label: "Corporate", value: "Corporate" }] },
+  { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
+];
+
+type FormState = typeof blank;
+
+export default function ClientProfilesTab() {
+  const { stationId } = useActiveStation();
+  const [data,    setData]    = useState<ApiClient[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal,   setModal]   = useState<{ mode: "add" | "edit" | "view"; id?: string } | null>(null);
+  const [form,    setForm]    = useState<FormState>({ ...blank });
+  const [saving,  setSaving]  = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await clientsApi.clients.list(stationId);
+      setData(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load clients"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const set = (k: keyof FormState, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openAdd  = () => { setForm({ ...blank }); setModal({ mode: "add" }); };
+  const openView = (c: ApiClient) => { setForm({ name: c.name, phone: c.phone ?? "", email: c.email ?? "", type: c.type, modules: c.modules, notes: c.notes ?? "", status: c.status }); setModal({ mode: "view", id: c.id }); };
+  const openEdit = (c: ApiClient) => { setForm({ name: c.name, phone: c.phone ?? "", email: c.email ?? "", type: c.type, modules: c.modules, notes: c.notes ?? "", status: c.status }); setModal({ mode: "edit", id: c.id }); };
+
+  const handleSave = async () => {
+    if (!form.name) return toast.error("Client name is required");
+    setSaving(true);
+    try {
+      if (modal?.mode === "add") {
+        await clientsApi.clients.create(form, stationId);
+        toast.success("Client added");
+      } else if (modal?.mode === "edit" && modal.id) {
+        await clientsApi.clients.update(modal.id, form);
+        toast.success("Client updated");
+      }
+      setModal(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (c: ApiClient) => {
+    try { await clientsApi.clients.delete(c.id); toast.success("Client deleted"); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
 
   const toggleModule = (mod: string) => {
-    if (!f) return;
-    const mods = f.modules.includes(mod) ? f.modules.filter((m) => m !== mod) : [...f.modules, mod];
-    setModal({ ...modal!, item: { ...f, modules: mods } });
+    set("modules", form.modules.includes(mod)
+      ? form.modules.filter(m => m !== mod)
+      : [...form.modules, mod]);
   };
+
+  const isView = modal?.mode === "view";
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Add Client</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["name", "phone", "email"]} searchPlaceholder="Search clients..." filters={filters} onView={(r) => open("view", r)} onEdit={(r) => open("edit", r)} onDelete={remove} />
-      {modal && f && (
-        <ModalForm open onClose={close} title={modal.mode === "add" ? "Add Client" : modal.mode === "edit" ? "Edit Client" : "Client Profile"} isView={modal.mode === "view"} onSubmit={save}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{data.length} clients registered</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Add Client</Button>
+        </div>
+      </div>
+
+      <DataTable
+        data={data} columns={columns}
+        searchKeys={["name", "phone", "email"]} searchPlaceholder="Search clients..."
+        filters={filters}
+        onView={openView} onEdit={openEdit} onDelete={handleDelete}
+      />
+
+      {modal && (
+        <ModalForm
+          open onClose={() => setModal(null)}
+          title={modal.mode === "add" ? "Add Client" : modal.mode === "edit" ? "Edit Client" : "Client Profile"}
+          isView={isView}
+          onSubmit={handleSave}
+          submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Update" : "Add"}>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Name</Label><Input value={f.name} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, name: e.target.value } })} /></div>
-            <div><Label>Phone</Label><Input value={f.phone} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, phone: e.target.value } })} /></div>
-            <div className="col-span-2"><Label>Email</Label><Input value={f.email} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, email: e.target.value } })} /></div>
+            <div><Label>Name *</Label><Input value={form.name} readOnly={isView} onChange={e => set("name", e.target.value)} /></div>
+            <div><Label>Phone</Label><Input value={form.phone} readOnly={isView} onChange={e => set("phone", e.target.value)} /></div>
+            <div className="col-span-2"><Label>Email</Label><Input type="email" value={form.email} readOnly={isView} onChange={e => set("email", e.target.value)} /></div>
             <div><Label>Type</Label>
-              <Select value={f.type} onValueChange={(v) => setModal({ ...modal, item: { ...f, type: v } })} disabled={modal.mode === "view"}>
+              <Select value={form.type} onValueChange={v => set("type", v)} disabled={isView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Individual">Individual</SelectItem><SelectItem value="Corporate">Corporate</SelectItem></SelectContent>
+                <SelectContent>
+                  <SelectItem value="Individual">Individual</SelectItem>
+                  <SelectItem value="Corporate">Corporate</SelectItem>
+                </SelectContent>
               </Select>
             </div>
             <div><Label>Status</Label>
-              <Select value={f.status} onValueChange={(v) => setModal({ ...modal, item: { ...f, status: v } })} disabled={modal.mode === "view"}>
+              <Select value={form.status} onValueChange={v => set("status", v)} disabled={isView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
               </Select>
             </div>
             <div className="col-span-2">
               <Label>Linked Modules</Label>
               <div className="flex flex-wrap gap-2 mt-1">
-                {allModules.map((mod) => (
-                  <Badge key={mod} variant={f.modules.includes(mod) ? "default" : "outline"} className={`cursor-pointer ${modal.mode === "view" ? "pointer-events-none" : ""}`} onClick={() => toggleModule(mod)}>{mod}</Badge>
+                {allModules.map(mod => (
+                  <Badge
+                    key={mod}
+                    variant={form.modules.includes(mod) ? "default" : "outline"}
+                    className={`cursor-pointer ${isView ? "pointer-events-none" : ""}`}
+                    onClick={() => !isView && toggleModule(mod)}>
+                    {mod}
+                  </Badge>
                 ))}
               </div>
             </div>

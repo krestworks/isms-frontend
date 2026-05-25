@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
-import { usePermission, guardAction } from "@/lib/actionPermissions";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,65 +8,140 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { toast } from "sonner";
+import { carwashApi, ApiCarwashPackage } from "@/lib/carwashApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
 
-interface WashPackage {
-  id: string; name: string; description: string; duration: number; price: number; vehicleTypes: string; status: string;
-}
+const emptyForm = {
+  name: "", description: "", duration: 30, price: 0, vehicleTypes: "All", status: "active",
+};
 
-const mockData: WashPackage[] = [
-  { id: "1", name: "Basic Rinse", description: "Exterior water rinse and dry", duration: 15, price: 400, vehicleTypes: "All", status: "active" },
-  { id: "2", name: "Full Wash", description: "Exterior wash, tire shine, interior vacuum", duration: 30, price: 800, vehicleTypes: "All", status: "active" },
-  { id: "3", name: "Premium Detail", description: "Full wash, polish, wax, interior shampoo", duration: 60, price: 2500, vehicleTypes: "Sedan, SUV", status: "active" },
-  { id: "4", name: "Interior Clean", description: "Dashboard wipe, vacuum, air freshener, seat shampoo", duration: 45, price: 1200, vehicleTypes: "All", status: "active" },
-];
+export function WashPackagesTab() {
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("carwash.packages.manage");
 
-const blank: Omit<WashPackage, "id"> = { name: "", description: "", duration: 0, price: 0, vehicleTypes: "All", status: "active" };
+  const [records, setRecords]   = useState<ApiCarwashPackage[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiCarwashPackage | null>(null);
+  const [viewing, setViewing]   = useState<ApiCarwashPackage | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-const columns: Column<WashPackage>[] = [
-  { key: "name", label: "Package Name", sortable: true },
-  { key: "description", label: "Description" },
-  { key: "duration", label: "Duration (min)", sortable: true },
-  { key: "price", label: "Price (Ksh)", render: (r) => `Ksh ${r.price.toLocaleString()}`, sortable: true },
-  { key: "vehicleTypes", label: "Vehicle Types" },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
-];
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await carwashApi.packages.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load packages"); }
+    finally { setLoading(false); }
+  }, [stationId]);
 
-export default function WashPackagesTab() {
-  const [data, setData] = useState(mockData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Omit<WashPackage, "id"> & { id?: string } } | null>(null);
-  const canCreate = usePermission("carwash.package.create");
-  const canUpdate = usePermission("carwash.package.create");
-  const canDelete = usePermission("carwash.package.create");
+  useEffect(() => { if (stationId) load(); }, [load]);
 
-  const open = (mode: "add" | "edit" | "view", item?: WashPackage) => setModal({ mode, item: item ? { ...item } : { ...blank } });
-  const close = () => setModal(null);
-  const save = () => { if (!modal) return; if (modal.mode === "add") { if (!guardAction("carwash.package.create", "add a package")) return; setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as WashPackage]); } else if (modal.mode === "edit") { if (!guardAction("carwash.package.create", "edit a package")) return; setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as WashPackage : r)); } close(); };
-  const remove = (item: WashPackage) => { if (!guardAction("carwash.package.create", "delete a package")) return; setData((d) => d.filter((r) => r.id !== item.id)); };
-  const f = modal?.item;
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
+  const openEdit = (p: ApiCarwashPackage) => {
+    setEditing(p);
+    setForm({
+      name: p.name, description: p.description ?? "", duration: p.duration,
+      price: p.price, vehicleTypes: p.vehicleTypes, status: p.status,
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name) return toast.error("Package name is required");
+    setSaving(true);
+    try {
+      const payload = { ...form, description: form.description || undefined };
+      if (editing) {
+        await carwashApi.packages.update(editing.id, payload, stationId);
+        toast.success("Package updated");
+      } else {
+        await carwashApi.packages.create(payload, stationId);
+        toast.success("Package added");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save package"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (p: ApiCarwashPackage) => {
+    try {
+      await carwashApi.packages.delete(p.id, stationId);
+      toast.success("Package deleted");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const columns: Column<ApiCarwashPackage>[] = [
+    { key: "name",         label: "Package Name",   sortable: true },
+    { key: "description",  label: "Description",     render: p => p.description || "—" },
+    { key: "duration",     label: "Duration (min)",  sortable: true },
+    { key: "price",        label: "Price (Ksh)",     render: p => <span className="font-bold">Ksh {p.price.toLocaleString()}</span>, sortable: true },
+    { key: "vehicleTypes", label: "Vehicle Types" },
+    { key: "status",       label: "Status",          render: p => <StatusBadge status={p.status} /> },
+  ];
 
   return (
     <div className="space-y-4">
-      {canCreate && <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Add Package</Button></div>}
-      <DataTable data={data} columns={columns} searchKeys={["name"]} searchPlaceholder="Search packages..." onView={(r) => open("view", r)} onEdit={canUpdate ? ((r) => open("edit", r)) : undefined} onDelete={canDelete ? remove : undefined} />
-      {modal && f && (
-        <ModalForm open onClose={close} title={modal.mode === "add" ? "Add Package" : modal.mode === "edit" ? "Edit Package" : "Package Details"} isView={modal.mode === "view"} onSubmit={save}>
-          <div className="space-y-3">
-            <div><Label>Package Name</Label><Input value={f.name} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, name: e.target.value } })} /></div>
-            <div><Label>Description</Label><Textarea value={f.description} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, description: e.target.value } })} /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>Duration (min)</Label><Input type="number" value={f.duration} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, duration: +e.target.value } })} /></div>
-              <div><Label>Price (Ksh)</Label><Input type="number" value={f.price} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, price: +e.target.value } })} /></div>
-            </div>
-            <div><Label>Vehicle Types</Label><Input value={f.vehicleTypes} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, vehicleTypes: e.target.value } })} /></div>
-            <div><Label>Status</Label>
-              <Select value={f.status} onValueChange={(v) => setModal({ ...modal, item: { ...f, status: v } })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
-              </Select>
-            </div>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Available wash packages and pricing</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Add Package</Button>}
+        </div>
+      </div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["name"]}
+        searchPlaceholder="Search packages..."
+        onView={p => setViewing(p)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Package" : "Add Package"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Add"}>
+        <div className="space-y-3">
+          <div><Label>Package Name *</Label><Input value={form.name} onChange={e => set("name", e.target.value)} /></div>
+          <div><Label>Description</Label><Textarea value={form.description} onChange={e => set("description", e.target.value)} /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label>Duration (min)</Label><Input type="number" value={form.duration || ""} onChange={e => set("duration", +e.target.value)} /></div>
+            <div><Label>Price (Ksh)</Label><Input type="number" value={form.price || ""} onChange={e => set("price", +e.target.value)} /></div>
           </div>
-        </ModalForm>
-      )}
+          <div><Label>Vehicle Types</Label><Input value={form.vehicleTypes} onChange={e => set("vehicleTypes", e.target.value)} placeholder="All, Sedan, SUV..." /></div>
+          <div><Label>Status</Label>
+            <Select value={form.status} onValueChange={v => set("status", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+            </Select>
+          </div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Package Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Name:</span> {viewing.name}</div>
+            <div><span className="text-muted-foreground">Duration:</span> {viewing.duration} min</div>
+            <div><span className="text-muted-foreground">Price:</span> <strong>Ksh {viewing.price.toLocaleString()}</strong></div>
+            <div><span className="text-muted-foreground">Vehicle Types:</span> {viewing.vehicleTypes}</div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+            {viewing.description && <div className="col-span-2"><span className="text-muted-foreground">Description:</span> {viewing.description}</div>}
+          </div>
+        )}
+      </ModalForm>
     </div>
   );
 }
+
+export default WashPackagesTab;

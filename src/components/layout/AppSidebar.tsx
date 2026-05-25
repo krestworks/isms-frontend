@@ -1,4 +1,4 @@
-import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, UserCog, UserCircle, MapPin, Package } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, UserCog, UserCircle, MapPin, Package, Store } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { canAccessRoute } from "@/lib/permissions";
@@ -30,6 +30,7 @@ const modules = [
   { title: "Water Production", url: "/water", icon: Droplets },
   { title: "Auto Services", url: "/automotive", icon: Wrench },
   { title: "Car Wash", url: "/carwash", icon: Car },
+  { title: "Business", url: "/business", icon: Store },
   { title: "Inventory", url: "/inventory", icon: Package },
 ];
 

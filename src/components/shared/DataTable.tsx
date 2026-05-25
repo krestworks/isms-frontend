@@ -25,6 +25,13 @@ export interface FilterOption {
   options: { label: string; value: string }[];
 }
 
+export interface ExtraAction<T> {
+  label: string;
+  icon?: React.ElementType;
+  onClick: (item: T) => void;
+  show?: (item: T) => boolean;
+}
+
 interface DataTableProps<T> {
   data: T[];
   columns: Column<T>[];
@@ -37,6 +44,7 @@ interface DataTableProps<T> {
   onEdit?: (item: T) => void;
   onDelete?: (item: T) => void;
   actions?: (item: T) => React.ReactNode;
+  extraActions?: ExtraAction<T>[];
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -51,12 +59,21 @@ export function DataTable<T extends Record<string, any>>({
   onEdit,
   onDelete,
   actions: actionsProp,
+  extraActions = [],
 }: DataTableProps<T>) {
-  const hasActions = !!(actionsProp || onView || onEdit || onDelete);
+  const hasActions = !!(actionsProp || onView || onEdit || onDelete || extraActions.length);
   const renderActions = (item: T) => (
     <div className="flex items-center gap-1">
       {onView && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(item)}><Eye className="h-3.5 w-3.5" /></Button>}
       {onEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>}
+      {extraActions.filter(a => !a.show || a.show(item)).map((a, i) => {
+        const Icon = a.icon;
+        return (
+          <Button key={i} variant="ghost" size="sm" className="h-7 text-xs px-2" title={a.label} onClick={() => a.onClick(item)}>
+            {Icon ? <Icon className="h-3.5 w-3.5 mr-1" /> : null}{a.label}
+          </Button>
+        );
+      })}
       {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>}
       {actionsProp?.(item)}
     </div>

@@ -1,187 +1,249 @@
-import { useMemo, useState } from "react";
-import { Download, RefreshCw, Pencil, Check, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Download, LogIn, LogOut, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { Badge } from "@/components/ui/badge";
-import { useDerivedAttendance, attendanceStore, DerivedAttendance, useCorrectionRequests, CorrectionRequest } from "@/data/shiftsStore";
-import { exportToCsv } from "@/lib/exportCsv";
-import { sessionStore, useSession } from "@/data/sessionStore";
-import { isLocationVisible } from "@/lib/permissions";
 import { toast } from "sonner";
+import { hrApi, ApiAttendance, ApiEmployee, ApiStation } from "@/lib/hrApi";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-const APPROVER_ROLES = ["Admin", "Manager"];
+const STATUSES = ["Present", "Absent", "Late", "On Leave", "Half Day"];
+
+function calcHours(checkIn?: string | null, checkOut?: string | null): string {
+  if (!checkIn || !checkOut) return "—";
+  const t = (s: string) => { const [h, m] = s.slice(11, 16).split(":").map(Number); return h * 60 + m; };
+  const mins = t(checkOut) - t(checkIn);
+  return mins > 0 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : "—";
+}
 
 export default function AttendanceTab() {
-  useSession();
-  const all = useDerivedAttendance();
-  const requests = useCorrectionRequests();
-  const activeLoc = sessionStore.activeLocation();
-  const data = useMemo(() => all.filter(a => isLocationVisible(a.location)), [all, activeLoc]);
-  const pending = requests.filter(r => r.status === "pending");
-  const isApprover = APPROVER_ROLES.includes(sessionStore.user().activeRole);
-  const [viewing, setViewing] = useState<DerivedAttendance | null>(null);
-  const [editing, setEditing] = useState<DerivedAttendance | null>(null);
-  const [form, setForm] = useState({ clockIn: "", clockOut: "", reason: "" });
-  const [reviewing, setReviewing] = useState<CorrectionRequest | null>(null);
-  const [reviewNotes, setReviewNotes] = useState("");
+  const today = new Date().toISOString().split("T")[0];
+  const [attendance, setAttendance] = useState<ApiAttendance[]>([]);
+  const [employees, setEmployees] = useState<ApiEmployee[]>([]);
+  const [stations, setStations] = useState<ApiStation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [stationId, setStationId] = useState("all");
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(today);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [viewing, setViewing] = useState<ApiAttendance | null>(null);
+  const [manualForm, setManualForm] = useState({ employeeId: "", date: today, checkIn: "", checkOut: "", status: "Present", note: "" });
+  const [saving, setSaving] = useState(false);
+
+  const can = usePermissions();
+  const canCheckInOut = can("hr.attendance.view");
+  const canManual = can("hr.attendance.record");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [attRes, stationsRes] = await Promise.all([
+        hrApi.attendance.list({ stationId: stationId === "all" ? undefined : stationId, from: fromDate, to: toDate }),
+        hrApi.stations.list(),
+      ]);
+      setAttendance(attRes.data ?? []);
+      setStations(stationsRes.data ?? []);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load attendance data");
+    } finally {
+      setLoading(false);
+    }
+  }, [stationId, fromDate, toDate]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!canManual) return;
+    hrApi.employees.list({ limit: 200 }).then(r => setEmployees(r.data ?? [])).catch(() => {});
+  }, [canManual]);
 
   const stats = {
-    total: data.length,
-    completed: data.filter(d => d.status === "completed").length,
-    inProgress: data.filter(d => d.status === "in_progress").length,
-    absent: data.filter(d => d.status === "absent").length,
+    total: attendance.length,
+    present: attendance.filter(a => a.status === "Present").length,
+    absent: attendance.filter(a => a.status === "Absent").length,
+    late: attendance.filter(a => a.status === "Late").length,
   };
 
-  const columns: Column<DerivedAttendance>[] = [
-    { key: "id", label: "ID" },
-    { key: "employeeName", label: "Employee", sortable: true },
-    { key: "department", label: "Dept" },
+  const handleCheckIn = async () => {
+    try {
+      await hrApi.attendance.checkIn();
+      toast.success("Clocked in successfully");
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Check-in failed");
+    }
+  };
+
+  const handleCheckOut = async () => {
+    try {
+      await hrApi.attendance.checkOut();
+      toast.success("Clocked out successfully");
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Check-out failed");
+    }
+  };
+
+  const handleManual = async () => {
+    if (!manualForm.employeeId || !manualForm.date) return toast.error("Employee and date are required");
+    setSaving(true);
+    try {
+      await hrApi.attendance.manual({
+        employeeId: manualForm.employeeId,
+        date: manualForm.date,
+        checkIn: manualForm.checkIn || undefined,
+        checkOut: manualForm.checkOut || undefined,
+        status: manualForm.status,
+        note: manualForm.note || undefined,
+      });
+      toast.success("Attendance recorded");
+      setManualOpen(false);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to record attendance");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const columns: Column<ApiAttendance>[] = [
+    { key: "employee", label: "Employee", render: a => a.employee?.user.name || "—", sortable: true },
     { key: "date", label: "Date", sortable: true },
-    { key: "shift", label: "Shift", render: i => <Badge variant="outline">{i.shift}</Badge> },
-    { key: "scheduledStart", label: "Scheduled", render: i => `${i.scheduledStart}–${i.scheduledEnd}` },
-    { key: "clockIn", label: "In", render: i => i.clockIn || "—" },
-    { key: "clockOut", label: "Out", render: i => i.clockOut || "—" },
-    { key: "hoursWorked", label: "Hrs", render: i => i.hoursWorked > 0 ? `${i.hoursWorked}h` : "—" },
-    { key: "status", label: "Status", render: i => <StatusBadge status={i.status} /> },
+    { key: "checkIn", label: "In", render: a => a.checkIn ? a.checkIn.slice(11, 16) : "—" },
+    { key: "checkOut", label: "Out", render: a => a.checkOut ? a.checkOut.slice(11, 16) : "—" },
+    { key: "updatedAt", label: "Hours", render: a => <span className="text-muted-foreground text-xs">{calcHours(a.checkIn, a.checkOut)}</span> },
+    { key: "status", label: "Status", render: a => <StatusBadge status={a.status} /> },
   ];
 
-  const filters: FilterOption[] = [
-    { key: "department", label: "Dept", options: ["Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory"].map(d => ({ label: d, value: d })) },
-    { key: "status", label: "Status", options: [{ label: "Pending", value: "pending" }, { label: "In Progress", value: "in_progress" }, { label: "Completed", value: "completed" }, { label: "Absent", value: "absent" }] },
+  const filterOpts: FilterOption[] = [
+    { key: "status", label: "Status", options: STATUSES.map(s => ({ label: s, value: s })) },
   ];
-
-  const handleExport = () => exportToCsv(`attendance-${new Date().toISOString().split("T")[0]}.csv`, data);
-  const handleRefresh = () => toast.success("Attendance synced from latest shift schedules");
-
-  const punch = (rec: DerivedAttendance, kind: "in" | "out") => {
-    const now = new Date().toTimeString().slice(0, 5);
-    attendanceStore.punch(rec.employeeId, rec.date, kind, now);
-    toast.success(`Clock ${kind === "in" ? "in" : "out"} recorded for ${rec.employeeName}`);
-  };
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-semibold">Attendance</h3>
-          <p className="text-sm text-muted-foreground">Auto-derived from shift schedule · scope: {activeLoc}</p>
+          <p className="text-sm text-muted-foreground">Track employee check-in/check-out and daily attendance</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={handleRefresh}><RefreshCw className="h-4 w-4 mr-2" /> Sync</Button>
-          <Button variant="outline" onClick={handleExport}><Download className="h-4 w-4 mr-2" /> Export</Button>
+        <div className="flex gap-2 flex-wrap">
+          {canCheckInOut && (
+            <>
+              <Button variant="outline" onClick={handleCheckIn}><LogIn className="h-4 w-4 mr-2" /> Check In</Button>
+              <Button variant="outline" onClick={handleCheckOut}><LogOut className="h-4 w-4 mr-2" /> Check Out</Button>
+            </>
+          )}
+          {canManual && (
+            <Button onClick={() => setManualOpen(true)}>Manual Entry</Button>
+          )}
+          <Button variant="outline" onClick={() => exportToCsv(`attendance-${today}.csv`, attendance)}>
+            <Download className="h-4 w-4 mr-2" /> Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 items-end">
+        <div>
+          <Label className="text-xs">Station</Label>
+          <Select value={stationId} onValueChange={setStationId}>
+            <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="All stations" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All stations</SelectItem>
+              {stations.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">From</Label>
+          <Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} />
+        </div>
+        <div>
+          <Label className="text-xs">To</Label>
+          <Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} />
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Scheduled", value: stats.total },
-          { label: "Completed", value: stats.completed, color: "text-green-600" },
-          { label: "In Progress", value: stats.inProgress, color: "text-primary" },
+          { label: "Records", value: stats.total },
+          { label: "Present", value: stats.present, color: "text-green-600" },
           { label: "Absent", value: stats.absent, color: "text-destructive" },
+          { label: "Late", value: stats.late, color: "text-amber-600" },
         ].map(s => (
-          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p></CardContent></Card>
+          <Card key={s.label}><CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">{s.label}</p>
+            <p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p>
+          </CardContent></Card>
         ))}
       </div>
 
-      {pending.length > 0 && (
-        <Card className="border-amber-300/50">
-          <CardContent className="p-4 space-y-2">
-            <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide">Pending Correction Requests ({pending.length})</p>
-            {pending.map(r => (
-              <div key={r.id} className="flex items-center justify-between p-2 rounded bg-amber-50/60 text-xs">
-                <div>
-                  <span className="font-medium">{r.employeeName}</span> · {r.date} · proposed {r.proposedClockIn || "—"}–{r.proposedClockOut || "—"}
-                  <div className="text-muted-foreground italic">"{r.reason}" — by {r.requestedBy}</div>
-                </div>
-                {isApprover ? (
-                  <Button size="sm" variant="ghost" className="h-7 text-xs text-emerald-700" onClick={() => { setReviewing(r); setReviewNotes(""); }}>Review</Button>
-                ) : <Badge variant="outline">Awaiting Manager</Badge>}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+      <DataTable
+        data={attendance}
+        columns={columns}
+        searchKeys={["date"]}
+        searchPlaceholder="Search by date..."
+        filters={filterOpts}
+        onView={item => setViewing(item)}
+      />
 
-      <DataTable<DerivedAttendance> data={data} columns={columns} searchKeys={["employeeName", "id"]} searchPlaceholder="Search attendance..." filters={filters} onView={(i) => setViewing(i)} actions={(r) => (
-        <div className="flex gap-1">
-          {!r.clockIn && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "in")}>In</Button>}
-          {r.clockIn && !r.clockOut && <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => punch(r, "out")}>Out</Button>}
-          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => { setEditing(r); setForm({ clockIn: r.clockIn, clockOut: r.clockOut, reason: "" }); }}><Pencil className="h-3 w-3" /></Button>
+      {/* Manual Entry */}
+      <ModalForm
+        open={manualOpen}
+        onClose={() => setManualOpen(false)}
+        title="Manual Attendance Entry"
+        description="Record or update attendance for any employee."
+        onSubmit={handleManual}
+        submitLabel={saving ? "Saving..." : "Save"}
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <Label>Employee *</Label>
+            <Select value={manualForm.employeeId} onValueChange={v => setManualForm(f => ({ ...f, employeeId: v }))}>
+              <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+              <SelectContent>
+                {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name} ({e.employeeNumber})</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2">
+            <Label>Date *</Label>
+            <Input type="date" value={manualForm.date} onChange={e => setManualForm(f => ({ ...f, date: e.target.value }))} />
+          </div>
+          <div><Label>Check In</Label><Input type="time" value={manualForm.checkIn} onChange={e => setManualForm(f => ({ ...f, checkIn: e.target.value }))} /></div>
+          <div><Label>Check Out</Label><Input type="time" value={manualForm.checkOut} onChange={e => setManualForm(f => ({ ...f, checkOut: e.target.value }))} /></div>
+          <div>
+            <Label>Status</Label>
+            <Select value={manualForm.status} onValueChange={v => setManualForm(f => ({ ...f, status: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-2">
+            <Label>Note</Label>
+            <Textarea value={manualForm.note} onChange={e => setManualForm(f => ({ ...f, note: e.target.value }))} placeholder="Optional note..." />
+          </div>
         </div>
-      )} />
+      </ModalForm>
 
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Attendance" isView>
+      {/* View Details */}
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Attendance Record" isView>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user.name || "—"}</div>
             <div><span className="text-muted-foreground">Date:</span> {viewing.date}</div>
-            <div><span className="text-muted-foreground">Shift:</span> {viewing.shift}</div>
-            <div><span className="text-muted-foreground">Scheduled:</span> {viewing.scheduledStart}–{viewing.scheduledEnd}</div>
-            <div><span className="text-muted-foreground">Clock In:</span> {viewing.clockIn || "—"}</div>
-            <div><span className="text-muted-foreground">Clock Out:</span> {viewing.clockOut || "—"}</div>
-            <div><span className="text-muted-foreground">Hours:</span> {viewing.hoursWorked || "—"}</div>
-            <div><span className="text-muted-foreground">Location:</span> {viewing.location || "—"}</div>
+            <div><span className="text-muted-foreground">Check In:</span> {viewing.checkIn ? viewing.checkIn.slice(11, 16) : "—"}</div>
+            <div><span className="text-muted-foreground">Check Out:</span> {viewing.checkOut ? viewing.checkOut.slice(11, 16) : "—"}</div>
+            <div><span className="text-muted-foreground">Hours:</span> {calcHours(viewing.checkIn, viewing.checkOut)}</div>
             <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
-            {viewing.corrected && <div className="col-span-2 p-2 rounded bg-amber-50 text-xs"><Badge variant="outline" className="mr-2">Manually corrected</Badge>by {viewing.correctedBy} — "{viewing.correctionReason}"</div>}
-          </div>
-        )}
-      </ModalForm>
-
-      <ModalForm open={!!editing} onClose={() => setEditing(null)} title={isApprover ? "Manual Attendance Correction" : "Request Attendance Correction"} submitLabel={isApprover ? "Save (auto-approved)" : "Submit for Approval"} onSubmit={() => {
-        if (!editing) return;
-        if (!form.reason.trim()) return toast.error("Reason is required for audit");
-        const u = sessionStore.user();
-        if (isApprover) {
-          attendanceStore.correct(editing.employeeId, editing.date, form.clockIn, form.clockOut, u.name, form.reason, u.name);
-          toast.success("Attendance corrected and approved");
-        } else {
-          attendanceStore.requestCorrection({
-            employeeId: editing.employeeId, employeeName: editing.employeeName, date: editing.date,
-            currentClockIn: editing.clockIn, currentClockOut: editing.clockOut,
-            proposedClockIn: form.clockIn, proposedClockOut: form.clockOut,
-            reason: form.reason, requestedBy: u.name,
-          });
-          toast.success("Correction submitted for manager approval");
-        }
-        setEditing(null);
-      }}>
-        {editing && (
-          <div className="space-y-3">
-            <div className="text-sm text-muted-foreground">{editing.employeeName} · {editing.date} · scheduled {editing.scheduledStart}–{editing.scheduledEnd}</div>
-            <div className="grid grid-cols-2 gap-3">
-              <div><Label>Clock In</Label><Input type="time" value={form.clockIn} onChange={e => setForm(f => ({ ...f, clockIn: e.target.value }))} /></div>
-              <div><Label>Clock Out</Label><Input type="time" value={form.clockOut} onChange={e => setForm(f => ({ ...f, clockOut: e.target.value }))} /></div>
-            </div>
-            <div><Label>Reason for correction *</Label><Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="e.g., biometric scanner failure, employee forgot to clock out" /></div>
-            <p className="text-xs text-muted-foreground">{isApprover ? "Auto-approved — you have manager privileges." : "A manager will review before this is finalized."}</p>
-          </div>
-        )}
-      </ModalForm>
-
-      <ModalForm open={!!reviewing} onClose={() => setReviewing(null)} title="Review Correction Request" submitLabel="Approve" onSubmit={() => {
-        if (!reviewing) return;
-        attendanceStore.approveCorrection(reviewing.id, sessionStore.user().name, reviewNotes);
-        toast.success("Correction approved");
-        setReviewing(null);
-      }}>
-        {reviewing && (
-          <div className="space-y-3 text-sm">
-            <div className="grid grid-cols-2 gap-3">
-              <div><span className="text-muted-foreground">Employee:</span> {reviewing.employeeName}</div>
-              <div><span className="text-muted-foreground">Date:</span> {reviewing.date}</div>
-              <div><span className="text-muted-foreground">Current:</span> {reviewing.currentClockIn || "—"} – {reviewing.currentClockOut || "—"}</div>
-              <div><span className="text-muted-foreground">Proposed:</span> <strong>{reviewing.proposedClockIn || "—"} – {reviewing.proposedClockOut || "—"}</strong></div>
-            </div>
-            <div className="p-2 rounded bg-muted/40"><span className="text-muted-foreground">Reason: </span>{reviewing.reason}</div>
-            <div className="text-xs text-muted-foreground">Requested by {reviewing.requestedBy} · {new Date(reviewing.requestedAt).toLocaleString()}</div>
-            <div><Label>Review Notes (optional)</Label><Textarea value={reviewNotes} onChange={e => setReviewNotes(e.target.value)} /></div>
-            <Button variant="outline" className="w-full text-destructive" onClick={() => { attendanceStore.rejectCorrection(reviewing.id, sessionStore.user().name, reviewNotes); toast.success("Request rejected"); setReviewing(null); }}><X className="h-3.5 w-3.5 mr-1.5" /> Reject Instead</Button>
+            {viewing.note && <div className="col-span-2"><span className="text-muted-foreground">Note:</span> {viewing.note}</div>}
           </div>
         )}
       </ModalForm>

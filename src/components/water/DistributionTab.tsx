@@ -1,96 +1,197 @@
-import { useState } from "react";
-import { DataTable } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { waterApi, ApiWaterDistribution } from "@/lib/waterApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
 
-interface Distribution {
-  id: string;
-  date: string;
-  vehicle: string;
-  driver: string;
-  destination: string;
-  litresLoaded: number;
-  litresDelivered: number;
-  variance: number;
-  client: string;
-  status: string;
-  departureTime: string;
-  arrivalTime: string;
-}
+const today = () => new Date().toISOString().split("T")[0];
 
-const sample: Distribution[] = [
-  { id: "DL001", date: "2025-06-11", vehicle: "KBZ 123A", driver: "John Otieno", destination: "Oasis Hotel", litresLoaded: 2000, litresDelivered: 2000, variance: 0, client: "Oasis Hotel", status: "completed", departureTime: "08:00", arrivalTime: "09:30" },
-  { id: "DL002", date: "2025-06-11", vehicle: "KCA 456B", driver: "David Njoroge", destination: "Kiambu Rd", litresLoaded: 10000, litresDelivered: 9950, variance: -50, client: "Green Estates", status: "completed", departureTime: "10:00", arrivalTime: "12:15" },
-  { id: "DL003", date: "2025-06-12", vehicle: "KBZ 123A", driver: "John Otieno", destination: "CBD", litresLoaded: 3000, litresDelivered: 0, variance: 0, client: "City Mall", status: "active", departureTime: "07:30", arrivalTime: "" },
-];
-
-const blank: Omit<Distribution, "id"> = { date: new Date().toISOString().slice(0, 10), vehicle: "", driver: "", destination: "", litresLoaded: 0, litresDelivered: 0, variance: 0, client: "", status: "active", departureTime: "", arrivalTime: "" };
+const emptyForm = {
+  date: today(), vehicle: "", driver: "", destination: "", litresLoaded: 0,
+  litresDelivered: 0, client: "", status: "active", departureTime: "", arrivalTime: "",
+};
 
 export function DistributionTab() {
-  const [data, setData] = useState(sample);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Distribution } | null>(null);
-  const [form, setForm] = useState<Omit<Distribution, "id">>(blank);
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canDeliver = can("water.distributions.deliver");
 
-  const open = (mode: "add" | "edit" | "view", item?: Distribution) => {
-    setForm(item ? { ...item } : { ...blank });
-    setModal({ mode, item: item || { id: "", ...blank } });
-  };
-  const save = () => {
-    const computed = { ...form, variance: form.litresDelivered - form.litresLoaded };
-    if (modal?.mode === "add") setData([{ ...computed, id: `DL${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-    else if (modal?.mode === "edit") setData(data.map(d => d.id === modal.item.id ? { ...computed, id: modal.item.id } : d));
-    setModal(null);
-  };
-  const remove = (item: Distribution) => setData(data.filter(d => d.id !== item.id));
+  const [records, setRecords]   = useState<ApiWaterDistribution[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiWaterDistribution | null>(null);
+  const [viewing, setViewing]   = useState<ApiWaterDistribution | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const columns = [
-    { key: "id" as const, label: "ID" },
-    { key: "date" as const, label: "Date" },
-    { key: "vehicle" as const, label: "Vehicle" },
-    { key: "driver" as const, label: "Driver" },
-    { key: "client" as const, label: "Client" },
-    { key: "destination" as const, label: "Destination" },
-    { key: "litresLoaded" as const, label: "Loaded (L)", render: (i: Distribution) => i.litresLoaded.toLocaleString() },
-    { key: "litresDelivered" as const, label: "Delivered (L)", render: (i: Distribution) => i.litresDelivered.toLocaleString() },
-    { key: "variance" as const, label: "Variance", render: (i: Distribution) => <span className={i.variance < 0 ? "text-destructive" : ""}>{i.variance}</span> },
-    { key: "status" as const, label: "Status", render: (i: Distribution) => <StatusBadge status={i.status} /> },
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await waterApi.distribution.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load distribution logs"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const openEdit = (d: ApiWaterDistribution) => {
+    setEditing(d);
+    setForm({
+      date: d.date.split("T")[0], vehicle: d.vehicle ?? "", driver: d.driver ?? "",
+      destination: d.destination ?? "", litresLoaded: d.litresLoaded,
+      litresDelivered: d.litresDelivered, client: d.client ?? "", status: d.status,
+      departureTime: d.departureTime ?? "", arrivalTime: d.arrivalTime ?? "",
+    });
+    setModalOpen(true);
+  };
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+  const variance = form.litresDelivered - form.litresLoaded;
+
+  const handleSave = async () => {
+    if (!form.date) return toast.error("Date is required");
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        variance,
+        vehicle: form.vehicle || undefined,
+        driver: form.driver || undefined,
+        destination: form.destination || undefined,
+        client: form.client || undefined,
+        departureTime: form.departureTime || undefined,
+        arrivalTime: form.arrivalTime || undefined,
+      };
+      if (editing) {
+        await waterApi.distribution.update(editing.id, payload, stationId);
+        toast.success("Delivery log updated");
+      } else {
+        await waterApi.distribution.create(payload, stationId);
+        toast.success("Delivery logged");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (d: ApiWaterDistribution) => {
+    try {
+      await waterApi.distribution.delete(d.id, stationId);
+      toast.success("Log deleted");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const stats = {
+    active:    records.filter(r => r.status === "active").length,
+    completed: records.filter(r => r.status === "completed").length,
+    totalLitres: records.filter(r => r.status === "completed").reduce((s, r) => s + r.litresDelivered, 0),
+  };
+
+  const columns: Column<ApiWaterDistribution>[] = [
+    { key: "date",           label: "Date",           render: d => d.date.split("T")[0], sortable: true },
+    { key: "vehicle",        label: "Vehicle",         render: d => d.vehicle || "—" },
+    { key: "driver",         label: "Driver",          render: d => d.driver || "—" },
+    { key: "client",         label: "Client",          render: d => d.client || "—" },
+    { key: "destination",    label: "Destination",     render: d => d.destination || "—" },
+    { key: "litresLoaded",   label: "Loaded (L)",      render: d => d.litresLoaded.toLocaleString(), sortable: true },
+    { key: "litresDelivered",label: "Delivered (L)",   render: d => d.litresDelivered.toLocaleString(), sortable: true },
+    { key: "variance",       label: "Variance",        render: d => <span className={d.variance < 0 ? "text-destructive font-medium" : ""}>{d.variance >= 0 ? "+" : ""}{d.variance}</span> },
+    { key: "status",         label: "Status",          render: d => <StatusBadge status={d.status} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "status", label: "Status", options: [{ label: "In Transit", value: "active" }, { label: "Completed", value: "completed" }] },
   ];
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-semibold">Distribution Logs</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Log Delivery</Button>
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-2xl font-bold text-primary">{stats.active}</p>
+          <p className="text-xs text-muted-foreground">In Transit</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-2xl font-bold text-green-600">{stats.completed}</p>
+          <p className="text-xs text-muted-foreground">Completed</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4 text-center">
+          <p className="text-2xl font-bold">{stats.totalLitres.toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">Litres Delivered</p>
+        </CardContent></Card>
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["id", "vehicle", "driver", "client", "destination"]}
-        filters={[{ key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Completed", value: "completed" }] }]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
-      {modal && (
-        <ModalForm open title={modal.mode === "add" ? "Log Delivery" : modal.mode === "edit" ? "Edit Delivery" : "Delivery Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Vehicle</Label><Input value={form.vehicle} onChange={e => setForm({ ...form, vehicle: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Driver</Label><Input value={form.driver} onChange={e => setForm({ ...form, driver: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Client</Label><Input value={form.client} onChange={e => setForm({ ...form, client: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="col-span-2"><Label>Destination</Label><Input value={form.destination} onChange={e => setForm({ ...form, destination: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Litres Loaded</Label><Input type="number" value={form.litresLoaded} onChange={e => setForm({ ...form, litresLoaded: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Litres Delivered</Label><Input type="number" value={form.litresDelivered} onChange={e => setForm({ ...form, litresDelivered: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Departure Time</Label><Input type="time" value={form.departureTime} onChange={e => setForm({ ...form, departureTime: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Arrival Time</Label><Input type="time" value={form.arrivalTime} onChange={e => setForm({ ...form, arrivalTime: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Status</Label>
-              <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="active">In Transit</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent>
-              </Select>
-            </div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Vehicle and driver delivery logs with variance tracking</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canDeliver && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Log Delivery</Button>}
+        </div>
+      </div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["vehicle", "driver", "client", "destination"]}
+        searchPlaceholder="Search deliveries..."
+        filters={filters}
+        onView={d => setViewing(d)}
+        onEdit={canDeliver ? openEdit : undefined}
+        onDelete={canDeliver ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Delivery Log" : "Log Delivery"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Log"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+          <div><Label>Vehicle</Label><Input value={form.vehicle} onChange={e => set("vehicle", e.target.value)} placeholder="KBZ 123A" /></div>
+          <div><Label>Driver</Label><Input value={form.driver} onChange={e => set("driver", e.target.value)} /></div>
+          <div><Label>Client</Label><Input value={form.client} onChange={e => set("client", e.target.value)} /></div>
+          <div className="col-span-2"><Label>Destination</Label><Input value={form.destination} onChange={e => set("destination", e.target.value)} /></div>
+          <div><Label>Litres Loaded</Label><Input type="number" value={form.litresLoaded || ""} onChange={e => set("litresLoaded", +e.target.value)} /></div>
+          <div><Label>Litres Delivered</Label><Input type="number" value={form.litresDelivered || ""} onChange={e => set("litresDelivered", +e.target.value)} /></div>
+          <div><Label>Variance (L)</Label><Input value={`${variance >= 0 ? "+" : ""}${variance}`} disabled className={`font-mono ${variance < 0 ? "text-destructive" : ""}`} /></div>
+          <div><Label>Status</Label>
+            <Select value={form.status} onValueChange={v => set("status", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="active">In Transit</SelectItem><SelectItem value="completed">Completed</SelectItem></SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
-    </>
+          <div><Label>Departure Time</Label><Input type="time" value={form.departureTime} onChange={e => set("departureTime", e.target.value)} /></div>
+          <div><Label>Arrival Time</Label><Input type="time" value={form.arrivalTime} onChange={e => set("arrivalTime", e.target.value)} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Delivery Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Date:</span> {viewing.date.split("T")[0]}</div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+            <div><span className="text-muted-foreground">Vehicle:</span> {viewing.vehicle || "—"}</div>
+            <div><span className="text-muted-foreground">Driver:</span> {viewing.driver || "—"}</div>
+            <div><span className="text-muted-foreground">Client:</span> {viewing.client || "—"}</div>
+            <div><span className="text-muted-foreground">Destination:</span> {viewing.destination || "—"}</div>
+            <div><span className="text-muted-foreground">Loaded:</span> {viewing.litresLoaded.toLocaleString()} L</div>
+            <div><span className="text-muted-foreground">Delivered:</span> {viewing.litresDelivered.toLocaleString()} L</div>
+            <div><span className="text-muted-foreground">Variance:</span> <span className={viewing.variance < 0 ? "text-destructive font-medium" : ""}>{viewing.variance >= 0 ? "+" : ""}{viewing.variance} L</span></div>
+            <div><span className="text-muted-foreground">Departure:</span> {viewing.departureTime || "—"}</div>
+            {viewing.arrivalTime && <div><span className="text-muted-foreground">Arrival:</span> {viewing.arrivalTime}</div>}
+          </div>
+        )}
+      </ModalForm>
+    </div>
   );
 }

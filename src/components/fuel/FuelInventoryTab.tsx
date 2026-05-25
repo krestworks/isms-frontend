@@ -1,136 +1,171 @@
-import { useState } from "react";
-import { Plus, Eye, Pencil, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
+import { fuelApi, ApiFuelProduct } from "@/lib/fuelApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
 
-interface FuelInventory {
-  id: string;
-  fuelType: string;
-  currentStock: number;
-  unit: string;
-  buyingPrice: number;
-  markedPrice: number;
-  sellingPrice: number;
-  reorderLevel: number;
-  supplier: string;
-  supplierContact: string;
-  lastRestockDate: string;
-  status: string;
-}
+const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 
-const initialData: FuelInventory[] = [
-  { id: "FI001", fuelType: "Super", currentStock: 17400, unit: "Litres", buyingPrice: 155.0, markedPrice: 185.0, sellingPrice: 179.5, reorderLevel: 5000, supplier: "TotalEnergies Kenya", supplierContact: "+254 700 111 222", lastRestockDate: "2026-04-07", status: "active" },
-  { id: "FI002", fuelType: "Diesel", currentStock: 4200, unit: "Litres", buyingPrice: 140.0, markedPrice: 172.0, sellingPrice: 165.0, reorderLevel: 5000, supplier: "Vivo Energy", supplierContact: "+254 700 333 444", lastRestockDate: "2026-04-05", status: "low" },
-  { id: "FI003", fuelType: "Kerosene", currentStock: 12800, unit: "Litres", buyingPrice: 130.0, markedPrice: 162.0, sellingPrice: 155.0, reorderLevel: 3000, supplier: "TotalEnergies Kenya", supplierContact: "+254 700 111 222", lastRestockDate: "2026-04-06", status: "active" },
-  { id: "FI004", fuelType: "V-Power", currentStock: 7500, unit: "Litres", buyingPrice: 170.0, markedPrice: 205.0, sellingPrice: 195.0, reorderLevel: 2000, supplier: "Shell Kenya", supplierContact: "+254 700 555 666", lastRestockDate: "2026-04-08", status: "active" },
-];
-
-const emptyForm: Omit<FuelInventory, "id"> = { fuelType: "", currentStock: 0, unit: "Litres", buyingPrice: 0, markedPrice: 0, sellingPrice: 0, reorderLevel: 0, supplier: "", supplierContact: "", lastRestockDate: "", status: "active" };
+const emptyForm = {
+  fuelType: "Super", buyingPrice: 0, markedPrice: 0, sellingPrice: 0,
+  reorderLevel: 5000, supplier: "", supplierContact: "", isActive: true,
+};
 
 export function FuelInventoryTab() {
-  const [data, setData] = useState<FuelInventory[]>(initialData);
-  const [modal, setModal] = useState<{ mode: "create" | "edit" | "view"; item: FuelInventory | null } | null>(null);
-  const [form, setForm] = useState<Omit<FuelInventory, "id">>(emptyForm);
-  const [deleteConfirm, setDeleteConfirm] = useState<FuelInventory | null>(null);
-  const { toast } = useToast();
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canEdit = can("fuel.tanks.edit");
 
-  const openCreate = () => { setForm(emptyForm); setModal({ mode: "create", item: null }); };
-  const openEdit = (i: FuelInventory) => { setForm({ ...i }); setModal({ mode: "edit", item: i }); };
-  const openView = (i: FuelInventory) => { setForm({ ...i }); setModal({ mode: "view", item: i }); };
+  const [products, setProducts] = useState<ApiFuelProduct[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiFuelProduct | null>(null);
+  const [viewing, setViewing]   = useState<ApiFuelProduct | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const handleSave = () => {
-    if (!form.fuelType) { toast({ title: "Error", description: "Fuel type is required", variant: "destructive" }); return; }
-    if (modal?.mode === "create") {
-      setData([...data, { ...form, id: `FI${String(data.length + 1).padStart(3, "0")}` }]);
-      toast({ title: "Inventory Added" });
-    } else if (modal?.mode === "edit" && modal.item) {
-      setData(data.map((d) => (d.id === modal.item!.id ? { ...modal.item!, ...form } : d)));
-      toast({ title: "Inventory Updated" });
-    }
-    setModal(null);
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await fuelApi.products.list(stationId);
+      setProducts(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load pricing"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
+  const openEdit = (p: ApiFuelProduct) => {
+    setEditing(p);
+    setForm({
+      fuelType: p.fuelType, buyingPrice: p.buyingPrice, markedPrice: p.markedPrice,
+      sellingPrice: p.sellingPrice, reorderLevel: p.reorderLevel,
+      supplier: p.supplier ?? "", supplierContact: p.supplierContact ?? "",
+      isActive: p.isActive,
+    });
+    setModalOpen(true);
   };
 
-  const handleDelete = () => {
-    if (deleteConfirm) {
-      setData(data.filter((d) => d.id !== deleteConfirm.id));
-      toast({ title: "Item Deleted" });
-      setDeleteConfirm(null);
-    }
+  const handleSave = async () => {
+    if (!form.fuelType) return toast.error("Fuel type is required");
+    setSaving(true);
+    try {
+      await fuelApi.products.upsert(form, stationId);
+      toast.success(editing ? "Pricing updated" : "Pricing added");
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save pricing"); }
+    finally { setSaving(false); }
   };
 
-  const margin = (i: FuelInventory) => ((i.sellingPrice - i.buyingPrice) / i.buyingPrice * 100).toFixed(1);
+  const handleDelete = async (p: ApiFuelProduct) => {
+    try {
+      await fuelApi.products.delete(p.id, stationId);
+      toast.success("Removed");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
 
-  const columns: Column<FuelInventory>[] = [
-    { key: "id", label: "ID", sortable: true },
-    { key: "fuelType", label: "Fuel Type", sortable: true },
-    { key: "currentStock", label: "Stock (L)", sortable: true, render: (i) => i.currentStock.toLocaleString() },
-    { key: "buyingPrice", label: "Buy (Ksh)", sortable: true, render: (i) => i.buyingPrice.toFixed(2) },
-    { key: "markedPrice", label: "Marked (Ksh)", render: (i) => i.markedPrice.toFixed(2) },
-    { key: "sellingPrice", label: "Sell (Ksh)", sortable: true, render: (i) => i.sellingPrice.toFixed(2) },
-    { key: "margin", label: "Margin", render: (i) => <span className="text-success font-mono text-xs">{margin(i)}%</span> },
-    { key: "supplier", label: "Supplier" },
-    { key: "status", label: "Status", render: (i) => <StatusBadge status={i.status} /> },
+  const margin = (p: ApiFuelProduct) =>
+    p.buyingPrice > 0 ? ((p.sellingPrice - p.buyingPrice) / p.buyingPrice * 100).toFixed(1) : "—";
+
+  const stockStatus = (p: ApiFuelProduct) => {
+    // derive stock status from any tank matching this fuel type
+    return p.isActive ? "active" : "inactive";
+  };
+
+  const columns: Column<ApiFuelProduct>[] = [
+    { key: "fuelType",     label: "Fuel Type",       sortable: true },
+    { key: "buyingPrice",  label: "Buy (Ksh)",        render: p => p.buyingPrice.toFixed(2) },
+    { key: "markedPrice",  label: "Marked (Ksh)",     render: p => p.markedPrice.toFixed(2) },
+    { key: "sellingPrice", label: "Sell (Ksh)",       sortable: true, render: p => p.sellingPrice.toFixed(2) },
+    { key: "margin",       label: "Margin",           render: p => <span className="text-green-600 font-mono text-xs">{margin(p)}%</span> },
+    { key: "reorderLevel", label: "Reorder (L)",      render: p => p.reorderLevel.toLocaleString() },
+    { key: "supplier",     label: "Supplier",         render: p => p.supplier || "—" },
+    { key: "isActive",     label: "Status",           render: p => <StatusBadge status={p.isActive ? "active" : "inactive"} /> },
   ];
 
-  const filters: FilterOption[] = [
-    { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Low", value: "low" }, { label: "Critical", value: "critical" }] },
-  ];
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Manage fuel inventory, pricing, and suppliers</p>
-        <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Add Item</Button>
+        <p className="text-sm text-muted-foreground">Fuel pricing configuration, suppliers, and reorder levels</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canEdit && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Add Product</Button>}
+        </div>
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["fuelType", "supplier"]} searchPlaceholder="Search inventory..." filters={filters}
-        actions={(i) => (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(i)}><Eye className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(i)}><Pencil className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(i)}><Trash2 className="h-3.5 w-3.5" /></Button>
-          </div>
-        )}
+      <DataTable
+        data={products}
+        columns={columns}
+        searchKeys={["fuelType", "supplier"]}
+        searchPlaceholder="Search products..."
+        onView={p => setViewing(p)}
+        onEdit={canEdit ? openEdit : undefined}
+        onDelete={canEdit ? handleDelete : undefined}
       />
 
-      {modal && (
-        <ModalForm open onClose={() => setModal(null)} title={modal.mode === "create" ? "Add Inventory" : modal.mode === "edit" ? "Edit Inventory" : "Inventory Details"} onSubmit={modal.mode !== "view" ? handleSave : undefined} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2"><Label>Fuel Type</Label><Input value={form.fuelType} onChange={(e) => setForm({ ...form, fuelType: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Current Stock (L)</Label><Input type="number" value={form.currentStock} onChange={(e) => setForm({ ...form, currentStock: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Buying Price (Ksh)</Label><Input type="number" value={form.buyingPrice} onChange={(e) => setForm({ ...form, buyingPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Marked Price (Ksh)</Label><Input type="number" value={form.markedPrice} onChange={(e) => setForm({ ...form, markedPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Selling Price (Ksh)</Label><Input type="number" value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Reorder Level (L)</Label><Input type="number" value={form.reorderLevel} onChange={(e) => setForm({ ...form, reorderLevel: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Supplier</Label><Input value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Supplier Contact</Label><Input value={form.supplierContact} onChange={(e) => setForm({ ...form, supplierContact: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Last Restock</Label><Input type="date" value={form.lastRestockDate} onChange={(e) => setForm({ ...form, lastRestockDate: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => setForm({ ...form, status: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="critical">Critical</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+      <ModalForm
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Pricing" : "Add Fuel Product"}
+        onSubmit={handleSave}
+        submitLabel={saving ? "Saving..." : "Save"}
+      >
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <Label>Fuel Type *</Label>
+            <Select value={form.fuelType} onValueChange={v => set("fuelType", v)} disabled={!!editing}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{FUEL_TYPES.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
+          <div><Label>Buying Price (Ksh)</Label><Input type="number" step="0.01" value={form.buyingPrice || ""} onChange={e => set("buyingPrice", +e.target.value)} /></div>
+          <div><Label>Marked Price (Ksh)</Label><Input type="number" step="0.01" value={form.markedPrice || ""} onChange={e => set("markedPrice", +e.target.value)} /></div>
+          <div><Label>Selling Price (Ksh)</Label><Input type="number" step="0.01" value={form.sellingPrice || ""} onChange={e => set("sellingPrice", +e.target.value)} /></div>
+          <div><Label>Reorder Level (L)</Label><Input type="number" value={form.reorderLevel || ""} onChange={e => set("reorderLevel", +e.target.value)} /></div>
+          <div><Label>Supplier</Label><Input value={form.supplier} onChange={e => set("supplier", e.target.value)} /></div>
+          <div><Label>Supplier Contact</Label><Input value={form.supplierContact} onChange={e => set("supplierContact", e.target.value)} /></div>
+          <div className="col-span-2">
+            <Label>Status</Label>
+            <Select value={form.isActive ? "active" : "inactive"} onValueChange={v => set("isActive", v === "active")}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="inactive">Inactive</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      </ModalForm>
 
-      {deleteConfirm && (
-        <ModalForm open onClose={() => setDeleteConfirm(null)} title="Delete Item" onSubmit={handleDelete} submitLabel="Delete">
-          <p className="text-sm text-muted-foreground">Delete <strong>{deleteConfirm.fuelType}</strong> inventory?</p>
-        </ModalForm>
-      )}
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Product Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Fuel Type:</span> {viewing.fuelType}</div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.isActive ? "active" : "inactive"} /></div>
+            <div><span className="text-muted-foreground">Buying:</span> Ksh {viewing.buyingPrice.toFixed(2)}</div>
+            <div><span className="text-muted-foreground">Marked:</span> Ksh {viewing.markedPrice.toFixed(2)}</div>
+            <div><span className="text-muted-foreground">Selling:</span> Ksh {viewing.sellingPrice.toFixed(2)}</div>
+            <div><span className="text-muted-foreground">Margin:</span> <span className="text-green-600">{margin(viewing)}%</span></div>
+            <div><span className="text-muted-foreground">Reorder:</span> {viewing.reorderLevel.toLocaleString()} L</div>
+            <div><span className="text-muted-foreground">Supplier:</span> {viewing.supplier || "—"}</div>
+            {viewing.supplierContact && <div><span className="text-muted-foreground">Contact:</span> {viewing.supplierContact}</div>}
+          </div>
+        )}
+      </ModalForm>
     </div>
   );
 }

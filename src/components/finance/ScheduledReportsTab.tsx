@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,77 +7,127 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { toast } from "sonner";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { reportsApi, ApiScheduledReport } from "@/lib/reportsApi";
 
-interface ScheduledReport {
-  id: string;
-  name: string;
-  type: string;
-  frequency: string;
-  modules: string;
-  recipients: string;
-  lastRun: string;
-  nextRun: string;
-  status: string;
-}
+type FormMode = "add" | "edit" | "view";
 
-const reportTypes = ["Revenue Summary", "Expense Report", "P&L Statement", "Inventory Report", "Sales Report", "Reconciliation"];
-const frequencies = ["Daily", "Weekly", "Bi-Weekly", "Monthly", "Quarterly"];
+const reportTypes = ["Revenue Summary","Expense Report","P&L Statement","Inventory Report","Sales Report","Reconciliation"];
+const frequencies = ["Daily","Weekly","Bi-Weekly","Monthly","Quarterly"];
 
-const demoData: ScheduledReport[] = [
-  { id: "RPT-001", name: "Daily Revenue Summary", type: "Revenue Summary", frequency: "Daily", modules: "All", recipients: "admin@isms.co.ke", lastRun: "2025-01-15 06:00", nextRun: "2025-01-16 06:00", status: "active" },
-  { id: "RPT-002", name: "Weekly Fuel Reconciliation", type: "Reconciliation", frequency: "Weekly", modules: "Fuel", recipients: "manager@isms.co.ke", lastRun: "2025-01-13 08:00", nextRun: "2025-01-20 08:00", status: "active" },
-  { id: "RPT-003", name: "Monthly P&L Statement", type: "P&L Statement", frequency: "Monthly", modules: "All", recipients: "admin@isms.co.ke, accounts@isms.co.ke", lastRun: "2025-01-01 07:00", nextRun: "2025-02-01 07:00", status: "active" },
-  { id: "RPT-004", name: "Quarterly Inventory Audit", type: "Inventory Report", frequency: "Quarterly", modules: "Fuel, LPG, Water", recipients: "admin@isms.co.ke", lastRun: "2024-10-01 07:00", nextRun: "2025-01-01 07:00", status: "inactive" },
-];
-
-const columns: Column<ScheduledReport>[] = [
-  { key: "id", label: "ID" },
-  { key: "name", label: "Report Name", sortable: true },
-  { key: "type", label: "Type" },
-  { key: "frequency", label: "Frequency" },
-  { key: "modules", label: "Modules" },
-  { key: "lastRun", label: "Last Run" },
-  { key: "nextRun", label: "Next Run" },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
-];
-
-const filters: FilterOption[] = [
-  { key: "frequency", label: "Frequency", options: frequencies.map(f => ({ label: f, value: f })) },
-  { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
-];
+const blank: Omit<ApiScheduledReport, "id" | "stationId"> = {
+  name: "", type: "Revenue Summary", frequency: "Daily",
+  modules: "All", recipients: "", lastRun: "", nextRun: "", status: "active",
+};
 
 export function ScheduledReportsTab() {
-  const [data, setData] = useState(demoData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item?: ScheduledReport } | null>(null);
-  const [form, setForm] = useState<Partial<ScheduledReport>>({});
+  const { stationId } = useActiveStation();
+  const [data,   setData]   = useState<ApiScheduledReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal,   setModal]  = useState<{ mode: FormMode; item?: ApiScheduledReport } | null>(null);
+  const [form,    setForm]   = useState<Omit<ApiScheduledReport, "id" | "stationId">>(blank);
+  const [saving,  setSaving] = useState(false);
 
-  const openAdd = () => { setForm({ status: "active" }); setModal({ mode: "add" }); };
-  const openEdit = (item: ScheduledReport) => { setForm({ ...item }); setModal({ mode: "edit", item }); };
-  const openView = (item: ScheduledReport) => { setForm({ ...item }); setModal({ mode: "view", item }); };
-  const handleDelete = (item: ScheduledReport) => setData(d => d.filter(r => r.id !== item.id));
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await reportsApi.scheduled.list(stationId);
+      setData(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load scheduled reports"); }
+    finally { setLoading(false); }
+  }, [stationId]);
 
-  const handleSubmit = () => {
-    if (modal?.mode === "add") {
-      setData(d => [...d, { ...form, id: `RPT-${String(d.length + 1).padStart(3, "0")}`, lastRun: "—", nextRun: "TBD" } as ScheduledReport]);
-    } else if (modal?.mode === "edit" && modal.item) {
-      setData(d => d.map(r => r.id === modal.item!.id ? { ...r, ...form } as ScheduledReport : r));
-    }
-    setModal(null);
+  useEffect(() => { load(); }, [load]);
+
+  const set = (k: keyof typeof blank, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openAdd  = () => { setForm(blank); setModal({ mode: "add" }); };
+  const openEdit = (item: ApiScheduledReport) => { setForm({ name: item.name, type: item.type, frequency: item.frequency, modules: item.modules, recipients: item.recipients, lastRun: item.lastRun ?? "", nextRun: item.nextRun ?? "", status: item.status }); setModal({ mode: "edit", item }); };
+  const openView = (item: ApiScheduledReport) => { setForm({ name: item.name, type: item.type, frequency: item.frequency, modules: item.modules, recipients: item.recipients, lastRun: item.lastRun ?? "", nextRun: item.nextRun ?? "", status: item.status }); setModal({ mode: "view", item }); };
+
+  const handleDelete = async (item: ApiScheduledReport) => {
+    try { await reportsApi.scheduled.delete(item.id); toast.success("Deleted"); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
   };
+
+  const handleSubmit = async () => {
+    if (!form.name || !form.type || !form.frequency || !form.recipients) return toast.error("Name, type, frequency and recipients are required");
+    setSaving(true);
+    try {
+      if (modal?.mode === "add") {
+        await reportsApi.scheduled.create(form, stationId);
+        toast.success("Scheduled report created");
+      } else if (modal?.mode === "edit" && modal.item) {
+        await reportsApi.scheduled.update(modal.item.id, form);
+        toast.success("Updated");
+      }
+      setModal(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
+
+  const columns: Column<ApiScheduledReport>[] = [
+    { key: "name",       label: "Report Name", sortable: true },
+    { key: "type",       label: "Type" },
+    { key: "frequency",  label: "Frequency" },
+    { key: "modules",    label: "Modules" },
+    { key: "lastRun",    label: "Last Run",  render: r => r.lastRun || "—" },
+    { key: "nextRun",    label: "Next Run",  render: r => r.nextRun || "TBD" },
+    { key: "status",     label: "Status",    render: r => <StatusBadge status={r.status} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "frequency", label: "Frequency", options: frequencies.map(f => ({ label: f, value: f })) },
+    { key: "status",    label: "Status",    options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
+  ];
+
+  const isView = modal?.mode === "view";
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Schedule Report</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["id", "name", "recipients"]} searchPlaceholder="Search reports..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Scheduled Reports</h3>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Schedule Report</Button>
+        </div>
+      </div>
+
+      <DataTable data={data} columns={columns} searchKeys={["name", "recipients"]} searchPlaceholder="Search reports..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+
       {modal && (
-        <ModalForm open title={modal.mode === "add" ? "Schedule Report" : modal.mode === "edit" ? "Edit Report" : "Report Details"} onClose={() => setModal(null)} onSubmit={handleSubmit} isView={modal.mode === "view"}>
+        <ModalForm open title={isView ? "Report Details" : modal.mode === "add" ? "Schedule Report" : "Edit Report"} onClose={() => setModal(null)} onSubmit={handleSubmit} isView={isView} submitLabel={saving ? "Saving…" : modal.mode === "edit" ? "Update" : "Create"}>
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Report Name</Label><Input value={form.name || ""} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Type</Label><Select value={form.type || ""} onValueChange={v => setForm(f => ({ ...f, type: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{reportTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Frequency</Label><Select value={form.frequency || ""} onValueChange={v => setForm(f => ({ ...f, frequency: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{frequencies.map(fr => <SelectItem key={fr} value={fr}>{fr}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Modules</Label><Input value={form.modules || ""} onChange={e => setForm(f => ({ ...f, modules: e.target.value }))} disabled={modal.mode === "view"} placeholder="e.g. All, Fuel, LPG" /></div>
-            <div><Label>Recipients</Label><Input value={form.recipients || ""} onChange={e => setForm(f => ({ ...f, recipients: e.target.value }))} disabled={modal.mode === "view"} placeholder="email@example.com" /></div>
-            <div><Label>Status</Label><Select value={form.status || ""} onValueChange={v => setForm(f => ({ ...f, status: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent></Select></div>
+            <div className="col-span-2"><Label>Report Name</Label><Input value={form.name} onChange={e => set("name", e.target.value)} readOnly={isView} /></div>
+            <div><Label>Type</Label>
+              <Select value={form.type} onValueChange={v => set("type", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{reportTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Frequency</Label>
+              <Select value={form.frequency} onValueChange={v => set("frequency", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{frequencies.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Modules</Label><Input value={form.modules} onChange={e => set("modules", e.target.value)} readOnly={isView} placeholder="e.g. All, Fuel, LPG" /></div>
+            <div><Label>Recipients</Label><Input value={form.recipients} onChange={e => set("recipients", e.target.value)} readOnly={isView} placeholder="email@example.com" /></div>
+            <div><Label>Status</Label>
+              <Select value={form.status} onValueChange={v => set("status", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+              </Select>
+            </div>
+            {isView && (
+              <>
+                <div><Label>Last Run</Label><Input value={form.lastRun || "—"} readOnly /></div>
+                <div><Label>Next Run</Label><Input value={form.nextRun || "TBD"} readOnly /></div>
+              </>
+            )}
           </div>
         </ModalForm>
       )}

@@ -1,5 +1,5 @@
-// Mock session store — simulates the currently logged-in user, their available
-// roles, and the active location scope. Backed by localStorage so it survives refresh.
+// Session store — holds the currently authenticated user and active location scope.
+// Backed by localStorage so it survives page refresh.
 
 import { useEffect, useState } from "react";
 import { auditLog } from "./auditLogStore";
@@ -7,27 +7,29 @@ import { auditLog } from "./auditLogStore";
 export type Role = "Admin" | "Manager" | "Accountant" | "Attendant" | "LocationHead" | "Employee";
 
 export interface SessionUser {
-  id: string;          // matches StaffRecord.id when employee, else USR-xxx
+  id: string;
   name: string;
   email: string;
   roles: Role[];
   activeRole: Role;
-  homeLocation?: string; // for LocationHead — the only location they can see
-  modules: string[];   // module access list
-  employeeId?: string; // staff record link
+  permissions: string[];   // effective permission codes for the current active role
+  homeLocation?: string;   // set for LocationHead — their assigned station
+  employeeId?: string;
+  status?: string;
+  lastLogin?: string | null;
+  createdAt?: string;
 }
 
 const STORAGE_KEY = "isms.session";
 const LOC_KEY = "isms.activeLocation";
 
 const defaultUser: SessionUser = {
-  id: "USR-001",
-  name: "Admin User",
-  email: "admin@isms.co.ke",
-  roles: ["Admin", "Manager", "Accountant", "Employee"],
-  activeRole: "Admin",
-  modules: ["All"],
-  employeeId: "EMP-001",
+  id: "",
+  name: "",
+  email: "",
+  roles: [],
+  activeRole: "Employee",
+  permissions: [],
 };
 
 function load(): SessionUser {
@@ -56,6 +58,8 @@ export const sessionStore = {
     notify();
   },
   switchRole(role: Role) {
+    // Local-only update — activeRole and permissions are already set by setUser
+    // after the backend switchRole API call. This just triggers a re-render.
     if (!user.roles.includes(role)) return;
     const prev = user.activeRole;
     user = { ...user, activeRole: role };
@@ -80,7 +84,6 @@ export function useSession() {
   return { user: sessionStore.user(), activeLocation: sessionStore.activeLocation() };
 }
 
-// Helper: can the current user see all locations or only their own?
 export function visibleLocationFilter(): (locationName?: string) => boolean {
   const u = sessionStore.user();
   const loc = sessionStore.activeLocation();

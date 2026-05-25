@@ -1,6 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
-import { usePermission, guardAction } from "@/lib/actionPermissions";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,88 +7,131 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { toast } from "sonner";
+import { financeApi, ApiFinanceExpense } from "@/lib/financeApi";
+import { useActiveStation } from "@/lib/useActiveStation";
 
-interface Expense {
-  id: string;
-  date: string;
-  module: string;
-  category: string;
-  vendor: string;
-  description: string;
-  amount: number;
-  paymentMethod: string;
-  approvedBy: string;
-  status: string;
-}
+const modules            = ["General", "Fuel", "LPG", "Water", "Automotive", "Car Wash"];
+const expenseCategories  = ["Fuel Purchase", "LPG Stock", "Utilities", "Salaries", "Maintenance", "Supplies", "Transport", "Rent", "Insurance", "Miscellaneous"];
+const paymentMethods     = ["Cash", "M-Pesa", "Bank Transfer", "Cheque"];
 
-const modules = ["General", "Fuel", "LPG", "Water", "Automotive", "Car Wash"];
-const expenseCategories = ["Fuel Purchase", "LPG Stock", "Utilities", "Salaries", "Maintenance", "Supplies", "Transport", "Rent", "Insurance", "Miscellaneous"];
-const paymentMethods = ["Cash", "M-Pesa", "Bank Transfer", "Cheque"];
+const blank: Partial<ApiFinanceExpense> = { date: new Date().toISOString().slice(0, 10), module: "General", status: "pending" };
 
-const demoData: Expense[] = [
-  { id: "EXP-001", date: "2025-01-15", module: "Fuel", category: "Fuel Purchase", vendor: "KPC Supplies", description: "Diesel delivery 10,000L", amount: 1450000, paymentMethod: "Bank Transfer", approvedBy: "Admin", status: "paid" },
-  { id: "EXP-002", date: "2025-01-14", module: "General", category: "Utilities", vendor: "KPLC", description: "Electricity bill - January", amount: 45000, paymentMethod: "M-Pesa", approvedBy: "Manager", status: "paid" },
-  { id: "EXP-003", date: "2025-01-14", module: "LPG", category: "LPG Stock", vendor: "Total Gas", description: "13kg cylinders x50", amount: 175000, paymentMethod: "Bank Transfer", approvedBy: "Admin", status: "pending" },
-  { id: "EXP-004", date: "2025-01-13", module: "General", category: "Salaries", vendor: "Staff Payroll", description: "January wages - 12 staff", amount: 360000, paymentMethod: "Bank Transfer", approvedBy: "Admin", status: "paid" },
-  { id: "EXP-005", date: "2025-01-12", module: "Automotive", category: "Supplies", vendor: "AutoParts Kenya", description: "Brake pads, filters, oil", amount: 28000, paymentMethod: "Cash", approvedBy: "Manager", status: "paid" },
-];
-
-const columns: Column<Expense>[] = [
-  { key: "id", label: "ID" },
-  { key: "date", label: "Date", sortable: true },
-  { key: "module", label: "Module" },
-  { key: "category", label: "Category" },
-  { key: "vendor", label: "Vendor" },
-  { key: "amount", label: "Amount (Ksh)", sortable: true, render: (r) => `Ksh ${r.amount.toLocaleString()}` },
+const columns: Column<ApiFinanceExpense>[] = [
+  { key: "date",          label: "Date",        sortable: true },
+  { key: "module",        label: "Module" },
+  { key: "category",      label: "Category" },
+  { key: "vendor",        label: "Vendor",      render: r => r.vendor || "—" },
+  { key: "amount",        label: "Amount (Ksh)", sortable: true, render: r => `Ksh ${r.amount.toLocaleString()}` },
   { key: "paymentMethod", label: "Payment" },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
+  { key: "status",        label: "Status",       render: r => <StatusBadge status={r.status} /> },
 ];
 
 const filters: FilterOption[] = [
-  { key: "module", label: "Module", options: modules.map(m => ({ label: m, value: m })) },
+  { key: "module",   label: "Module",   options: modules.map(m => ({ label: m, value: m })) },
   { key: "category", label: "Category", options: expenseCategories.map(c => ({ label: c, value: c })) },
 ];
 
 export function ExpensesTab() {
-  const [data, setData] = useState(demoData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item?: Expense } | null>(null);
-  const [form, setForm] = useState<Partial<Expense>>({});
-  const canCreate = usePermission("finance.expense.create");
-  const canUpdate = usePermission("finance.expense.create");
-  const canDelete = usePermission("finance.expense.create");
+  const { stationId } = useActiveStation();
+  const [data,    setData]    = useState<ApiFinanceExpense[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal,   setModal]   = useState<{ mode: "add" | "edit" | "view"; id?: string } | null>(null);
+  const [form,    setForm]    = useState<Partial<ApiFinanceExpense>>({ ...blank });
+  const [saving,  setSaving]  = useState(false);
 
-  const openAdd = () => { setForm({ date: new Date().toISOString().slice(0, 10), status: "pending" }); setModal({ mode: "add" }); };
-  const openEdit = (item: Expense) => { setForm({ ...item }); setModal({ mode: "edit", item }); };
-  const openView = (item: Expense) => { setForm({ ...item }); setModal({ mode: "view", item }); };
-  const handleDelete = (item: Expense) => { if (!guardAction("finance.expense.create", "delete an expense")) return; setData(d => d.filter(r => r.id !== item.id)); };
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await financeApi.expenses.list(stationId);
+      setData(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load expenses"); }
+    finally { setLoading(false); }
+  }, [stationId]);
 
-  const handleSubmit = () => {
-    if (modal?.mode === "add") {
-      if (!guardAction("finance.expense.create", "log an expense")) return;
-      setData(d => [...d, { ...form, id: `EXP-${String(d.length + 1).padStart(3, "0")}` } as Expense]);
-    } else if (modal?.mode === "edit" && modal.item) {
-      if (!guardAction("finance.expense.create", "edit an expense")) return;
-      setData(d => d.map(r => r.id === modal.item!.id ? { ...r, ...form } as Expense : r));
-    }
-    setModal(null);
+  useEffect(() => { load(); }, [load]);
+
+  const set = (k: keyof ApiFinanceExpense, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openAdd  = () => { setForm({ ...blank, date: new Date().toISOString().slice(0, 10) }); setModal({ mode: "add" }); };
+  const openEdit = (r: ApiFinanceExpense) => { setForm({ ...r }); setModal({ mode: "edit", id: r.id }); };
+  const openView = (r: ApiFinanceExpense) => { setForm({ ...r }); setModal({ mode: "view", id: r.id }); };
+
+  const handleSave = async () => {
+    if (!form.description || !form.amount) return toast.error("Description and amount are required");
+    setSaving(true);
+    try {
+      if (modal?.mode === "add") {
+        await financeApi.expenses.create(form, stationId);
+        toast.success("Expense logged");
+      } else if (modal?.mode === "edit" && modal.id) {
+        await financeApi.expenses.update(modal.id, form);
+        toast.success("Expense updated");
+      }
+      setModal(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
   };
+
+  const handleDelete = async (r: ApiFinanceExpense) => {
+    try { await financeApi.expenses.delete(r.id); toast.success("Expense deleted"); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const isView = modal?.mode === "view";
 
   return (
     <div className="space-y-4">
-      {canCreate && <div className="flex justify-end"><Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Log Expense</Button></div>}
-      <DataTable data={data} columns={columns} searchKeys={["id", "vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={canUpdate ? openEdit : undefined} onDelete={canDelete ? handleDelete : undefined} />
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{data.length} expense entries</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Log Expense</Button>
+        </div>
+      </div>
+
+      <DataTable data={data} columns={columns} searchKeys={["vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+
       {modal && (
-        <ModalForm open title={modal.mode === "add" ? "Log Expense" : modal.mode === "edit" ? "Edit Expense" : "Expense Details"} onClose={() => setModal(null)} onSubmit={handleSubmit} isView={modal.mode === "view"}>
+        <ModalForm open title={modal.mode === "add" ? "Log Expense" : modal.mode === "edit" ? "Edit Expense" : "Expense Details"} onClose={() => setModal(null)} onSubmit={handleSave} isView={isView} submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Update" : "Log"}>
           <div className="grid grid-cols-2 gap-4">
-            <div><Label>Date</Label><Input type="date" value={form.date || ""} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Module</Label><Select value={form.module || ""} onValueChange={v => setForm(f => ({ ...f, module: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{modules.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Category</Label><Select value={form.category || ""} onValueChange={v => setForm(f => ({ ...f, category: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{expenseCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></div>
-            <div><Label>Amount (Ksh)</Label><Input type="number" value={form.amount || ""} onChange={e => setForm(f => ({ ...f, amount: Number(e.target.value) }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Vendor</Label><Input value={form.vendor || ""} onChange={e => setForm(f => ({ ...f, vendor: e.target.value }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Payment Method</Label><Select value={form.paymentMethod || ""} onValueChange={v => setForm(f => ({ ...f, paymentMethod: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent>{paymentMethods.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent></Select></div>
-            <div className="col-span-2"><Label>Description</Label><Input value={form.description || ""} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Approved By</Label><Input value={form.approvedBy || ""} onChange={e => setForm(f => ({ ...f, approvedBy: e.target.value }))} disabled={modal.mode === "view"} /></div>
-            <div><Label>Status</Label><Select value={form.status || ""} onValueChange={v => setForm(f => ({ ...f, status: v }))} disabled={modal.mode === "view"}><SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger><SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="pending">Pending</SelectItem><SelectItem value="cancelled">Cancelled</SelectItem></SelectContent></Select></div>
+            <div><Label>Date</Label><Input type="date" value={form.date || ""} onChange={e => set("date", e.target.value)} disabled={isView} /></div>
+            <div><Label>Module</Label>
+              <Select value={form.module || "General"} onValueChange={v => set("module", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{modules.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Category</Label>
+              <Select value={form.category || "__none__"} onValueChange={v => set("category", v === "__none__" ? "" : v)} disabled={isView}>
+                <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Select —</SelectItem>
+                  {expenseCategories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Amount (Ksh)</Label><Input type="number" value={form.amount || ""} onChange={e => set("amount", Number(e.target.value))} disabled={isView} /></div>
+            <div><Label>Vendor</Label><Input value={form.vendor || ""} onChange={e => set("vendor", e.target.value)} disabled={isView} /></div>
+            <div><Label>Payment Method</Label>
+              <Select value={form.paymentMethod || "Cash"} onValueChange={v => set("paymentMethod", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{paymentMethods.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2"><Label>Description</Label><Input value={form.description || ""} onChange={e => set("description", e.target.value)} disabled={isView} /></div>
+            <div><Label>Approved By</Label><Input value={form.approvedBy || ""} onChange={e => set("approvedBy", e.target.value)} disabled={isView} /></div>
+            <div><Label>Status</Label>
+              <Select value={form.status || "pending"} onValueChange={v => set("status", v)} disabled={isView}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="paid">Paid</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </ModalForm>
       )}

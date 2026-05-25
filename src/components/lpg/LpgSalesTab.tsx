@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Eye, Pencil, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -7,154 +7,198 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { lpgApi, ApiLpgSale } from "@/lib/lpgApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface LpgSale {
-  id: string;
-  date: string;
-  receiptNo: string;
-  customer: string;
-  cylinderSize: string;
-  quantity: number;
-  unitPrice: number;
-  discount: number;
-  totalAmount: number;
-  paymentMethod: string;
-  paymentStatus: string;
-  attendant: string;
-  exchangeType: string;
-}
+const SIZES = ["6kg", "13kg", "22.5kg", "25kg", "50kg"];
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
+const EXCHANGE_TYPES = ["Exchange", "New", "Refill"];
+const today = () => new Date().toISOString().split("T")[0];
 
-const initialData: LpgSale[] = [
-  { id: "LS001", date: "2026-04-09", receiptNo: "LR-5001", customer: "Walk-in", cylinderSize: "13kg", quantity: 1, unitPrice: 2400, discount: 0, totalAmount: 2400, paymentMethod: "Cash", paymentStatus: "paid", attendant: "Alice Njeri", exchangeType: "Exchange" },
-  { id: "LS002", date: "2026-04-09", receiptNo: "LR-5002", customer: "Mama Mboga Cafe", cylinderSize: "6kg", quantity: 2, unitPrice: 1100, discount: 100, totalAmount: 2100, paymentMethod: "M-Pesa", paymentStatus: "paid", attendant: "Brian Otieno", exchangeType: "New" },
-  { id: "LS003", date: "2026-04-09", receiptNo: "LR-5003", customer: "Hotel Sapphire", cylinderSize: "50kg", quantity: 1, unitPrice: 11000, discount: 0, totalAmount: 11000, paymentMethod: "Invoice", paymentStatus: "pending", attendant: "Alice Njeri", exchangeType: "Exchange" },
-  { id: "LS004", date: "2026-04-08", receiptNo: "LR-5004", customer: "Walk-in", cylinderSize: "13kg", quantity: 1, unitPrice: 2400, discount: 0, totalAmount: 2400, paymentMethod: "Cash", paymentStatus: "paid", attendant: "Brian Otieno", exchangeType: "Exchange" },
-  { id: "LS005", date: "2026-04-08", receiptNo: "LR-5005", customer: "Njoroge Household", cylinderSize: "22.5kg", quantity: 1, unitPrice: 4200, discount: 200, totalAmount: 4000, paymentMethod: "M-Pesa", paymentStatus: "paid", attendant: "Alice Njeri", exchangeType: "Exchange" },
-  { id: "LS006", date: "2026-04-07", receiptNo: "LR-5006", customer: "Walk-in", cylinderSize: "6kg", quantity: 3, unitPrice: 1100, discount: 0, totalAmount: 3300, paymentMethod: "Cash", paymentStatus: "paid", attendant: "Brian Otieno", exchangeType: "New" },
-  { id: "LS007", date: "2026-04-07", receiptNo: "LR-5007", customer: "Quick Bites Restaurant", cylinderSize: "25kg", quantity: 2, unitPrice: 5200, discount: 500, totalAmount: 9900, paymentMethod: "Invoice", paymentStatus: "pending", attendant: "Alice Njeri", exchangeType: "Exchange" },
-  { id: "LS008", date: "2026-04-06", receiptNo: "LR-5008", customer: "Walk-in", cylinderSize: "13kg", quantity: 1, unitPrice: 2400, discount: 0, totalAmount: 2400, paymentMethod: "Cash", paymentStatus: "paid", attendant: "Brian Otieno", exchangeType: "Refill" },
-];
-
-const emptyForm: Omit<LpgSale, "id"> = { date: new Date().toISOString().split("T")[0], receiptNo: "", customer: "", cylinderSize: "13kg", quantity: 1, unitPrice: 2400, discount: 0, totalAmount: 2400, paymentMethod: "Cash", paymentStatus: "paid", attendant: "", exchangeType: "Exchange" };
+const emptyForm = {
+  date: today(), customer: "", cylinderSize: "13kg", quantity: 1, unitPrice: 0,
+  discount: 0, totalAmount: 0, paymentMethod: "Cash", paymentStatus: "paid",
+  attendant: "", exchangeType: "Exchange",
+};
 
 export function LpgSalesTab() {
-  const [data, setData] = useState<LpgSale[]>(initialData);
-  const [modal, setModal] = useState<{ mode: "create" | "edit" | "view"; item: LpgSale | null } | null>(null);
-  const [form, setForm] = useState<Omit<LpgSale, "id">>(emptyForm);
-  const [deleteConfirm, setDeleteConfirm] = useState<LpgSale | null>(null);
-  const { toast } = useToast();
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canRecord = can("lpg.sales.record");
+  const canVoid   = can("lpg.sales.void");
 
-  const openCreate = () => { setForm({ ...emptyForm, receiptNo: `LR-${5000 + data.length + 1}` }); setModal({ mode: "create", item: null }); };
-  const openEdit = (s: LpgSale) => { setForm({ ...s }); setModal({ mode: "edit", item: s }); };
-  const openView = (s: LpgSale) => { setForm({ ...s }); setModal({ mode: "view", item: s }); };
+  const [sales, setSales]       = useState<ApiLpgSale[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState(today());
+  const [toDate, setToDate]     = useState(today());
+  const [modalOpen, setModalOpen] = useState(false);
+  const [viewing, setViewing]   = useState<ApiLpgSale | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const updateForm = (u: Partial<Omit<LpgSale, "id">>) => {
-    const next = { ...form, ...u };
-    next.totalAmount = next.quantity * next.unitPrice - next.discount;
-    setForm(next);
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await lpgApi.sales.list({ from: fromDate, to: toDate }, stationId);
+      setSales(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
+    finally { setLoading(false); }
+  }, [stationId, fromDate, toDate]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const updateForm = (k: string, v: any) => {
+    setForm(f => {
+      const next = { ...f, [k]: typeof f[k as keyof typeof f] === "number" ? +v : v };
+      next.totalAmount = next.quantity * next.unitPrice - next.discount;
+      return next;
+    });
   };
 
-  const handleSave = () => {
-    if (!form.customer) { toast({ title: "Error", description: "Customer is required", variant: "destructive" }); return; }
-    if (modal?.mode === "create") {
-      setData([{ ...form, id: `LS${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-      toast({ title: "Sale Recorded" });
-    } else if (modal?.mode === "edit" && modal.item) {
-      setData(data.map((d) => (d.id === modal.item!.id ? { ...modal.item!, ...form } : d)));
-      toast({ title: "Sale Updated" });
-    }
-    setModal(null);
+  const openNew = () => { setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+
+  const handleSave = async () => {
+    if (!form.date || !form.cylinderSize || !form.unitPrice) return toast.error("Date, size, and price are required");
+    setSaving(true);
+    try {
+      await lpgApi.sales.create({
+        date: form.date, customer: form.customer || undefined, cylinderSize: form.cylinderSize,
+        quantity: form.quantity, unitPrice: form.unitPrice, discount: form.discount,
+        paymentMethod: form.paymentMethod, paymentStatus: form.paymentStatus,
+        attendant: form.attendant || undefined, exchangeType: form.exchangeType,
+      }, stationId);
+      toast.success("Sale recorded");
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to record sale"); }
+    finally { setSaving(false); }
   };
 
-  const handleDelete = () => {
-    if (deleteConfirm) {
-      setData(data.filter((d) => d.id !== deleteConfirm.id));
-      toast({ title: "Sale Deleted" });
-      setDeleteConfirm(null);
-    }
+  const handleVoid = async (s: ApiLpgSale) => {
+    try {
+      await lpgApi.sales.void(s.id, stationId);
+      toast.success("Sale voided");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to void"); }
   };
 
-  const columns: Column<LpgSale>[] = [
-    { key: "receiptNo", label: "Receipt #", sortable: true },
-    { key: "date", label: "Date", sortable: true },
-    { key: "customer", label: "Customer", sortable: true },
-    { key: "cylinderSize", label: "Size", sortable: true },
-    { key: "quantity", label: "Qty", sortable: true },
-    { key: "totalAmount", label: "Amount (Ksh)", sortable: true, render: (s) => <span className="font-mono">Ksh {s.totalAmount.toLocaleString()}</span> },
+  const totals = {
+    revenue: sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
+    count:   sales.filter(s => s.paymentStatus !== "voided").length,
+  };
+
+  const set = (k: string, v: any) => updateForm(k, v);
+
+  const columns: Column<ApiLpgSale>[] = [
+    { key: "receiptNo",    label: "Receipt",   render: s => <span className="font-mono text-xs">{s.receiptNo}</span>, sortable: true },
+    { key: "date",         label: "Date",      render: s => s.date.split("T")[0], sortable: true },
+    { key: "customer",     label: "Customer",  render: s => s.customer || "Walk-in" },
+    { key: "cylinderSize", label: "Size",      sortable: true },
+    { key: "quantity",     label: "Qty" },
+    { key: "totalAmount",  label: "Amount",    render: s => <span className="font-mono">Ksh {s.totalAmount.toLocaleString()}</span>, sortable: true },
     { key: "exchangeType", label: "Type" },
-    { key: "paymentMethod", label: "Payment" },
-    { key: "paymentStatus", label: "Status", render: (s) => <StatusBadge status={s.paymentStatus} /> },
+    { key: "paymentMethod",label: "Payment" },
+    { key: "paymentStatus",label: "Status",   render: s => <StatusBadge status={s.paymentStatus} /> },
   ];
 
   const filters: FilterOption[] = [
-    { key: "cylinderSize", label: "Size", options: ["6kg", "13kg", "22.5kg", "25kg", "50kg"].map((s) => ({ label: s, value: s })) },
-    { key: "paymentStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }] },
-    { key: "exchangeType", label: "Type", options: [{ label: "Exchange", value: "Exchange" }, { label: "New", value: "New" }, { label: "Refill", value: "Refill" }] },
+    { key: "cylinderSize", label: "Size",     options: SIZES.map(s => ({ label: s, value: s })) },
+    { key: "exchangeType", label: "Type",     options: EXCHANGE_TYPES.map(t => ({ label: t, value: t })) },
+    { key: "paymentStatus",label: "Status",   options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Voided", value: "voided" }] },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Record cylinder sales and exchanges</p>
-        <Button onClick={openCreate} size="sm"><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-muted-foreground">Record and track LPG cylinder sales</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`lpg-sales-${today()}.csv`, sales)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+        </div>
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["receiptNo", "customer", "attendant"]} searchPlaceholder="Search sales..." filters={filters}
-        actions={(s) => (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openView(s)}><Eye className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(s)}><Pencil className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteConfirm(s)}><Trash2 className="h-3.5 w-3.5" /></Button>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Revenue</p>
+          <p className="text-xl font-bold text-primary">Ksh {totals.revenue.toLocaleString()}</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">Transactions</p>
+          <p className="text-xl font-bold">{totals.count}</p>
+        </CardContent></Card>
+      </div>
+
+      <DataTable
+        data={sales} columns={columns}
+        searchKeys={["receiptNo", "customer", "attendant", "cylinderSize"]}
+        searchPlaceholder="Search sales..."
+        filters={filters}
+        onView={s => setViewing(s)}
+        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? handleVoid(s) : undefined) : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record LPG Sale"
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+          <div><Label>Cylinder Size</Label>
+            <Select value={form.cylinderSize} onValueChange={v => set("cylinderSize", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Quantity</Label><Input type="number" value={form.quantity || ""} onChange={e => set("quantity", +e.target.value)} /></div>
+          <div><Label>Unit Price (Ksh) *</Label><Input type="number" value={form.unitPrice || ""} onChange={e => set("unitPrice", +e.target.value)} /></div>
+          <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
+          <div><Label>Total (Ksh)</Label><Input value={`Ksh ${form.totalAmount.toLocaleString()}`} disabled className="font-mono" /></div>
+          <div><Label>Exchange Type</Label>
+            <Select value={form.exchangeType} onValueChange={v => set("exchangeType", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{EXCHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Payment Method</Label>
+            <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} placeholder="Walk-in" /></div>
+          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>
+            <div><span className="text-muted-foreground">Date:</span> {viewing.date.split("T")[0]}</div>
+            <div><span className="text-muted-foreground">Customer:</span> {viewing.customer || "Walk-in"}</div>
+            <div><span className="text-muted-foreground">Size:</span> {viewing.cylinderSize}</div>
+            <div><span className="text-muted-foreground">Qty:</span> {viewing.quantity}</div>
+            <div><span className="text-muted-foreground">Unit Price:</span> Ksh {viewing.unitPrice.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Discount:</span> Ksh {viewing.discount.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Total:</span> <strong>Ksh {viewing.totalAmount.toLocaleString()}</strong></div>
+            <div><span className="text-muted-foreground">Type:</span> {viewing.exchangeType}</div>
+            <div><span className="text-muted-foreground">Payment:</span> {viewing.paymentMethod} · <StatusBadge status={viewing.paymentStatus} /></div>
+            <div><span className="text-muted-foreground">Attendant:</span> {viewing.attendant || "—"}</div>
           </div>
         )}
-      />
-      {modal && (
-        <ModalForm open onClose={() => setModal(null)} title={modal.mode === "create" ? "Record Sale" : modal.mode === "edit" ? "Edit Sale" : "Sale Details"} onSubmit={modal.mode !== "view" ? handleSave : undefined} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2"><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => updateForm({ date: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Receipt #</Label><Input value={form.receiptNo} disabled className="font-mono" /></div>
-            <div className="space-y-2"><Label>Customer</Label><Input value={form.customer} onChange={(e) => updateForm({ customer: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2">
-              <Label>Cylinder Size</Label>
-              <Select value={form.cylinderSize} onValueChange={(v) => updateForm({ cylinderSize: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["6kg", "13kg", "22.5kg", "25kg", "50kg"].map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2"><Label>Quantity</Label><Input type="number" value={form.quantity} onChange={(e) => updateForm({ quantity: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Unit Price (Ksh)</Label><Input type="number" value={form.unitPrice} onChange={(e) => updateForm({ unitPrice: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Discount (Ksh)</Label><Input type="number" value={form.discount} onChange={(e) => updateForm({ discount: +e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2"><Label>Total (Ksh)</Label><Input type="number" value={form.totalAmount} disabled className="font-mono font-bold" /></div>
-            <div className="space-y-2">
-              <Label>Exchange Type</Label>
-              <Select value={form.exchangeType} onValueChange={(v) => updateForm({ exchangeType: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Exchange">Exchange</SelectItem><SelectItem value="New">New Purchase</SelectItem><SelectItem value="Refill">Refill</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>Payment Method</Label>
-              <Select value={form.paymentMethod} onValueChange={(v) => updateForm({ paymentMethod: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Cash">Cash</SelectItem><SelectItem value="M-Pesa">M-Pesa</SelectItem><SelectItem value="Card">Card</SelectItem><SelectItem value="Invoice">Invoice</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2"><Label>Attendant</Label><Input value={form.attendant} onChange={(e) => updateForm({ attendant: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="space-y-2">
-              <Label>Payment Status</Label>
-              <Select value={form.paymentStatus} onValueChange={(v) => updateForm({ paymentStatus: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="pending">Pending</SelectItem></SelectContent>
-              </Select>
-            </div>
-          </div>
-        </ModalForm>
-      )}
-      {deleteConfirm && (
-        <ModalForm open onClose={() => setDeleteConfirm(null)} title="Delete Sale" onSubmit={handleDelete} submitLabel="Delete">
-          <p className="text-sm text-muted-foreground">Delete sale <strong>{deleteConfirm.receiptNo}</strong>?</p>
-        </ModalForm>
-      )}
+      </ModalForm>
     </div>
   );
 }

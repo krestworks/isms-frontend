@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,75 +8,139 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { toast } from "sonner";
+import { clientsApi, ApiCoupon } from "@/lib/clientsApi";
+import { useActiveStation } from "@/lib/useActiveStation";
 
-interface Coupon {
-  id: string; code: string; module: string; discountType: string; discountValue: number; minSpend: number; maxUses: number; usedCount: number; validFrom: string; validTo: string; status: string;
-}
+const MODULES = ["Fuel", "LPG", "Water", "Car Wash", "Automotive"];
 
-const mockData: Coupon[] = [
-  { id: "1", code: "FUEL10", module: "Fuel", discountType: "Percentage", discountValue: 10, minSpend: 2000, maxUses: 100, usedCount: 34, validFrom: "2025-06-01", validTo: "2025-06-30", status: "active" },
-  { id: "2", code: "WASH500", module: "Car Wash", discountType: "Fixed", discountValue: 500, minSpend: 1000, maxUses: 50, usedCount: 12, validFrom: "2025-06-01", validTo: "2025-07-31", status: "active" },
-  { id: "3", code: "LPG15", module: "LPG", discountType: "Percentage", discountValue: 15, minSpend: 5000, maxUses: 30, usedCount: 30, validFrom: "2025-05-01", validTo: "2025-05-31", status: "inactive" },
-  { id: "4", code: "WATER20", module: "Water", discountType: "Percentage", discountValue: 20, minSpend: 1000, maxUses: 200, usedCount: 67, validFrom: "2025-06-01", validTo: "2025-12-31", status: "active" },
-];
+const blank: Omit<ApiCoupon, "id" | "stationId" | "usedCount" | "createdAt" | "updatedAt"> = {
+  code: "", module: "Fuel", discountType: "Percentage", discountValue: 0, minSpend: 0, maxUses: 0, validFrom: "", validTo: "", status: "active",
+};
 
-const blank: Omit<Coupon, "id"> = { code: "", module: "Fuel", discountType: "Percentage", discountValue: 0, minSpend: 0, maxUses: 0, usedCount: 0, validFrom: "", validTo: "", status: "active" };
-
-const columns: Column<Coupon>[] = [
-  { key: "code", label: "Coupon Code", sortable: true },
-  { key: "module", label: "Module", render: (r) => <Badge variant="secondary">{r.module}</Badge> },
-  { key: "discountType", label: "Type" },
-  { key: "discountValue", label: "Value", render: (r) => r.discountType === "Percentage" ? `${r.discountValue}%` : `Ksh ${r.discountValue}` },
-  { key: "usedCount", label: "Used", render: (r) => `${r.usedCount}/${r.maxUses}` },
-  { key: "validFrom", label: "Valid From" },
-  { key: "validTo", label: "Valid To" },
-  { key: "status", label: "Status", render: (r) => <StatusBadge status={r.status} /> },
+const columns: Column<ApiCoupon>[] = [
+  { key: "code",          label: "Coupon Code", sortable: true },
+  { key: "module",        label: "Module",       render: c => <Badge variant="secondary">{c.module}</Badge> },
+  { key: "discountType",  label: "Type" },
+  { key: "discountValue", label: "Value",        render: c => c.discountType === "Percentage" ? `${c.discountValue}%` : `Ksh ${c.discountValue}` },
+  { key: "usedCount",     label: "Used",         render: c => `${c.usedCount}/${c.maxUses || "∞"}` },
+  { key: "validFrom",     label: "Valid From" },
+  { key: "validTo",       label: "Valid To" },
+  { key: "status",        label: "Status",       render: c => <StatusBadge status={c.status} /> },
 ];
 
 const filters: FilterOption[] = [
-  { key: "module", label: "Module", options: [{ label: "Fuel", value: "Fuel" }, { label: "LPG", value: "LPG" }, { label: "Water", value: "Water" }, { label: "Car Wash", value: "Car Wash" }, { label: "Automotive", value: "Automotive" }] },
+  { key: "module", label: "Module", options: MODULES.map(m => ({ label: m, value: m })) },
   { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Inactive", value: "inactive" }] },
 ];
 
-export default function CouponsTab() {
-  const [data, setData] = useState(mockData);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Omit<Coupon, "id"> & { id?: string } } | null>(null);
+type FormState = typeof blank;
 
-  const open = (mode: "add" | "edit" | "view", item?: Coupon) => setModal({ mode, item: item ? { ...item } : { ...blank } });
-  const close = () => setModal(null);
-  const save = () => { if (!modal) return; if (modal.mode === "add") setData((d) => [...d, { ...modal.item, id: crypto.randomUUID() } as Coupon]); else if (modal.mode === "edit") setData((d) => d.map((r) => r.id === modal.item.id ? modal.item as Coupon : r)); close(); };
-  const remove = (item: Coupon) => setData((d) => d.filter((r) => r.id !== item.id));
-  const f = modal?.item;
+export default function CouponsTab() {
+  const { stationId } = useActiveStation();
+  const [data,    setData]    = useState<ApiCoupon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [modal,   setModal]   = useState<{ mode: "add" | "edit" | "view"; id?: string } | null>(null);
+  const [form,    setForm]    = useState<FormState>({ ...blank });
+  const [saving,  setSaving]  = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await clientsApi.coupons.list(stationId);
+      setData(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load coupons"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const set = (k: keyof FormState, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openAdd  = () => { setForm({ ...blank }); setModal({ mode: "add" }); };
+  const openView = (c: ApiCoupon) => { setForm({ code: c.code, module: c.module, discountType: c.discountType, discountValue: c.discountValue, minSpend: c.minSpend, maxUses: c.maxUses, validFrom: c.validFrom, validTo: c.validTo, status: c.status }); setModal({ mode: "view", id: c.id }); };
+  const openEdit = (c: ApiCoupon) => { setForm({ code: c.code, module: c.module, discountType: c.discountType, discountValue: c.discountValue, minSpend: c.minSpend, maxUses: c.maxUses, validFrom: c.validFrom, validTo: c.validTo, status: c.status }); setModal({ mode: "edit", id: c.id }); };
+
+  const handleSave = async () => {
+    if (!form.code || !form.validFrom || !form.validTo) return toast.error("Code, valid from and valid to are required");
+    setSaving(true);
+    try {
+      if (modal?.mode === "add") {
+        await clientsApi.coupons.create(form, stationId);
+        toast.success("Coupon created");
+      } else if (modal?.mode === "edit" && modal.id) {
+        await clientsApi.coupons.update(modal.id, form);
+        toast.success("Coupon updated");
+      }
+      setModal(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (c: ApiCoupon) => {
+    try { await clientsApi.coupons.delete(c.id); toast.success("Coupon deleted"); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const isView = modal?.mode === "view";
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end"><Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" /> Create Coupon</Button></div>
-      <DataTable data={data} columns={columns} searchKeys={["code"]} searchPlaceholder="Search coupons..." filters={filters} onView={(r) => open("view", r)} onEdit={(r) => open("edit", r)} onDelete={remove} />
-      {modal && f && (
-        <ModalForm open onClose={close} title={modal.mode === "add" ? "Create Coupon" : modal.mode === "edit" ? "Edit Coupon" : "Coupon Details"} isView={modal.mode === "view"} onSubmit={save}>
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">{data.length} coupons</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-1" />Create Coupon</Button>
+        </div>
+      </div>
+
+      <DataTable
+        data={data} columns={columns}
+        searchKeys={["code"]} searchPlaceholder="Search coupons..."
+        filters={filters}
+        onView={openView} onEdit={openEdit} onDelete={handleDelete}
+      />
+
+      {modal && (
+        <ModalForm
+          open onClose={() => setModal(null)}
+          title={modal.mode === "add" ? "Create Coupon" : modal.mode === "edit" ? "Edit Coupon" : "Coupon Details"}
+          isView={isView}
+          onSubmit={handleSave}
+          submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Update" : "Create"}>
           <div className="grid grid-cols-2 gap-3">
-            <div><Label>Coupon Code</Label><Input value={f.code} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, code: e.target.value.toUpperCase() } })} /></div>
+            <div>
+              <Label>Coupon Code *</Label>
+              <Input value={form.code} readOnly={isView} onChange={e => set("code", e.target.value.toUpperCase())} placeholder="e.g. FUEL10" />
+            </div>
             <div><Label>Module</Label>
-              <Select value={f.module} onValueChange={(v) => setModal({ ...modal, item: { ...f, module: v } })} disabled={modal.mode === "view"}>
+              <Select value={form.module} onValueChange={v => set("module", v)} disabled={isView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Fuel", "LPG", "Water", "Car Wash", "Automotive"].map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                <SelectContent>{MODULES.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Discount Type</Label>
-              <Select value={f.discountType} onValueChange={(v) => setModal({ ...modal, item: { ...f, discountType: v } })} disabled={modal.mode === "view"}>
+              <Select value={form.discountType} onValueChange={v => set("discountType", v)} disabled={isView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Percentage">Percentage</SelectItem><SelectItem value="Fixed">Fixed Amount</SelectItem></SelectContent>
+                <SelectContent>
+                  <SelectItem value="Percentage">Percentage</SelectItem>
+                  <SelectItem value="Fixed">Fixed Amount</SelectItem>
+                </SelectContent>
               </Select>
             </div>
-            <div><Label>Discount Value</Label><Input type="number" value={f.discountValue} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, discountValue: +e.target.value } })} /></div>
-            <div><Label>Min Spend (Ksh)</Label><Input type="number" value={f.minSpend} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, minSpend: +e.target.value } })} /></div>
-            <div><Label>Max Uses</Label><Input type="number" value={f.maxUses} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, maxUses: +e.target.value } })} /></div>
-            <div><Label>Valid From</Label><Input type="date" value={f.validFrom} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, validFrom: e.target.value } })} /></div>
-            <div><Label>Valid To</Label><Input type="date" value={f.validTo} readOnly={modal.mode === "view"} onChange={(e) => setModal({ ...modal, item: { ...f, validTo: e.target.value } })} /></div>
+            <div><Label>Discount Value</Label><Input type="number" value={form.discountValue || ""} readOnly={isView} onChange={e => set("discountValue", +e.target.value)} /></div>
+            <div><Label>Min Spend (Ksh)</Label><Input type="number" value={form.minSpend || ""} readOnly={isView} onChange={e => set("minSpend", +e.target.value)} /></div>
+            <div><Label>Max Uses (0 = unlimited)</Label><Input type="number" value={form.maxUses || ""} readOnly={isView} onChange={e => set("maxUses", +e.target.value)} /></div>
+            <div><Label>Valid From *</Label><Input type="date" value={form.validFrom} readOnly={isView} onChange={e => set("validFrom", e.target.value)} /></div>
+            <div><Label>Valid To *</Label><Input type="date" value={form.validTo} readOnly={isView} onChange={e => set("validTo", e.target.value)} /></div>
             <div><Label>Status</Label>
-              <Select value={f.status} onValueChange={(v) => setModal({ ...modal, item: { ...f, status: v } })} disabled={modal.mode === "view"}>
+              <Select value={form.status} onValueChange={v => set("status", v)} disabled={isView}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="active">Active</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                </SelectContent>
               </Select>
             </div>
           </div>

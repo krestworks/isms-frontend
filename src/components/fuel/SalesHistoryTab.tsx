@@ -1,123 +1,154 @@
-import { useState } from "react";
-import { Eye, Download } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { Label } from "@/components/ui/label";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { fuelApi, ApiFuelSale } from "@/lib/fuelApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface SaleRecord {
-  id: string;
-  date: string;
-  receiptNo: string;
-  customer: string;
-  fuelType: string;
-  litres: number;
-  unitPrice: number;
-  amount: number;
-  discount: number;
-  netAmount: number;
-  paymentMethod: string;
-  paymentStatus: string;
-  attendant: string;
-  pumpNumber: number;
+const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
+
+function oneMonthAgo() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 1);
+  return d.toISOString().split("T")[0];
 }
-
-const initialData: SaleRecord[] = Array.from({ length: 25 }, (_, i) => {
-  const fuels = ["Super", "Diesel", "Kerosene", "V-Power"];
-  const payments = ["Cash", "M-Pesa", "Card", "Invoice"];
-  const customers = ["Walk-in", "KenTrans Ltd", "SafariCom Fleet", "John Kamau", "Matatu SACCO", "Jane Muthoni", "Quick Deliveries"];
-  const attendants = ["James Ochieng", "Mary Wanjiku", "Peter Mutua", "Grace Akinyi"];
-  const statuses = ["paid", "paid", "paid", "pending", "paid"];
-  const fuel = fuels[i % fuels.length];
-  const prices: Record<string, number> = { Super: 179.5, Diesel: 165, Kerosene: 155, "V-Power": 195 };
-  const litres = [20, 30, 45, 50, 80, 100, 120, 200][i % 8];
-  const unitPrice = prices[fuel];
-  const amount = litres * unitPrice;
-  const discount = i % 7 === 0 ? 500 : 0;
-  const day = 9 - Math.floor(i / 4);
-  return {
-    id: `SH${String(i + 1).padStart(3, "0")}`,
-    date: `2026-04-${String(Math.max(1, day)).padStart(2, "0")}`,
-    receiptNo: `R-${10450 + i + 1}`,
-    customer: customers[i % customers.length],
-    fuelType: fuel,
-    litres,
-    unitPrice,
-    amount,
-    discount,
-    netAmount: amount - discount,
-    paymentMethod: payments[i % payments.length],
-    paymentStatus: statuses[i % statuses.length],
-    attendant: attendants[i % attendants.length],
-    pumpNumber: (i % 4) + 1,
-  };
-});
+const today = () => new Date().toISOString().split("T")[0];
 
 export function SalesHistoryTab() {
-  const [viewItem, setViewItem] = useState<SaleRecord | null>(null);
+  const { stationId } = useActiveStation();
+  const [sales, setSales]       = useState<ApiFuelSale[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState(oneMonthAgo());
+  const [toDate, setToDate]     = useState(today());
+  const [fuelFilter, setFuelFilter] = useState("all");
+  const [payFilter, setPayFilter]   = useState("all");
+  const [viewing, setViewing]   = useState<ApiFuelSale | null>(null);
 
-  const columns: Column<SaleRecord>[] = [
-    { key: "receiptNo", label: "Receipt #", sortable: true },
-    { key: "date", label: "Date", sortable: true },
-    { key: "customer", label: "Customer", sortable: true },
-    { key: "fuelType", label: "Fuel", sortable: true },
-    { key: "litres", label: "Litres", sortable: true, render: (s) => s.litres.toLocaleString() },
-    { key: "netAmount", label: "Amount (Ksh)", sortable: true, render: (s) => <span className="font-mono">Ksh {s.netAmount.toLocaleString()}</span> },
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await fuelApi.sales.list({
+        from: fromDate, to: toDate,
+        fuelType: fuelFilter !== "all" ? fuelFilter : undefined,
+        paymentMethod: payFilter !== "all" ? payFilter : undefined,
+      }, stationId);
+      setSales(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load history"); }
+    finally { setLoading(false); }
+  }, [stationId, fromDate, toDate, fuelFilter, payFilter]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const totals = {
+    revenue:  sales.reduce((s, r) => s + r.netAmount, 0),
+    litres:   sales.reduce((s, r) => s + r.litres, 0),
+    discount: sales.reduce((s, r) => s + r.discount, 0),
+    count:    sales.length,
+  };
+
+  const columns: Column<ApiFuelSale>[] = [
+    { key: "receiptNo",    label: "Receipt",  render: s => <span className="font-mono text-xs">{s.receiptNo}</span>, sortable: true },
+    { key: "date",         label: "Date",     render: s => s.date.split("T")[0], sortable: true },
+    { key: "customer",     label: "Customer", render: s => s.customer || "Walk-in", sortable: true },
+    { key: "fuelType",     label: "Fuel",     sortable: true },
+    { key: "litres",       label: "Litres",   render: s => s.litres.toLocaleString() },
+    { key: "netAmount",    label: "Amount",   render: s => <span className="font-mono">Ksh {s.netAmount.toLocaleString()}</span>, sortable: true },
     { key: "paymentMethod", label: "Payment" },
-    { key: "paymentStatus", label: "Status", render: (s) => <StatusBadge status={s.paymentStatus} /> },
-    { key: "attendant", label: "Attendant" },
+    { key: "paymentStatus", label: "Status",  render: s => <StatusBadge status={s.paymentStatus} /> },
+    { key: "attendant",    label: "Attendant", render: s => s.attendant || "—" },
   ];
-
-  const filters: FilterOption[] = [
-    { key: "fuelType", label: "Fuel Type", options: [{ label: "Super", value: "Super" }, { label: "Diesel", value: "Diesel" }, { label: "Kerosene", value: "Kerosene" }, { label: "V-Power", value: "V-Power" }] },
-    { key: "paymentStatus", label: "Payment Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }] },
-    { key: "paymentMethod", label: "Payment Method", options: [{ label: "Cash", value: "Cash" }, { label: "M-Pesa", value: "M-Pesa" }, { label: "Card", value: "Card" }, { label: "Invoice", value: "Invoice" }] },
-  ];
-
-  const totalRevenue = initialData.reduce((s, r) => s + r.netAmount, 0);
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <p className="text-sm text-muted-foreground">Complete sales transaction history</p>
-          <p className="text-xs text-primary font-semibold mt-1">Total Revenue: Ksh {totalRevenue.toLocaleString()}</p>
+          <p className="text-sm text-muted-foreground">Complete fuel sales transaction history</p>
+          <p className="text-xs text-primary font-semibold mt-0.5">Total Revenue: Ksh {totals.revenue.toLocaleString()} · {totals.litres.toLocaleString()} L</p>
         </div>
-        <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1.5" />Export</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`fuel-history-${today()}.csv`, sales)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+        </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <div>
+          <Label className="text-xs">Fuel</Label>
+          <Select value={fuelFilter} onValueChange={setFuelFilter}>
+            <SelectTrigger className="h-8 text-xs w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All fuels</SelectItem>
+              {FUEL_TYPES.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs">Payment</Label>
+          <Select value={payFilter} onValueChange={setPayFilter}>
+            <SelectTrigger className="h-8 text-xs w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All methods</SelectItem>
+              {PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: "Revenue",      value: `Ksh ${totals.revenue.toLocaleString()}`,   color: "text-primary" },
+          { label: "Litres Sold",  value: `${totals.litres.toLocaleString()} L` },
+          { label: "Transactions", value: String(totals.count) },
+          { label: "Discounts",    value: `Ksh ${totals.discount.toLocaleString()}`,  color: "text-amber-600" },
+        ].map(s => (
+          <Card key={s.label}><CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">{s.label}</p>
+            <p className={`text-xl font-bold ${s.color || ""}`}>{s.value}</p>
+          </CardContent></Card>
+        ))}
       </div>
 
       <DataTable
-        data={initialData}
+        data={sales}
         columns={columns}
         searchKeys={["receiptNo", "customer", "attendant", "fuelType"]}
         searchPlaceholder="Search sales history..."
-        filters={filters}
-        actions={(s) => (
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewItem(s)}>
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
-        )}
+        onView={s => setViewing(s)}
       />
 
-      {viewItem && (
-        <ModalForm open onClose={() => setViewItem(null)} title="Sale Details" isView>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label className="text-muted-foreground text-xs">Receipt #</Label><p className="font-mono text-sm">{viewItem.receiptNo}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Date</Label><p className="text-sm">{viewItem.date}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Customer</Label><p className="text-sm">{viewItem.customer}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Attendant</Label><p className="text-sm">{viewItem.attendant}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Fuel Type</Label><p className="text-sm">{viewItem.fuelType}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Pump</Label><p className="text-sm">Pump {viewItem.pumpNumber}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Litres</Label><p className="text-sm font-mono">{viewItem.litres}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Unit Price</Label><p className="text-sm font-mono">Ksh {viewItem.unitPrice}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Gross Amount</Label><p className="text-sm font-mono">Ksh {viewItem.amount.toLocaleString()}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Discount</Label><p className="text-sm font-mono">Ksh {viewItem.discount.toLocaleString()}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Net Amount</Label><p className="text-sm font-mono font-bold">Ksh {viewItem.netAmount.toLocaleString()}</p></div>
-            <div><Label className="text-muted-foreground text-xs">Payment</Label><p className="text-sm">{viewItem.paymentMethod} · <StatusBadge status={viewItem.paymentStatus} /></p></div>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>
+            <div><span className="text-muted-foreground">Date:</span> {viewing.date.split("T")[0]}</div>
+            <div><span className="text-muted-foreground">Customer:</span> {viewing.customer || "Walk-in"}</div>
+            <div><span className="text-muted-foreground">Attendant:</span> {viewing.attendant || "—"}</div>
+            <div><span className="text-muted-foreground">Fuel:</span> {viewing.fuelType}</div>
+            <div><span className="text-muted-foreground">Pump:</span> Pump {viewing.pumpNumber}</div>
+            <div><span className="text-muted-foreground">Litres:</span> {viewing.litres.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Price/L:</span> Ksh {viewing.pricePerLitre}</div>
+            <div><span className="text-muted-foreground">Gross:</span> Ksh {viewing.amount.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Discount:</span> Ksh {viewing.discount.toLocaleString()}</div>
+            <div><span className="text-muted-foreground">Net Amount:</span> <strong>Ksh {viewing.netAmount.toLocaleString()}</strong></div>
+            <div><span className="text-muted-foreground">Payment:</span> {viewing.paymentMethod} · <StatusBadge status={viewing.paymentStatus} /></div>
           </div>
-        </ModalForm>
-      )}
+        )}
+      </ModalForm>
     </div>
   );
 }

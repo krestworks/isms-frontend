@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,54 +8,86 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { Plus, Save } from "lucide-react";
+import { Plus, Save, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { settingsApi, VatConfig, ApiVatRate } from "@/lib/settingsApi";
 
-interface VatRate {
-  id: string;
-  name: string;
-  rate: number;
-  appliesTo: string;
-  status: string;
-}
+type FormMode = "add" | "edit" | "view";
 
-const initialConfig = { currency: "KES", currencySymbol: "Ksh", vatEnabled: true, defaultRate: 16, invoicePrefix: "INV", receiptPrefix: "RCP" };
+const defaultVatConfig: VatConfig = {
+  currency: "KES", currencySymbol: "Ksh", vatEnabled: true,
+  defaultRate: 16, invoicePrefix: "INV", receiptPrefix: "RCP",
+};
 
-const initialRates: VatRate[] = [
-  { id: "VAT-001", name: "Standard Rate", rate: 16, appliesTo: "Fuel, LPG, Auto Services, Car Wash", status: "active" },
-  { id: "VAT-002", name: "Zero Rate", rate: 0, appliesTo: "Water (potable)", status: "active" },
-  { id: "VAT-003", name: "Exempt", rate: 0, appliesTo: "Medical supplies", status: "inactive" },
-];
-
-const blank = { name: "", rate: 0, appliesTo: "", status: "active" };
+const blank: Omit<ApiVatRate, "id" | "stationId"> = { name: "", rate: 0, appliesTo: "", status: "active" };
 
 export function VatConfigTab() {
-  const [config, setConfig] = useState(initialConfig);
-  const [rates, setRates] = useState(initialRates);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: VatRate } | null>(null);
-  const [form, setForm] = useState<Omit<VatRate, "id">>(blank);
+  const { stationId } = useActiveStation();
+  const [config,  setConfig]  = useState<VatConfig>(defaultVatConfig);
+  const [rates,   setRates]   = useState<ApiVatRate[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [modal,   setModal]   = useState<{ mode: FormMode; item?: ApiVatRate } | null>(null);
+  const [form,    setForm]    = useState<Omit<ApiVatRate, "id" | "stationId">>(blank);
 
-  const openAdd = () => { setForm(blank); setModal({ mode: "add", item: {} as VatRate }); };
-  const openView = (v: VatRate) => { setForm(v); setModal({ mode: "view", item: v }); };
-  const openEdit = (v: VatRate) => { setForm(v); setModal({ mode: "edit", item: v }); };
-  const handleDelete = (v: VatRate) => { setRates(d => d.filter(x => x.id !== v.id)); toast.success("VAT rate deleted"); };
-  const handleSave = () => {
-    if (modal?.mode === "add") {
-      setRates(d => [{ ...form, id: `VAT-${String(d.length + 1).padStart(3, "0")}` }, ...d]);
-      toast.success("VAT rate added");
-    } else {
-      setRates(d => d.map(x => x.id === modal?.item.id ? { ...x, ...form } : x));
-      toast.success("VAT rate updated");
-    }
-    setModal(null);
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const [cfgRes, ratesRes] = await Promise.all([
+        settingsApi.config.get<VatConfig>("vat", stationId),
+        settingsApi.vatRates.list(stationId),
+      ]);
+      if (cfgRes.data && Object.keys(cfgRes.data).length) setConfig(cfgRes.data);
+      setRates(ratesRes.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load VAT config"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveConfig = async () => {
+    if (!stationId) return toast.error("No station selected");
+    setSaving(true);
+    try {
+      await settingsApi.config.set("vat", config, stationId);
+      toast.success("Configuration saved");
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
   };
 
-  const columns: Column<VatRate>[] = [
-    { key: "id", label: "ID" },
-    { key: "name", label: "Name", sortable: true },
-    { key: "rate", label: "Rate (%)", render: v => <span className="font-mono">{v.rate}%</span> },
+  const openAdd  = () => { setForm(blank); setModal({ mode: "add" }); };
+  const openView = (v: ApiVatRate) => { setForm({ name: v.name, rate: v.rate, appliesTo: v.appliesTo, status: v.status }); setModal({ mode: "view", item: v }); };
+  const openEdit = (v: ApiVatRate) => { setForm({ name: v.name, rate: v.rate, appliesTo: v.appliesTo, status: v.status }); setModal({ mode: "edit", item: v }); };
+
+  const handleDelete = async (v: ApiVatRate) => {
+    try { await settingsApi.vatRates.delete(v.id); toast.success("VAT rate deleted"); load(); }
+    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const handleSave = async () => {
+    if (!form.name) return toast.error("Name is required");
+    setSaving(true);
+    try {
+      if (modal?.mode === "add") {
+        await settingsApi.vatRates.create(form, stationId);
+        toast.success("VAT rate added");
+      } else if (modal?.mode === "edit" && modal.item) {
+        await settingsApi.vatRates.update(modal.item.id, form);
+        toast.success("VAT rate updated");
+      }
+      setModal(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
+
+  const columns: Column<ApiVatRate>[] = [
+    { key: "name",      label: "Name",       sortable: true },
+    { key: "rate",      label: "Rate (%)",   render: v => <span className="font-mono">{v.rate}%</span> },
     { key: "appliesTo", label: "Applies To" },
-    { key: "status", label: "Status", render: v => <StatusBadge status={v.status} /> },
+    { key: "status",    label: "Status",     render: v => <StatusBadge status={v.status} /> },
   ];
 
   const isView = modal?.mode === "view";
@@ -64,7 +96,10 @@ export function VatConfigTab() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">VAT & Currency Configuration</h3>
-        <Button onClick={() => toast.success("Configuration saved")} size="sm"><Save className="h-4 w-4 mr-1" /> Save</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button onClick={saveConfig} size="sm" disabled={saving}><Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save Config"}</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

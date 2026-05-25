@@ -1,150 +1,293 @@
-import { useState } from "react";
-import { Eye, Download, Printer, FileText } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
-import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
+import { toast } from "sonner";
+import { lpgApi, ApiLpgInvoice, ApiLpgInvoiceItem } from "@/lib/lpgApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface Invoice {
-  id: string;
-  invoiceNo: string;
-  date: string;
-  dueDate: string;
-  client: string;
-  clientPhone: string;
-  clientAddress: string;
-  items: { description: string; qty: number; unitPrice: number; total: number }[];
-  subtotal: number;
-  vat: number;
-  vatAmount: number;
-  discount: number;
-  totalAmount: number;
-  paymentStatus: string;
-  paymentMethod: string;
-  paidDate: string;
-  type: string;
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
+const today = () => new Date().toISOString().split("T")[0];
+
+const emptyItem = (): ApiLpgInvoiceItem => ({ description: "", qty: 1, unitPrice: 0, total: 0 });
+
+const emptyForm = {
+  date: today(), dueDate: "", client: "", clientPhone: "", clientAddress: "",
+  type: "invoice", paymentStatus: "pending", paymentMethod: "Invoice", paidDate: "",
+  vatRate: 16, discount: 0,
+  items: [emptyItem()],
+};
+
+function recalc(items: ApiLpgInvoiceItem[], vatRate: number, discount: number) {
+  const subtotal = items.reduce((s, i) => s + i.total, 0);
+  const vatAmount = Math.round(subtotal * vatRate / 100);
+  return { subtotal, vatAmount, totalAmount: subtotal + vatAmount - discount };
 }
 
-const initialData: Invoice[] = [
-  {
-    id: "INV001", invoiceNo: "INV-2026-0451", date: "2026-04-09", dueDate: "2026-05-09", client: "Hotel Sapphire", clientPhone: "+254 722 111 000", clientAddress: "Westlands, Nairobi",
-    items: [{ description: "50kg LPG Cylinder (Exchange)", qty: 2, unitPrice: 11000, total: 22000 }],
-    subtotal: 22000, vat: 16, vatAmount: 3520, discount: 0, totalAmount: 25520, paymentStatus: "pending", paymentMethod: "Invoice", paidDate: "", type: "invoice"
-  },
-  {
-    id: "INV002", invoiceNo: "INV-2026-0450", date: "2026-04-09", dueDate: "2026-04-09", client: "Mama Mboga Cafe", clientPhone: "+254 733 222 000", clientAddress: "Kawangware, Nairobi",
-    items: [{ description: "13kg LPG Cylinder (Exchange)", qty: 3, unitPrice: 2400, total: 7200 }],
-    subtotal: 7200, vat: 16, vatAmount: 1152, discount: 0, totalAmount: 8352, paymentStatus: "paid", paymentMethod: "M-Pesa", paidDate: "2026-04-09", type: "receipt"
-  },
-  {
-    id: "INV003", invoiceNo: "INV-2026-0449", date: "2026-04-08", dueDate: "2026-04-08", client: "Quick Bites Restaurant", clientPhone: "+254 744 333 000", clientAddress: "Kilimani, Nairobi",
-    items: [{ description: "25kg LPG Cylinder (Exchange)", qty: 1, unitPrice: 5200, total: 5200 }],
-    subtotal: 5200, vat: 16, vatAmount: 832, discount: 200, totalAmount: 5832, paymentStatus: "paid", paymentMethod: "Cash", paidDate: "2026-04-08", type: "receipt"
-  },
-  {
-    id: "INV004", invoiceNo: "INV-2026-0448", date: "2026-04-07", dueDate: "2026-05-07", client: "Quick Bites Restaurant", clientPhone: "+254 744 333 000", clientAddress: "Kilimani, Nairobi",
-    items: [
-      { description: "25kg LPG Cylinder (Exchange)", qty: 2, unitPrice: 5200, total: 10400 },
-      { description: "Delivery Fee", qty: 1, unitPrice: 500, total: 500 },
-    ],
-    subtotal: 10900, vat: 16, vatAmount: 1744, discount: 500, totalAmount: 12144, paymentStatus: "paid", paymentMethod: "Invoice", paidDate: "2026-04-09", type: "invoice"
-  },
-  {
-    id: "INV005", invoiceNo: "INV-2026-0447", date: "2026-04-06", dueDate: "2026-04-06", client: "Walk-in", clientPhone: "", clientAddress: "",
-    items: [{ description: "6kg LPG Cylinder (New)", qty: 3, unitPrice: 1100, total: 3300 }],
-    subtotal: 3300, vat: 16, vatAmount: 528, discount: 0, totalAmount: 3828, paymentStatus: "paid", paymentMethod: "Cash", paidDate: "2026-04-06", type: "receipt"
-  },
-];
-
 export function InvoicesTab() {
-  const [viewItem, setViewItem] = useState<Invoice | null>(null);
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("lpg.invoices.manage");
 
-  const columns: Column<Invoice>[] = [
-    { key: "invoiceNo", label: "Invoice #", sortable: true },
-    { key: "date", label: "Date", sortable: true },
-    { key: "client", label: "Client", sortable: true },
-    { key: "type", label: "Type", render: (i) => <span className="capitalize text-xs font-medium">{i.type}</span> },
-    { key: "subtotal", label: "Subtotal (Ksh)", render: (i) => i.subtotal.toLocaleString() },
-    { key: "vatAmount", label: "VAT (Ksh)", render: (i) => i.vatAmount.toLocaleString() },
-    { key: "totalAmount", label: "Total (Ksh)", sortable: true, render: (i) => <span className="font-mono font-bold">Ksh {i.totalAmount.toLocaleString()}</span> },
-    { key: "paymentStatus", label: "Status", render: (i) => <StatusBadge status={i.paymentStatus} /> },
-    { key: "paymentMethod", label: "Payment" },
+  const [records, setRecords]   = useState<ApiLpgInvoice[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiLpgInvoice | null>(null);
+  const [viewing, setViewing]   = useState<ApiLpgInvoice | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
+
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await lpgApi.invoices.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load invoices"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const openNew = () => {
+    setEditing(null);
+    setForm({ ...emptyForm, date: today(), items: [emptyItem()] });
+    setModalOpen(true);
+  };
+  const openEdit = (inv: ApiLpgInvoice) => {
+    setEditing(inv);
+    setForm({
+      date: inv.date.split("T")[0], dueDate: inv.dueDate?.split("T")[0] ?? "",
+      client: inv.client, clientPhone: inv.clientPhone ?? "", clientAddress: inv.clientAddress ?? "",
+      type: inv.type, paymentStatus: inv.paymentStatus, paymentMethod: inv.paymentMethod,
+      paidDate: inv.paidDate?.split("T")[0] ?? "", vatRate: inv.vatRate, discount: inv.discount,
+      items: inv.items.length ? inv.items : [emptyItem()],
+    });
+    setModalOpen(true);
+  };
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const updateItem = (idx: number, field: keyof ApiLpgInvoiceItem, value: string | number) => {
+    setForm(f => {
+      const items = f.items.map((it, i) => {
+        if (i !== idx) return it;
+        const next = { ...it, [field]: value };
+        next.total = next.qty * next.unitPrice;
+        return next;
+      });
+      return { ...f, items };
+    });
+  };
+
+  const addItem = () => setForm(f => ({ ...f, items: [...f.items, emptyItem()] }));
+  const removeItem = (idx: number) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+
+  const computed = recalc(form.items, form.vatRate, form.discount);
+
+  const handleSave = async () => {
+    if (!form.client) return toast.error("Client is required");
+    if (!form.items.length) return toast.error("At least one line item is required");
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        ...computed,
+        dueDate: form.dueDate || undefined,
+        paidDate: form.paidDate || undefined,
+        clientPhone: form.clientPhone || undefined,
+        clientAddress: form.clientAddress || undefined,
+      };
+      if (editing) {
+        await lpgApi.invoices.update(editing.id, payload, stationId);
+        toast.success("Invoice updated");
+      } else {
+        await lpgApi.invoices.create(payload, stationId);
+        toast.success("Invoice created");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save invoice"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (inv: ApiLpgInvoice) => {
+    try {
+      await lpgApi.invoices.delete(inv.id, stationId);
+      toast.success("Invoice deleted");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const columns: Column<ApiLpgInvoice>[] = [
+    { key: "invoiceNo",    label: "Invoice #",    sortable: true, render: i => <span className="font-mono text-xs">{i.invoiceNo}</span> },
+    { key: "date",         label: "Date",          render: i => i.date.split("T")[0], sortable: true },
+    { key: "client",       label: "Client",        sortable: true },
+    { key: "type",         label: "Type",          render: i => <span className="capitalize text-xs">{i.type}</span> },
+    { key: "subtotal",     label: "Subtotal (Ksh)",render: i => i.subtotal.toLocaleString() },
+    { key: "vatAmount",    label: "VAT (Ksh)",     render: i => i.vatAmount.toLocaleString() },
+    { key: "totalAmount",  label: "Total (Ksh)",   sortable: true, render: i => <span className="font-mono font-bold">Ksh {i.totalAmount.toLocaleString()}</span> },
+    { key: "paymentStatus",label: "Status",        render: i => <StatusBadge status={i.paymentStatus} /> },
+    { key: "paymentMethod",label: "Payment" },
   ];
 
   const filters: FilterOption[] = [
     { key: "paymentStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }] },
-    { key: "type", label: "Type", options: [{ label: "Invoice", value: "invoice" }, { label: "Receipt", value: "receipt" }] },
+    { key: "type",          label: "Type",   options: [{ label: "Invoice", value: "invoice" }, { label: "Receipt", value: "receipt" }] },
   ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Receipts and invoices for all LPG transactions</p>
-        <Button variant="outline" size="sm"><Download className="h-4 w-4 mr-1.5" />Export</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`lpg-invoices-${today()}.csv`, records)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Create Invoice</Button>}
+        </div>
       </div>
-      <DataTable data={initialData} columns={columns} searchKeys={["invoiceNo", "client"]} searchPlaceholder="Search invoices..." filters={filters}
-        actions={(i) => (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewItem(i)}><Eye className="h-3.5 w-3.5" /></Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7"><Printer className="h-3.5 w-3.5" /></Button>
-          </div>
-        )}
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["invoiceNo", "client"]}
+        searchPlaceholder="Search invoices..."
+        filters={filters}
+        onView={i => setViewing(i)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
       />
-      {viewItem && (
-        <ModalForm open onClose={() => setViewItem(null)} title={viewItem.type === "invoice" ? "Invoice" : "Receipt"} isView>
-          {/* Receipt / Invoice preview */}
+
+      {/* Create / Edit modal */}
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Invoice" : "Create Invoice"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Create"}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+            <div><Label>Due Date</Label><Input type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} /></div>
+            <div><Label>Client *</Label><Input value={form.client} onChange={e => set("client", e.target.value)} /></div>
+            <div><Label>Client Phone</Label><Input value={form.clientPhone} onChange={e => set("clientPhone", e.target.value)} /></div>
+            <div className="col-span-2"><Label>Client Address</Label><Input value={form.clientAddress} onChange={e => set("clientAddress", e.target.value)} /></div>
+            <div><Label>Type</Label>
+              <Select value={form.type} onValueChange={v => set("type", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="invoice">Invoice</SelectItem><SelectItem value="receipt">Receipt</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div><Label>Payment Method</Label>
+              <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div><Label>Payment Status</Label>
+              <Select value={form.paymentStatus} onValueChange={v => set("paymentStatus", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="paid">Paid</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
+          </div>
+
+          <Separator />
+          <Label>Line Items</Label>
+          <div className="space-y-2">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 text-xs text-muted-foreground px-1">
+              <span>Description</span><span>Qty</span><span>Unit Price</span><span>Total</span><span />
+            </div>
+            {form.items.map((it, i) => (
+              <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2">
+                <Input placeholder="e.g. 13kg Exchange" value={it.description} onChange={e => updateItem(i, "description", e.target.value)} />
+                <Input type="number" value={it.qty || ""} onChange={e => updateItem(i, "qty", +e.target.value)} />
+                <Input type="number" value={it.unitPrice || ""} onChange={e => updateItem(i, "unitPrice", +e.target.value)} />
+                <Input value={`Ksh ${it.total.toLocaleString()}`} disabled className="font-mono text-xs" />
+                <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => removeItem(i)} disabled={form.items.length === 1}>×</Button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={addItem}>+ Add Item</Button>
+          </div>
+
+          <Separator />
+          <div className="flex justify-end">
+            <div className="w-52 space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-mono">Ksh {computed.subtotal.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">VAT ({form.vatRate}%)</span><span className="font-mono">Ksh {computed.vatAmount.toLocaleString()}</span></div>
+              {form.discount > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="font-mono text-green-600">-Ksh {form.discount.toLocaleString()}</span></div>}
+              <Separator />
+              <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {computed.totalAmount.toLocaleString()}</span></div>
+            </div>
+          </div>
+        </div>
+      </ModalForm>
+
+      {/* View modal */}
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type === "receipt" ? "Receipt" : "Invoice"} isView>
+        {viewing && (
           <div className="border border-border rounded-lg p-6 space-y-4 bg-background">
             <div className="flex justify-between items-start">
               <div>
-                <h3 className="text-lg font-bold text-foreground">ISMS Station</h3>
+                <h3 className="text-lg font-bold">ISMS Station</h3>
                 <p className="text-xs text-muted-foreground">Integrated Station Management</p>
               </div>
               <div className="text-right">
-                <p className="font-mono font-bold text-sm">{viewItem.invoiceNo}</p>
-                <p className="text-xs text-muted-foreground">{viewItem.type === "invoice" ? "TAX INVOICE" : "RECEIPT"}</p>
+                <p className="font-mono font-bold text-sm">{viewing.invoiceNo}</p>
+                <p className="text-xs text-muted-foreground">{viewing.type === "receipt" ? "RECEIPT" : "TAX INVOICE"}</p>
+                <StatusBadge status={viewing.paymentStatus} />
               </div>
             </div>
             <Separator />
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <Label className="text-muted-foreground text-xs">Bill To</Label>
-                <p className="font-medium">{viewItem.client}</p>
-                {viewItem.clientPhone && <p className="text-xs text-muted-foreground">{viewItem.clientPhone}</p>}
-                {viewItem.clientAddress && <p className="text-xs text-muted-foreground">{viewItem.clientAddress}</p>}
+                <p className="text-xs text-muted-foreground">Bill To</p>
+                <p className="font-medium">{viewing.client}</p>
+                {viewing.clientPhone && <p className="text-xs text-muted-foreground">{viewing.clientPhone}</p>}
+                {viewing.clientAddress && <p className="text-xs text-muted-foreground">{viewing.clientAddress}</p>}
               </div>
-              <div className="text-right">
-                <div><Label className="text-muted-foreground text-xs">Date:</Label> <span className="text-sm">{viewItem.date}</span></div>
-                {viewItem.type === "invoice" && <div><Label className="text-muted-foreground text-xs">Due:</Label> <span className="text-sm">{viewItem.dueDate}</span></div>}
-                <div className="mt-1"><StatusBadge status={viewItem.paymentStatus} /></div>
+              <div className="text-right text-sm">
+                <div><span className="text-muted-foreground text-xs">Date: </span>{viewing.date.split("T")[0]}</div>
+                {viewing.dueDate && <div><span className="text-muted-foreground text-xs">Due: </span>{viewing.dueDate.split("T")[0]}</div>}
               </div>
             </div>
             <div className="border rounded-md overflow-hidden">
               <table className="w-full text-sm">
-                <thead><tr className="bg-muted/50"><th className="text-left p-2 text-xs font-semibold">Description</th><th className="text-right p-2 text-xs font-semibold">Qty</th><th className="text-right p-2 text-xs font-semibold">Price</th><th className="text-right p-2 text-xs font-semibold">Total</th></tr></thead>
+                <thead><tr className="bg-muted/50"><th className="text-left p-2 text-xs font-semibold">Description</th><th className="text-right p-2 text-xs">Qty</th><th className="text-right p-2 text-xs">Price</th><th className="text-right p-2 text-xs">Total</th></tr></thead>
                 <tbody>
-                  {viewItem.items.map((item, idx) => (
-                    <tr key={idx} className="border-t"><td className="p-2">{item.description}</td><td className="p-2 text-right">{item.qty}</td><td className="p-2 text-right font-mono">Ksh {item.unitPrice.toLocaleString()}</td><td className="p-2 text-right font-mono">Ksh {item.total.toLocaleString()}</td></tr>
+                  {viewing.items.map((it, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="p-2">{it.description}</td>
+                      <td className="p-2 text-right">{it.qty}</td>
+                      <td className="p-2 text-right font-mono">Ksh {it.unitPrice.toLocaleString()}</td>
+                      <td className="p-2 text-right font-mono">Ksh {it.total.toLocaleString()}</td>
+                    </tr>
                   ))}
                 </tbody>
               </table>
             </div>
             <div className="flex justify-end">
-              <div className="w-48 space-y-1 text-sm">
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-mono">Ksh {viewItem.subtotal.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">VAT ({viewItem.vat}%)</span><span className="font-mono">Ksh {viewItem.vatAmount.toLocaleString()}</span></div>
-                {viewItem.discount > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="font-mono text-success">-Ksh {viewItem.discount.toLocaleString()}</span></div>}
+              <div className="w-52 space-y-1 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-mono">Ksh {viewing.subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">VAT ({viewing.vatRate}%)</span><span className="font-mono">Ksh {viewing.vatAmount.toLocaleString()}</span></div>
+                {viewing.discount > 0 && <div className="flex justify-between"><span className="text-muted-foreground">Discount</span><span className="font-mono text-green-600">-Ksh {viewing.discount.toLocaleString()}</span></div>}
                 <Separator />
-                <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {viewItem.totalAmount.toLocaleString()}</span></div>
+                <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {viewing.totalAmount.toLocaleString()}</span></div>
               </div>
             </div>
-            {viewItem.paidDate && (
-              <p className="text-xs text-muted-foreground text-center">Paid on {viewItem.paidDate} via {viewItem.paymentMethod}</p>
+            {viewing.paidDate && (
+              <p className="text-xs text-muted-foreground text-center">Paid on {viewing.paidDate.split("T")[0]} via {viewing.paymentMethod}</p>
             )}
           </div>
-        </ModalForm>
-      )}
+        )}
+      </ModalForm>
     </div>
   );
 }

@@ -1,151 +1,265 @@
-import { useState } from "react";
-import { DataTable } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { toast } from "sonner";
+import { autoApi, ApiAutoInvoice, ApiAutoInvoiceItem } from "@/lib/autoApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface AutoInvoice {
-  id: string;
-  date: string;
-  type: string;
-  client: string;
-  vehicleReg: string;
-  serviceRef: string;
-  items: { desc: string; qty: number; rate: number; amount: number }[];
-  subtotal: number;
-  vat: number;
-  total: number;
-  status: string;
+const today = () => new Date().toISOString().split("T")[0];
+const emptyItem = (): ApiAutoInvoiceItem => ({ desc: "", qty: 1, rate: 0, amount: 0 });
+
+const emptyForm = {
+  date: today(), dueDate: "", type: "TAX INVOICE", client: "", vehicleReg: "", serviceRef: "",
+  status: "pending", items: [emptyItem()],
+};
+
+function recalc(items: ApiAutoInvoiceItem[]) {
+  const subtotal = items.reduce((s, i) => s + i.amount, 0);
+  const vatAmount = Math.round(subtotal * 0.16);
+  return { subtotal, vatAmount, totalAmount: subtotal + vatAmount };
 }
 
-const sample: AutoInvoice[] = [
-  { id: "AI001", date: "2025-06-11", type: "TAX INVOICE", client: "James Mwangi", vehicleReg: "KBZ 123A", serviceRef: "SR001", items: [{ desc: "Full Service - Labour", qty: 1, rate: 3500, amount: 3500 }, { desc: "Oil Filter", qty: 1, rate: 1200, amount: 1200 }, { desc: "Engine Oil 5W-30 (4L)", qty: 1, rate: 3800, amount: 3800 }], subtotal: 8500, vat: 1360, total: 9860, status: "paid" },
-  { id: "AI002", date: "2025-06-11", type: "RECEIPT", client: "Lucy Njeri", vehicleReg: "KBB 321D", serviceRef: "SR004", items: [{ desc: "Engine Diagnostics", qty: 1, rate: 3000, amount: 3000 }], subtotal: 3000, vat: 480, total: 3480, status: "paid" },
-  { id: "AI003", date: "2025-06-12", type: "TAX INVOICE", client: "Sarah Wanjiku", vehicleReg: "KCA 456B", serviceRef: "SR002", items: [{ desc: "Brake Pad Replacement - Labour", qty: 1, rate: 4000, amount: 4000 }, { desc: "Front Brake Pads (Set)", qty: 1, rate: 7500, amount: 7500 }], subtotal: 11500, vat: 1840, total: 13340, status: "pending" },
-];
-
-const blank: Omit<AutoInvoice, "id"> = { date: new Date().toISOString().slice(0, 10), type: "TAX INVOICE", client: "", vehicleReg: "", serviceRef: "", items: [{ desc: "", qty: 1, rate: 0, amount: 0 }], subtotal: 0, vat: 0, total: 0, status: "pending" };
-
 export function AutoInvoicesTab() {
-  const [data, setData] = useState(sample);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: AutoInvoice } | null>(null);
-  const [form, setForm] = useState<Omit<AutoInvoice, "id">>(blank);
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("auto.invoices.manage");
 
-  const open = (mode: "add" | "edit" | "view", item?: AutoInvoice) => {
-    setForm(item ? { ...item, items: [...(item.items || [])] } : { ...blank, items: [{ desc: "", qty: 1, rate: 0, amount: 0 }] });
-    setModal({ mode, item: item || { id: "", ...blank } });
-  };
-  const recalc = (items: AutoInvoice["items"]) => {
-    const subtotal = items.reduce((s, i) => s + i.amount, 0);
-    const vat = Math.round(subtotal * 0.16);
-    return { items, subtotal, vat, total: subtotal + vat };
-  };
-  const save = () => {
-    const computed = { ...form, ...recalc(form.items) };
-    if (modal?.mode === "add") setData([{ ...computed, id: `AI${String(data.length + 1).padStart(3, "0")}` }, ...data]);
-    else if (modal?.mode === "edit") setData(data.map(d => d.id === modal.item.id ? { ...computed, id: modal.item.id } : d));
-    setModal(null);
-  };
-  const remove = (item: AutoInvoice) => setData(data.filter(d => d.id !== item.id));
+  const [records, setRecords]   = useState<ApiAutoInvoice[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiAutoInvoice | null>(null);
+  const [viewing, setViewing]   = useState<ApiAutoInvoice | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const updateItem = (idx: number, field: string, value: string | number) => {
-    const items = [...form.items];
-    items[idx] = { ...items[idx], [field]: value };
-    if (field === "qty" || field === "rate") items[idx].amount = items[idx].qty * items[idx].rate;
-    const { subtotal, vat, total } = recalc(items);
-    setForm({ ...form, items, subtotal, vat, total });
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await autoApi.invoices.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load invoices"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const openNew = () => {
+    setEditing(null);
+    setForm({ ...emptyForm, date: today(), items: [emptyItem()] });
+    setModalOpen(true);
+  };
+  const openEdit = (inv: ApiAutoInvoice) => {
+    setEditing(inv);
+    setForm({
+      date: inv.date.split("T")[0], dueDate: inv.dueDate?.split("T")[0] ?? "",
+      type: inv.type, client: inv.client, vehicleReg: inv.vehicleReg ?? "",
+      serviceRef: inv.serviceRef ?? "", status: inv.status,
+      items: inv.items.length ? inv.items : [emptyItem()],
+    });
+    setModalOpen(true);
   };
 
-  const columns = [
-    { key: "id" as const, label: "Invoice #" },
-    { key: "date" as const, label: "Date" },
-    { key: "type" as const, label: "Type" },
-    { key: "client" as const, label: "Client" },
-    { key: "vehicleReg" as const, label: "Vehicle" },
-    { key: "serviceRef" as const, label: "Service Ref" },
-    { key: "total" as const, label: "Total", render: (i: AutoInvoice) => `Ksh ${i.total.toLocaleString()}` },
-    { key: "status" as const, label: "Status", render: (i: AutoInvoice) => <StatusBadge status={i.status} /> },
+  const updateItem = (idx: number, field: keyof ApiAutoInvoiceItem, value: string | number) => {
+    setForm(f => {
+      const items = f.items.map((it, i) => {
+        if (i !== idx) return it;
+        const next = { ...it, [field]: value };
+        next.amount = next.qty * next.rate;
+        return next;
+      });
+      return { ...f, items };
+    });
+  };
+
+  const addItem    = () => setForm(f => ({ ...f, items: [...f.items, emptyItem()] }));
+  const removeItem = (idx: number) => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }));
+
+  const computed = recalc(form.items);
+
+  const handleSave = async () => {
+    if (!form.client) return toast.error("Client is required");
+    setSaving(true);
+    try {
+      const payload = { ...form, ...computed, dueDate: form.dueDate || undefined, vehicleReg: form.vehicleReg || undefined, serviceRef: form.serviceRef || undefined };
+      if (editing) {
+        await autoApi.invoices.update(editing.id, payload, stationId);
+        toast.success("Invoice updated");
+      } else {
+        await autoApi.invoices.create(payload, stationId);
+        toast.success("Invoice created");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save invoice"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (inv: ApiAutoInvoice) => {
+    try {
+      await autoApi.invoices.delete(inv.id, stationId);
+      toast.success("Invoice deleted");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const columns: Column<ApiAutoInvoice>[] = [
+    { key: "invoiceNo",  label: "Invoice #",   sortable: true, render: i => <span className="font-mono text-xs">{i.invoiceNo}</span> },
+    { key: "date",       label: "Date",          render: i => i.date.split("T")[0], sortable: true },
+    { key: "type",       label: "Type",          render: i => <span className="text-xs">{i.type}</span> },
+    { key: "client",     label: "Client",        sortable: true },
+    { key: "vehicleReg", label: "Vehicle",       render: i => i.vehicleReg || "—" },
+    { key: "serviceRef", label: "Service Ref",   render: i => i.serviceRef || "—" },
+    { key: "subtotal",   label: "Subtotal (Ksh)",render: i => i.subtotal.toLocaleString() },
+    { key: "vatAmount",  label: "VAT (Ksh)",     render: i => i.vatAmount.toLocaleString() },
+    { key: "totalAmount",label: "Total (Ksh)",   sortable: true, render: i => <span className="font-mono font-bold">Ksh {i.totalAmount.toLocaleString()}</span> },
+    { key: "status",     label: "Status",        render: i => <StatusBadge status={i.status} /> },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "status", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Overdue", value: "overdue" }] },
+    { key: "type",   label: "Type",   options: [{ label: "Tax Invoice", value: "TAX INVOICE" }, { label: "Receipt", value: "RECEIPT" }] },
   ];
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-semibold">Invoices & Receipts</h3>
-        <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Create Invoice</Button>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Invoices and receipts for automotive services</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`auto-invoices-${today()}.csv`, records)}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Create Invoice</Button>}
+        </div>
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["id", "client", "vehicleReg", "serviceRef"]}
-        filters={[
-          { key: "type", label: "Type", options: [{ label: "Tax Invoice", value: "TAX INVOICE" }, { label: "Receipt", value: "RECEIPT" }] },
-          { key: "status", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Overdue", value: "overdue" }] },
-        ]}
-        onView={i => open("view", i)} onEdit={i => open("edit", i)} onDelete={remove} />
-      {modal && (
-        <ModalForm open title={modal.mode === "view" ? form.type : modal.mode === "add" ? "Create Invoice" : "Edit Invoice"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
-          {modal.mode === "view" ? (
-            <div className="space-y-4">
-              <div className="flex justify-between"><span className="text-muted-foreground">Invoice #</span><span className="font-mono">{modal.item.id}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Date</span><span>{form.date}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Client</span><span>{form.client}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Vehicle</span><span>{form.vehicleReg}</span></div>
-              <div className="flex justify-between"><span className="text-muted-foreground">Service Ref</span><span>{form.serviceRef}</span></div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["invoiceNo", "client", "vehicleReg", "serviceRef"]}
+        searchPlaceholder="Search invoices..."
+        filters={filters}
+        onView={i => setViewing(i)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Invoice" : "Create Invoice"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Create"}>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
+            <div><Label>Due Date</Label><Input type="date" value={form.dueDate} onChange={e => set("dueDate", e.target.value)} /></div>
+            <div><Label>Client *</Label><Input value={form.client} onChange={e => set("client", e.target.value)} /></div>
+            <div><Label>Vehicle Reg</Label><Input value={form.vehicleReg} onChange={e => set("vehicleReg", e.target.value)} /></div>
+            <div><Label>Service Ref</Label><Input value={form.serviceRef} onChange={e => set("serviceRef", e.target.value)} /></div>
+            <div><Label>Type</Label>
+              <Select value={form.type} onValueChange={v => set("type", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="TAX INVOICE">Tax Invoice</SelectItem><SelectItem value="RECEIPT">Receipt</SelectItem></SelectContent>
+              </Select>
+            </div>
+            <div><Label>Status</Label>
+              <Select value={form.status} onValueChange={v => set("status", v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="paid">Paid</SelectItem><SelectItem value="overdue">Overdue</SelectItem></SelectContent>
+              </Select>
+            </div>
+          </div>
+          <Separator />
+          <Label>Line Items</Label>
+          <div className="space-y-2">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 text-xs text-muted-foreground px-1">
+              <span>Description</span><span>Qty</span><span>Rate (Ksh)</span><span>Amount</span><span />
+            </div>
+            {form.items.map((it, i) => (
+              <div key={i} className="grid grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2">
+                <Input placeholder="e.g. Labour" value={it.desc} onChange={e => updateItem(i, "desc", e.target.value)} />
+                <Input type="number" placeholder="1" value={it.qty || ""} onChange={e => updateItem(i, "qty", +e.target.value)} />
+                <Input type="number" placeholder="0" step="0.01" value={it.rate || ""} onChange={e => updateItem(i, "rate", +e.target.value)} />
+                <Input value={`Ksh ${it.amount.toLocaleString()}`} disabled className="font-mono text-xs" />
+                <Button variant="ghost" size="icon" className="h-9 w-9" onClick={() => removeItem(i)} disabled={form.items.length === 1}>×</Button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" onClick={addItem}>+ Add Item</Button>
+          </div>
+          <Separator />
+          <div className="flex justify-end">
+            <div className="w-52 space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-mono">Ksh {computed.subtotal.toLocaleString()}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">VAT (16%)</span><span className="font-mono">Ksh {computed.vatAmount.toLocaleString()}</span></div>
               <Separator />
+              <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {computed.totalAmount.toLocaleString()}</span></div>
+            </div>
+          </div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type ?? "Invoice"} isView>
+        {viewing && (
+          <div className="border border-border rounded-lg p-6 space-y-4 bg-background">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-lg font-bold">ISMS Station</h3>
+                <p className="text-xs text-muted-foreground">Automotive Services</p>
+              </div>
+              <div className="text-right">
+                <p className="font-mono font-bold text-sm">{viewing.invoiceNo}</p>
+                <p className="text-xs text-muted-foreground">{viewing.type}</p>
+                <StatusBadge status={viewing.status} />
+              </div>
+            </div>
+            <Separator />
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Bill To</p>
+                <p className="font-medium">{viewing.client}</p>
+                {viewing.vehicleReg && <p className="text-xs text-muted-foreground">Vehicle: {viewing.vehicleReg}</p>}
+              </div>
+              <div className="text-right text-sm">
+                <div><span className="text-muted-foreground text-xs">Date: </span>{viewing.date.split("T")[0]}</div>
+                {viewing.dueDate && <div><span className="text-muted-foreground text-xs">Due: </span>{viewing.dueDate.split("T")[0]}</div>}
+                {viewing.serviceRef && <div><span className="text-muted-foreground text-xs">Ref: </span>{viewing.serviceRef}</div>}
+              </div>
+            </div>
+            <div className="border rounded-md overflow-hidden">
               <table className="w-full text-sm">
-                <thead><tr className="text-muted-foreground"><th className="text-left">Description</th><th className="text-right">Qty</th><th className="text-right">Rate</th><th className="text-right">Amount</th></tr></thead>
-                <tbody>{form.items.map((it, idx) => (
-                  <tr key={idx}><td>{it.desc}</td><td className="text-right">{it.qty}</td><td className="text-right">Ksh {it.rate.toLocaleString()}</td><td className="text-right">Ksh {it.amount.toLocaleString()}</td></tr>
-                ))}</tbody>
+                <thead><tr className="bg-muted/50"><th className="text-left p-2 text-xs font-semibold">Description</th><th className="text-right p-2 text-xs">Qty</th><th className="text-right p-2 text-xs">Rate</th><th className="text-right p-2 text-xs">Amount</th></tr></thead>
+                <tbody>
+                  {viewing.items.map((it, i) => (
+                    <tr key={i} className="border-t">
+                      <td className="p-2">{it.desc}</td>
+                      <td className="p-2 text-right">{it.qty}</td>
+                      <td className="p-2 text-right font-mono">Ksh {it.rate.toLocaleString()}</td>
+                      <td className="p-2 text-right font-mono">Ksh {it.amount.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
               </table>
-              <Separator />
-              <div className="flex justify-between"><span>Subtotal</span><span>Ksh {form.subtotal.toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>VAT (16%)</span><span>Ksh {form.vat.toLocaleString()}</span></div>
-              <div className="flex justify-between font-bold text-lg"><span>Total</span><span>Ksh {form.total.toLocaleString()}</span></div>
-              <div className="flex justify-center"><StatusBadge status={form.status} /></div>
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} /></div>
-                <div><Label>Type</Label>
-                  <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="TAX INVOICE">Tax Invoice</SelectItem><SelectItem value="RECEIPT">Receipt</SelectItem></SelectContent>
-                  </Select>
-                </div>
-                <div><Label>Client</Label><Input value={form.client} onChange={e => setForm({ ...form, client: e.target.value })} /></div>
-                <div><Label>Vehicle Reg</Label><Input value={form.vehicleReg} onChange={e => setForm({ ...form, vehicleReg: e.target.value })} /></div>
-                <div><Label>Service Ref</Label><Input value={form.serviceRef} onChange={e => setForm({ ...form, serviceRef: e.target.value })} /></div>
-                <div><Label>Status</Label>
-                  <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="paid">Paid</SelectItem><SelectItem value="overdue">Overdue</SelectItem></SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <Separator />
-              <Label>Line Items</Label>
-              {form.items.map((it, idx) => (
-                <div key={idx} className="grid grid-cols-4 gap-2">
-                  <Input placeholder="Description" value={it.desc} onChange={e => updateItem(idx, "desc", e.target.value)} className="col-span-2" />
-                  <Input type="number" placeholder="Qty" value={it.qty} onChange={e => updateItem(idx, "qty", +e.target.value)} />
-                  <Input type="number" placeholder="Rate" value={it.rate} onChange={e => updateItem(idx, "rate", +e.target.value)} />
-                </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={() => setForm({ ...form, items: [...form.items, { desc: "", qty: 1, rate: 0, amount: 0 }] })}>+ Add Line</Button>
-              <Separator />
-              <div className="text-sm space-y-1">
-                <div className="flex justify-between"><span>Subtotal:</span><span>Ksh {form.subtotal.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span>VAT (16%):</span><span>Ksh {form.vat.toLocaleString()}</span></div>
-                <div className="flex justify-between font-bold"><span>Total:</span><span>Ksh {form.total.toLocaleString()}</span></div>
+            <div className="flex justify-end">
+              <div className="w-52 space-y-1 text-sm">
+                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="font-mono">Ksh {viewing.subtotal.toLocaleString()}</span></div>
+                <div className="flex justify-between"><span className="text-muted-foreground">VAT (16%)</span><span className="font-mono">Ksh {viewing.vatAmount.toLocaleString()}</span></div>
+                <Separator />
+                <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {viewing.totalAmount.toLocaleString()}</span></div>
               </div>
             </div>
-          )}
-        </ModalForm>
-      )}
-    </>
+          </div>
+        )}
+      </ModalForm>
+    </div>
   );
 }

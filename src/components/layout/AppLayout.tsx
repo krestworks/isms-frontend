@@ -1,12 +1,22 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Outlet } from "react-router-dom";
-import { Search } from "lucide-react";
+import { Search, LogOut } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { HeaderSwitchers } from "./HeaderSwitchers";
 import { NotificationsBell } from "./NotificationsBell";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { toast } from "sonner";
 
 export function AppLayout() {
+  const { logout } = useAuth();
+
+  async function handleLogout() {
+    await logout();
+    toast.success("Signed out successfully");
+  }
+
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full">
@@ -26,6 +36,15 @@ export function AppLayout() {
             <div className="flex items-center gap-2">
               <HeaderSwitchers />
               <NotificationsBell />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLogout}
+                title="Sign out"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
           </header>
           <main className="flex-1 overflow-auto p-4 md:p-6">

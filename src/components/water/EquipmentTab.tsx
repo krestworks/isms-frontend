@@ -1,96 +1,188 @@
-import { useState } from "react";
-import { DataTable } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { usePermission, guardAction } from "@/lib/actionPermissions";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { ModalForm } from "@/components/shared/ModalForm";
+import { StatusBadge } from "@/components/shared/StatusBadge";
+import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { waterApi, ApiWaterEquipment } from "@/lib/waterApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { usePermissions } from "@/lib/permissions";
 
-interface Equipment {
-  id: string;
-  name: string;
-  type: string;
-  serialNo: string;
-  status: string;
-  lastMaintenance: string;
-  nextMaintenance: string;
-  location: string;
-}
+const TYPES = ["Reverse Osmosis", "UV Treatment", "Storage", "Pump", "Filter", "Other"];
+const STATUSES = ["operational", "maintenance", "inactive"];
 
-const sample: Equipment[] = [
-  { id: "EQ001", name: "RO System Unit 1", type: "Reverse Osmosis", serialNo: "RO-2024-001", status: "operational", lastMaintenance: "2025-05-15", nextMaintenance: "2025-08-15", location: "Plant Room A" },
-  { id: "EQ002", name: "UV Sterilizer", type: "UV Treatment", serialNo: "UV-2024-003", status: "operational", lastMaintenance: "2025-06-01", nextMaintenance: "2025-09-01", location: "Plant Room A" },
-  { id: "EQ003", name: "Storage Tank 1", type: "Storage", serialNo: "ST-2023-010", status: "maintenance", lastMaintenance: "2025-06-08", nextMaintenance: "2025-06-15", location: "Yard" },
-  { id: "EQ004", name: "Booster Pump 2", type: "Pump", serialNo: "BP-2024-005", status: "inactive", lastMaintenance: "2025-04-20", nextMaintenance: "2025-07-20", location: "Plant Room B" },
-];
-
-const blank: Omit<Equipment, "id"> = { name: "", type: "", serialNo: "", status: "operational", lastMaintenance: "", nextMaintenance: "", location: "" };
+const emptyForm = {
+  name: "", type: "Reverse Osmosis", serialNo: "", status: "operational",
+  lastMaintenance: "", nextMaintenance: "", location: "",
+};
 
 export function EquipmentTab() {
-  const [data, setData] = useState(sample);
-  const [modal, setModal] = useState<{ mode: "add" | "edit" | "view"; item: Equipment } | null>(null);
-  const [form, setForm] = useState<Omit<Equipment, "id">>(blank);
-  const canCreate = usePermission("water.equipment.create");
-  const canUpdate = usePermission("water.equipment.create");
-  const canDelete = usePermission("water.equipment.create");
+  const { stationId } = useActiveStation();
+  const can = usePermissions();
+  const canManage = can("water.equipment.manage");
 
-  const open = (mode: "add" | "edit" | "view", item?: Equipment) => {
-    setForm(item ? { ...item } : { ...blank });
-    setModal({ mode, item: item || { id: "", ...blank } });
-  };
-  const save = () => {
-    if (modal?.mode === "add") { if (!guardAction("water.equipment.create", "add equipment")) return; setData([{ ...form, id: `EQ${String(data.length + 1).padStart(3, "0")}` }, ...data]); }
-    else if (modal?.mode === "edit") { if (!guardAction("water.equipment.create", "edit equipment")) return; setData(data.map(d => d.id === modal.item.id ? { ...form, id: modal.item.id } : d)); }
-    setModal(null);
-  };
-  const remove = (item: Equipment) => { if (!guardAction("water.equipment.create", "delete equipment")) return; setData(data.filter(d => d.id !== item.id)); };
+  const [records, setRecords]   = useState<ApiWaterEquipment[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing]   = useState<ApiWaterEquipment | null>(null);
+  const [viewing, setViewing]   = useState<ApiWaterEquipment | null>(null);
+  const [form, setForm]         = useState(emptyForm);
+  const [saving, setSaving]     = useState(false);
 
-  const columns = [
-    { key: "id" as const, label: "ID" },
-    { key: "name" as const, label: "Name" },
-    { key: "type" as const, label: "Type" },
-    { key: "serialNo" as const, label: "Serial No." },
-    { key: "status" as const, label: "Status", render: (i: Equipment) => <StatusBadge status={i.status} /> },
-    { key: "lastMaintenance" as const, label: "Last Maintenance" },
-    { key: "nextMaintenance" as const, label: "Next Maintenance" },
-    { key: "location" as const, label: "Location" },
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await waterApi.equipment.list({}, stationId);
+      setRecords(res.data ?? []);
+    } catch (e: any) { toast.error(e?.message || "Failed to load equipment"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { if (stationId) load(); }, [load]);
+
+  const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
+  const openEdit = (eq: ApiWaterEquipment) => {
+    setEditing(eq);
+    setForm({
+      name: eq.name, type: eq.type, serialNo: eq.serialNo ?? "", status: eq.status,
+      lastMaintenance: eq.lastMaintenance?.split("T")[0] ?? "",
+      nextMaintenance: eq.nextMaintenance?.split("T")[0] ?? "",
+      location: eq.location ?? "",
+    });
+    setModalOpen(true);
+  };
+
+  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
+
+  const handleSave = async () => {
+    if (!form.name) return toast.error("Equipment name is required");
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        serialNo: form.serialNo || undefined,
+        lastMaintenance: form.lastMaintenance || undefined,
+        nextMaintenance: form.nextMaintenance || undefined,
+        location: form.location || undefined,
+      };
+      if (editing) {
+        await waterApi.equipment.update(editing.id, payload, stationId);
+        toast.success("Equipment updated");
+      } else {
+        await waterApi.equipment.create(payload, stationId);
+        toast.success("Equipment added");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to save equipment"); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (eq: ApiWaterEquipment) => {
+    try {
+      await waterApi.equipment.delete(eq.id, stationId);
+      toast.success("Equipment removed");
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const stats = {
+    operational: records.filter(r => r.status === "operational").length,
+    maintenance: records.filter(r => r.status === "maintenance").length,
+    inactive:    records.filter(r => r.status === "inactive").length,
+  };
+
+  const columns: Column<ApiWaterEquipment>[] = [
+    { key: "name",            label: "Name",            sortable: true },
+    { key: "type",            label: "Type",            sortable: true },
+    { key: "serialNo",        label: "Serial No.",      render: eq => eq.serialNo || "—" },
+    { key: "status",          label: "Status",          render: eq => <StatusBadge status={eq.status} /> },
+    { key: "lastMaintenance", label: "Last Maint.",     render: eq => eq.lastMaintenance?.split("T")[0] ?? "—", sortable: true },
+    { key: "nextMaintenance", label: "Next Maint.",     render: eq => eq.nextMaintenance?.split("T")[0] ?? "—", sortable: true },
+    { key: "location",        label: "Location",        render: eq => eq.location || "—" },
+  ];
+
+  const filters: FilterOption[] = [
+    { key: "status", label: "Status", options: STATUSES.map(s => ({ label: s.charAt(0).toUpperCase() + s.slice(1), value: s })) },
+    { key: "type",   label: "Type",   options: TYPES.map(t => ({ label: t, value: t })) },
   ];
 
   return (
-    <>
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="font-semibold">Equipment</h3>
-        {canCreate && <Button size="sm" onClick={() => open("add")}><Plus className="h-4 w-4 mr-1" />Add Equipment</Button>}
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { label: "Operational", value: stats.operational, color: "text-green-600" },
+          { label: "Maintenance", value: stats.maintenance, color: "text-amber-600" },
+          { label: "Inactive",    value: stats.inactive,    color: "text-muted-foreground" },
+        ].map(s => (
+          <Card key={s.label}><CardContent className="p-4 text-center">
+            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+            <p className="text-xs text-muted-foreground">{s.label}</p>
+          </CardContent></Card>
+        ))}
       </div>
-      <DataTable data={data} columns={columns} searchKeys={["name", "serialNo", "type"]}
-        filters={[{ key: "status", label: "Status", options: [{ label: "Operational", value: "operational" }, { label: "Maintenance", value: "maintenance" }, { label: "Inactive", value: "inactive" }] }, { key: "type", label: "Type", options: [{ label: "Reverse Osmosis", value: "Reverse Osmosis" }, { label: "Uv Treatment", value: "UV Treatment" }, { label: "Storage", value: "Storage" }, { label: "Pump", value: "Pump" }] }]}
-        onView={i => open("view", i)} onEdit={canUpdate ? (i => open("edit", i)) : undefined} onDelete={canDelete ? remove : undefined} />
-      {modal && (
-        <ModalForm open title={modal.mode === "add" ? "Add Equipment" : modal.mode === "edit" ? "Edit Equipment" : "Equipment Details"} onClose={() => setModal(null)} onSubmit={save} isView={modal.mode === "view"}>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Name</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Type</Label>
-              <Select value={form.type} onValueChange={v => setForm({ ...form, type: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="Reverse Osmosis">Reverse Osmosis</SelectItem><SelectItem value="UV Treatment">UV Treatment</SelectItem><SelectItem value="Storage">Storage</SelectItem><SelectItem value="Pump">Pump</SelectItem><SelectItem value="Filter">Filter</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div><Label>Serial No.</Label><Input value={form.serialNo} onChange={e => setForm({ ...form, serialNo: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Status</Label>
-              <Select value={form.status} onValueChange={v => setForm({ ...form, status: v })} disabled={modal.mode === "view"}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="operational">Operational</SelectItem><SelectItem value="maintenance">Maintenance</SelectItem><SelectItem value="inactive">Inactive</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div><Label>Last Maintenance</Label><Input type="date" value={form.lastMaintenance} onChange={e => setForm({ ...form, lastMaintenance: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div><Label>Next Maintenance</Label><Input type="date" value={form.nextMaintenance} onChange={e => setForm({ ...form, nextMaintenance: e.target.value })} disabled={modal.mode === "view"} /></div>
-            <div className="col-span-2"><Label>Location</Label><Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} disabled={modal.mode === "view"} /></div>
+
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Water treatment and production equipment registry</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Add Equipment</Button>}
+        </div>
+      </div>
+
+      <DataTable
+        data={records} columns={columns}
+        searchKeys={["name", "serialNo", "type", "location"]}
+        searchPlaceholder="Search equipment..."
+        filters={filters}
+        onView={eq => setViewing(eq)}
+        onEdit={canManage ? openEdit : undefined}
+        onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Equipment" : "Add Equipment"}
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Add"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2"><Label>Name *</Label><Input value={form.name} onChange={e => set("name", e.target.value)} /></div>
+          <div><Label>Type</Label>
+            <Select value={form.type} onValueChange={v => set("type", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
-        </ModalForm>
-      )}
-    </>
+          <div><Label>Serial No.</Label><Input value={form.serialNo} onChange={e => set("serialNo", e.target.value)} /></div>
+          <div><Label>Status</Label>
+            <Select value={form.status} onValueChange={v => set("status", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Location</Label><Input value={form.location} onChange={e => set("location", e.target.value)} placeholder="Plant Room A" /></div>
+          <div><Label>Last Maintenance</Label><Input type="date" value={form.lastMaintenance} onChange={e => set("lastMaintenance", e.target.value)} /></div>
+          <div><Label>Next Maintenance</Label><Input type="date" value={form.nextMaintenance} onChange={e => set("nextMaintenance", e.target.value)} /></div>
+        </div>
+      </ModalForm>
+
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Equipment Details" isView>
+        {viewing && (
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><span className="text-muted-foreground">Name:</span> {viewing.name}</div>
+            <div><span className="text-muted-foreground">Type:</span> {viewing.type}</div>
+            <div><span className="text-muted-foreground">Serial No.:</span> {viewing.serialNo || "—"}</div>
+            <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewing.status} /></div>
+            <div><span className="text-muted-foreground">Last Maint.:</span> {viewing.lastMaintenance?.split("T")[0] ?? "—"}</div>
+            <div><span className="text-muted-foreground">Next Maint.:</span> {viewing.nextMaintenance?.split("T")[0] ?? "—"}</div>
+            <div className="col-span-2"><span className="text-muted-foreground">Location:</span> {viewing.location || "—"}</div>
+          </div>
+        )}
+      </ModalForm>
+    </div>
   );
 }

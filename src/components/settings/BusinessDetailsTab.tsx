@@ -1,49 +1,57 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { Save } from "lucide-react";
+import { Save, RefreshCw } from "lucide-react";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { settingsApi, BusinessConfig } from "@/lib/settingsApi";
 
-interface BusinessInfo {
-  name: string;
-  registration: string;
-  pin: string;
-  phone: string;
-  email: string;
-  address: string;
-  city: string;
-  country: string;
-  logo: string;
-  tagline: string;
-}
-
-const initial: BusinessInfo = {
-  name: "ISMS Petroleum Station",
-  registration: "BN-2024-001234",
-  pin: "P051234567A",
-  phone: "+254 700 123 456",
-  email: "info@isms-station.co.ke",
-  address: "Kenyatta Avenue, Plot 45",
-  city: "Nairobi",
-  country: "Kenya",
-  logo: "",
-  tagline: "Your One-Stop Energy & Service Station",
+const blank: BusinessConfig = {
+  name: "", registration: "", pin: "", phone: "", email: "",
+  address: "", city: "", country: "Kenya", tagline: "",
 };
 
 export function BusinessDetailsTab() {
-  const [form, setForm] = useState(initial);
-  const update = (key: keyof BusinessInfo, value: string) => setForm(f => ({ ...f, [key]: value }));
+  const { stationId } = useActiveStation();
+  const [form,    setForm]    = useState<BusinessConfig>(blank);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
 
-  const handleSave = () => toast.success("Business details saved successfully");
+  const load = useCallback(async () => {
+    if (!stationId) return;
+    setLoading(true);
+    try {
+      const res = await settingsApi.config.get<BusinessConfig>("business", stationId);
+      if (res.data && Object.keys(res.data).length) setForm(res.data);
+    } catch { /* no config yet — leave blank */ }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const update = (key: keyof BusinessConfig, value: string) => setForm(f => ({ ...f, [key]: value }));
+
+  const handleSave = async () => {
+    if (!stationId) return toast.error("No station selected");
+    setSaving(true);
+    try {
+      await settingsApi.config.set("business", form, stationId);
+      toast.success("Business details saved");
+    } catch (e: any) { toast.error(e?.message || "Failed to save"); }
+    finally { setSaving(false); }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-foreground">Business Details</h3>
-        <Button onClick={handleSave} size="sm"><Save className="h-4 w-4 mr-1" /> Save Changes</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
+          <Button onClick={handleSave} size="sm" disabled={saving || loading}><Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save Changes"}</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

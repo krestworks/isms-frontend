@@ -1,10 +1,8 @@
-// Permission helpers — gate routes, sidebar items, and tabs by the active user's
-// role and module access. All checks here are client-side enforcement only;
-// in a real backend the same rules must run server-side.
+// Permission helpers — gate routes, sidebar items, and dashboard sections
+// by the effective permission codes loaded from the backend for the active role.
 
-import { sessionStore, Role } from "@/data/sessionStore";
+import { sessionStore, useSession } from "@/data/sessionStore";
 
-// Map URL paths to module names used in user.modules
 export const ROUTE_TO_MODULE: Record<string, string> = {
   "/": "Dashboard",
   "/fuel": "Fuel",
@@ -22,30 +20,50 @@ export const ROUTE_TO_MODULE: Record<string, string> = {
   "/locations": "Locations",
 };
 
-// Always-on modules every authenticated user can see
-const ALWAYS_ALLOWED = new Set(["Dashboard", "EmployeePortal"]);
-
-// Restricted to specific roles regardless of module list
-const ROLE_RESTRICTED: Record<string, Role[]> = {
-  Settings: ["Admin"],
-  Locations: ["Admin", "Manager", "LocationHead"],
-  HR: ["Admin", "Manager", "Accountant"],
-  Finance: ["Admin", "Manager", "Accountant"],
-  Reports: ["Admin", "Manager", "Accountant", "LocationHead"],
+// Minimum permission code required to access each module
+const MODULE_PERMISSION: Record<string, string> = {
+  Fuel:          "fuel.sales.view",
+  LPG:           "lpg.sales.view",
+  Water:         "water.production.view",
+  Automotive:    "auto.services.view",
+  "Car Wash":    "carwash.sales.view",
+  Inventory:     "pos.sales.view",
+  Finance:       "finance.reports.view",
+  Clients:       "clients.view",
+  Reports:       "finance.reports.view",
+  Settings:      "settings.view",
+  HR:            "hr.staff.view",
+  EmployeePortal:"hr.shifts.view",
+  Locations:     "stations.view",
 };
 
+// These modules are always accessible to authenticated users
+const ALWAYS_ALLOWED = new Set(["Dashboard", "EmployeePortal"]);
+
+/** Returns true if the current user holds the given permission code. */
+export function hasPermission(code: string): boolean {
+  return sessionStore.user().permissions.includes(code);
+}
+
+/**
+ * Reactive permission checker for use inside React components.
+ * Returns a checker function that re-evaluates whenever the active role changes.
+ * Use this instead of hasPermission() anywhere a role switch should instantly
+ * update the UI without a page reload.
+ *
+ * const can = usePermissions();
+ * const canCreate = can("hr.staff.create");
+ */
+export function usePermissions(): (code: string) => boolean {
+  useSession(); // subscribe — forces re-render on role/permission change
+  return (code: string) => sessionStore.user().permissions.includes(code);
+}
+
 export function canAccessModule(moduleName: string): boolean {
-  const u = sessionStore.user();
   if (ALWAYS_ALLOWED.has(moduleName)) return true;
-
-  // Role-restricted gates first
-  const allowed = ROLE_RESTRICTED[moduleName];
-  if (allowed && !allowed.includes(u.activeRole)) return false;
-
-  // Admin or "All" module access wins
-  if (u.activeRole === "Admin") return true;
-  if (u.modules.includes("All")) return true;
-  return u.modules.includes(moduleName);
+  const permCode = MODULE_PERMISSION[moduleName];
+  if (!permCode) return true;
+  return hasPermission(permCode);
 }
 
 export function canAccessRoute(path: string): boolean {
@@ -54,16 +72,16 @@ export function canAccessRoute(path: string): boolean {
   return canAccessModule(mod);
 }
 
+/** Only users with stations.view can see the location switcher. */
 export function canSwitchLocation(): boolean {
-  const u = sessionStore.user();
-  return u.activeRole === "Admin" || u.activeRole === "Manager" || u.activeRole === "Accountant";
+  return hasPermission("stations.view");
 }
 
-// Returns true if the active scope (LocationHead lock OR active loc) matches the given location.
 export function isLocationVisible(locationName?: string): boolean {
   const u = sessionStore.user();
   const active = sessionStore.activeLocation();
-  if (u.activeRole === "LocationHead" && u.homeLocation) return !locationName || locationName === u.homeLocation;
+  if (u.activeRole === "LocationHead" && u.homeLocation)
+    return !locationName || locationName === u.homeLocation;
   if (active === "All Locations") return true;
   return !locationName || locationName === active;
 }

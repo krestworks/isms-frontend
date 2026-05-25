@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,94 +10,110 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-
-interface LeaveRequest {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  department: string;
-  leaveType: string;
-  startDate: string;
-  endDate: string;
-  days: number;
-  reason: string;
-  status: string;
-  appliedOn: string;
-  approvedBy: string;
-  leaveBalance: number;
-}
-
-const mockData: LeaveRequest[] = [
-  { id: "LV-001", employeeId: "EMP-001", employeeName: "James Mwangi", department: "Fuel", leaveType: "Annual", startDate: "2026-04-20", endDate: "2026-04-25", days: 5, reason: "Family vacation", status: "pending", appliedOn: "2026-04-10", approvedBy: "", leaveBalance: 16 },
-  { id: "LV-002", employeeId: "EMP-002", employeeName: "Grace Wanjiku", department: "LPG", leaveType: "Sick", startDate: "2026-04-12", endDate: "2026-04-13", days: 2, reason: "Medical appointment", status: "completed", appliedOn: "2026-04-11", approvedBy: "Admin", leaveBalance: 8 },
-  { id: "LV-003", employeeId: "EMP-004", employeeName: "Mary Akinyi", department: "Water", leaveType: "Maternity", startDate: "2026-05-01", endDate: "2026-07-30", days: 90, reason: "Maternity leave", status: "confirmed", appliedOn: "2026-03-15", approvedBy: "Admin", leaveBalance: 21 },
-  { id: "LV-004", employeeId: "EMP-003", employeeName: "Peter Ochieng", department: "Car Wash", leaveType: "Annual", startDate: "2026-04-28", endDate: "2026-04-30", days: 3, reason: "Personal matters", status: "cancelled", appliedOn: "2026-04-08", approvedBy: "", leaveBalance: 18 },
-  { id: "LV-005", employeeId: "EMP-005", employeeName: "David Kimani", department: "Automotive", leaveType: "Compassionate", startDate: "2026-04-16", endDate: "2026-04-18", days: 3, reason: "Family bereavement", status: "pending", appliedOn: "2026-04-14", approvedBy: "", leaveBalance: 21 },
-];
-
-const leaveTypes = ["Annual", "Sick", "Maternity", "Paternity", "Compassionate", "Unpaid", "Study"];
-const departments = ["Fuel", "LPG", "Water", "Automotive", "Car Wash"];
-
-const columns: Column<LeaveRequest>[] = [
-  { key: "id", label: "Ref", sortable: true },
-  { key: "employeeName", label: "Employee", sortable: true },
-  { key: "department", label: "Department", render: (i) => <Badge variant="outline">{i.department}</Badge> },
-  { key: "leaveType", label: "Type", render: (i) => <Badge variant="secondary">{i.leaveType}</Badge> },
-  { key: "startDate", label: "From", sortable: true },
-  { key: "endDate", label: "To" },
-  { key: "days", label: "Days", render: (i) => <span className="font-medium">{i.days}</span> },
-  { key: "leaveBalance", label: "Balance", render: (i) => <span className="text-muted-foreground">{i.leaveBalance}d</span> },
-  { key: "status", label: "Status", render: (i) => <StatusBadge status={i.status} /> },
-];
-
-const filterOpts: FilterOption[] = [
-  { key: "department", label: "Department", options: departments.map(d => ({ label: d, value: d })) },
-  { key: "leaveType", label: "Type", options: leaveTypes.map(t => ({ label: t, value: t })) },
-  { key: "status", label: "Status", options: [{ label: "Pending", value: "pending" }, { label: "Approved", value: "confirmed" }, { label: "Rejected", value: "cancelled" }, { label: "Completed", value: "completed" }] },
-];
+import { toast } from "sonner";
+import { hrApi, ApiLeaveRequest, ApiLeaveType } from "@/lib/hrApi";
+import { usePermissions } from "@/lib/permissions";
 
 export default function LeaveManagementTab() {
-  const [data, setData] = useState(mockData);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<LeaveRequest | null>(null);
-  const [viewing, setViewing] = useState<LeaveRequest | null>(null);
-  const [form, setForm] = useState({ employeeName: "", department: "Fuel", leaveType: "Annual", startDate: "", endDate: "", days: 0, reason: "", status: "pending", leaveBalance: 21 });
+  const [requests, setRequests] = useState<ApiLeaveRequest[]>([]);
+  const [leaveTypes, setLeaveTypes] = useState<ApiLeaveType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [submitOpen, setSubmitOpen] = useState(false);
+  const [approveTarget, setApproveTarget] = useState<{ req: ApiLeaveRequest; action: "approve" | "reject" } | null>(null);
+  const [viewing, setViewing] = useState<ApiLeaveRequest | null>(null);
+  const [approveNote, setApproveNote] = useState("");
+  const [form, setForm] = useState({ leaveTypeId: "", startDate: "", endDate: "", reason: "" });
+  const [saving, setSaving] = useState(false);
+
+  const can = usePermissions();
+  const canSubmit = can("hr.leaves.view");
+  const canApprove = can("hr.leaves.approve");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [reqRes, typesRes] = await Promise.all([
+        hrApi.leaves.list({ page: 1 }),
+        hrApi.leaveTypes.list(),
+      ]);
+      setRequests(reqRes.data ?? []);
+      setLeaveTypes(typesRes.data ?? []);
+    } catch {
+      toast.error("Failed to load leave data");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const stats = {
-    pending: data.filter(d => d.status === "pending").length,
-    approved: data.filter(d => d.status === "confirmed").length,
-    rejected: data.filter(d => d.status === "cancelled").length,
-    totalDays: data.filter(d => d.status === "confirmed" || d.status === "completed").reduce((s, d) => s + d.days, 0),
+    pending: requests.filter(r => r.status === "Pending").length,
+    approved: requests.filter(r => r.status === "Approved").length,
+    rejected: requests.filter(r => r.status === "Rejected").length,
+    totalDays: requests.filter(r => r.status === "Approved").reduce((s, r) => s + r.days, 0),
   };
 
-  const openNew = () => { setEditing(null); setForm({ employeeName: "", department: "Fuel", leaveType: "Annual", startDate: "", endDate: "", days: 0, reason: "", status: "pending", leaveBalance: 21 }); setModalOpen(true); };
-  const openEdit = (item: LeaveRequest) => { setEditing(item); setForm({ employeeName: item.employeeName, department: item.department, leaveType: item.leaveType, startDate: item.startDate, endDate: item.endDate, days: item.days, reason: item.reason, status: item.status, leaveBalance: item.leaveBalance }); setModalOpen(true); };
-  
-  const calcDays = (start: string, end: string) => {
-    if (!start || !end) return 0;
-    const diff = (new Date(end).getTime() - new Date(start).getTime()) / (1000 * 60 * 60 * 24);
-    return Math.max(0, Math.ceil(diff) + 1);
-  };
-
-  const handleSave = () => {
-    if (editing) {
-      setData(d => d.map(i => (i.id === editing.id ? { ...i, ...form, employeeId: editing.employeeId, appliedOn: editing.appliedOn, approvedBy: form.status === "confirmed" ? "Admin" : editing.approvedBy } : i)));
-    } else {
-      setData(d => [...d, { id: `LV-${String(d.length + 1).padStart(3, "0")}`, employeeId: `EMP-${String(d.length + 1).padStart(3, "0")}`, ...form, appliedOn: new Date().toISOString().split("T")[0], approvedBy: "" }]);
+  const handleSubmit = async () => {
+    if (!form.leaveTypeId || !form.startDate || !form.endDate) return toast.error("Fill all required fields");
+    setSaving(true);
+    try {
+      await hrApi.leaves.submit({ leaveTypeId: form.leaveTypeId, startDate: form.startDate, endDate: form.endDate, reason: form.reason });
+      toast.success("Leave request submitted");
+      setSubmitOpen(false);
+      setForm({ leaveTypeId: "", startDate: "", endDate: "", reason: "" });
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to submit leave request");
+    } finally {
+      setSaving(false);
     }
-    setModalOpen(false);
   };
-  const handleDelete = (item: LeaveRequest) => setData(d => d.filter(i => i.id !== item.id));
 
-  const set = (field: string, value: any) => {
-    const newForm = { ...form, [field]: value };
-    if (field === "startDate" || field === "endDate") {
-      const s = field === "startDate" ? value : form.startDate;
-      const e = field === "endDate" ? value : form.endDate;
-      newForm.days = calcDays(s, e);
+  const handleApprove = async () => {
+    if (!approveTarget) return;
+    setSaving(true);
+    try {
+      await hrApi.leaves.approve(approveTarget.req.id, approveTarget.action, approveNote || undefined);
+      toast.success(approveTarget.action === "approve" ? "Leave approved" : "Leave rejected");
+      setApproveTarget(null);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Action failed");
+    } finally {
+      setSaving(false);
     }
-    setForm(newForm);
   };
+
+  const handleCancel = async (req: ApiLeaveRequest) => {
+    try {
+      await hrApi.leaves.cancel(req.id);
+      toast.success("Leave request cancelled");
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to cancel");
+    }
+  };
+
+  const columns: Column<ApiLeaveRequest>[] = [
+    { key: "id", label: "Ref", render: r => <span className="font-mono text-xs">{r.id.slice(-8).toUpperCase()}</span> },
+    { key: "employee", label: "Employee", render: r => r.employee?.user.name || "—", sortable: true },
+    { key: "leaveTypeId", label: "Type", render: r => <Badge variant="secondary">{r.leaveType?.name || "—"}</Badge> },
+    { key: "startDate", label: "From", sortable: true },
+    { key: "endDate", label: "To" },
+    { key: "days", label: "Days", render: r => <span className="font-medium">{r.days}</span> },
+    { key: "status", label: "Status", render: r => <StatusBadge status={r.status} /> },
+    { key: "createdAt", label: "Applied", render: r => r.createdAt.split("T")[0] },
+  ];
+
+  const filterOpts: FilterOption[] = [
+    { key: "status", label: "Status", options: [
+      { label: "Pending", value: "Pending" },
+      { label: "Approved", value: "Approved" },
+      { label: "Rejected", value: "Rejected" },
+      { label: "Cancelled", value: "Cancelled" },
+    ]},
+  ];
 
   return (
     <div className="space-y-4">
@@ -106,7 +122,11 @@ export default function LeaveManagementTab() {
           <h3 className="text-lg font-semibold">Leave Management</h3>
           <p className="text-sm text-muted-foreground">Review, approve and track leave applications</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> New Leave Request</Button>
+        {canSubmit && (
+          <Button onClick={() => setSubmitOpen(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Request Leave
+          </Button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -116,65 +136,116 @@ export default function LeaveManagementTab() {
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Days Granted</p><p className="text-2xl font-bold">{stats.totalDays}</p></CardContent></Card>
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id"]} searchPlaceholder="Search leave requests..." filters={filterOpts} onView={item => setViewing(item)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable
+        data={requests}
+        columns={columns}
+        searchKeys={["startDate", "endDate"]}
+        searchPlaceholder="Search leave requests..."
+        filters={filterOpts}
+        onView={item => setViewing(item)}
+        actions={(req) => (
+          <div className="flex gap-1">
+            {canApprove && req.status === "Pending" && (
+              <>
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-green-700"
+                  onClick={() => { setApproveTarget({ req, action: "approve" }); setApproveNote(""); }}>
+                  <Check className="h-3 w-3 mr-1" /> Approve
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive"
+                  onClick={() => { setApproveTarget({ req, action: "reject" }); setApproveNote(""); }}>
+                  <X className="h-3 w-3 mr-1" /> Reject
+                </Button>
+              </>
+            )}
+            {canSubmit && (req.status === "Pending" || req.status === "Approved") && (
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground"
+                onClick={() => handleCancel(req)}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        )}
+      />
 
-      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Leave Request" : "New Leave Request"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Submit"}>
+      {/* Submit Leave */}
+      <ModalForm
+        open={submitOpen}
+        onClose={() => setSubmitOpen(false)}
+        title="Request Leave"
+        description="Submit a leave request for yourself. Days are calculated excluding weekends."
+        onSubmit={handleSubmit}
+        submitLabel={saving ? "Submitting..." : "Submit Request"}
+      >
         <div className="grid grid-cols-2 gap-4">
-          <div><Label>Employee Name *</Label><Input value={form.employeeName} onChange={e => set("employeeName", e.target.value)} /></div>
-          <div><Label>Department</Label>
-            <Select value={form.department} onValueChange={v => set("department", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
+          <div className="col-span-2">
+            <Label>Leave Type *</Label>
+            <Select value={form.leaveTypeId} onValueChange={v => setForm(f => ({ ...f, leaveTypeId: v }))}>
+              <SelectTrigger><SelectValue placeholder="Select leave type" /></SelectTrigger>
+              <SelectContent>
+                {leaveTypes.filter(lt => lt.isActive).map(lt => (
+                  <SelectItem key={lt.id} value={lt.id}>
+                    {lt.name} ({lt.daysAllowed}d — {lt.isPaid ? "Paid" : "Unpaid"})
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
-          <div><Label>Leave Type</Label>
-            <Select value={form.leaveType} onValueChange={v => set("leaveType", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{leaveTypes.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-            </Select>
+          <div><Label>Start Date *</Label><Input type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} /></div>
+          <div><Label>End Date *</Label><Input type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} /></div>
+          <div className="col-span-2">
+            <Label>Reason</Label>
+            <Textarea value={form.reason} onChange={e => setForm(f => ({ ...f, reason: e.target.value }))} placeholder="Reason for leave (optional)" />
           </div>
-          <div><Label>Leave Balance (days)</Label><Input type="number" value={form.leaveBalance} onChange={e => set("leaveBalance", Number(e.target.value))} /></div>
-          <div><Label>Start Date *</Label><Input type="date" value={form.startDate} onChange={e => set("startDate", e.target.value)} /></div>
-          <div><Label>End Date *</Label><Input type="date" value={form.endDate} onChange={e => set("endDate", e.target.value)} /></div>
-          <div className="col-span-2 p-3 bg-muted/50 rounded-lg flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">Calculated Days:</span>
-            <span className="font-bold text-lg">{form.days} day{form.days !== 1 ? "s" : ""}</span>
-          </div>
-          <div className="col-span-2"><Label>Reason *</Label><Textarea value={form.reason} onChange={e => set("reason", e.target.value)} placeholder="Reason for leave request..." /></div>
-          {editing && (
-            <div><Label>Status</Label>
-              <Select value={form.status} onValueChange={v => set("status", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="confirmed">Approved</SelectItem>
-                  <SelectItem value="cancelled">Rejected</SelectItem>
-                  <SelectItem value="completed">Completed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
       </ModalForm>
 
+      {/* Approve / Reject */}
+      <ModalForm
+        open={!!approveTarget}
+        onClose={() => setApproveTarget(null)}
+        title={approveTarget?.action === "approve" ? "Approve Leave Request" : "Reject Leave Request"}
+        onSubmit={handleApprove}
+        submitLabel={saving ? "Processing..." : approveTarget?.action === "approve" ? "Approve" : "Reject"}
+        submitVariant={approveTarget?.action === "reject" ? "destructive" : "default"}
+      >
+        {approveTarget && (
+          <div className="space-y-3 text-sm">
+            <div className="grid grid-cols-2 gap-3">
+              <div><span className="text-muted-foreground">Employee:</span> {approveTarget.req.employee?.user.name || "—"}</div>
+              <div><span className="text-muted-foreground">Type:</span> <Badge variant="secondary">{approveTarget.req.leaveType?.name || "—"}</Badge></div>
+              <div><span className="text-muted-foreground">From:</span> {approveTarget.req.startDate}</div>
+              <div><span className="text-muted-foreground">To:</span> {approveTarget.req.endDate}</div>
+              <div><span className="text-muted-foreground">Days:</span> <strong>{approveTarget.req.days}</strong></div>
+            </div>
+            {approveTarget.req.reason && (
+              <div className="p-2 rounded bg-muted/40 text-xs italic">{approveTarget.req.reason}</div>
+            )}
+            <div>
+              <Label>Note (optional)</Label>
+              <Textarea value={approveNote} onChange={e => setApproveNote(e.target.value)} placeholder="Add a note for the employee..." />
+            </div>
+          </div>
+        )}
+      </ModalForm>
+
+      {/* View Details */}
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Leave Request Details" isView>
         {viewing && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Badge variant="outline" className="text-sm">{viewing.id}</Badge>
+              <span className="font-mono text-xs text-muted-foreground">{viewing.id}</span>
               <StatusBadge status={viewing.status} />
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName}</div>
-              <div><span className="text-muted-foreground">Department:</span> {viewing.department}</div>
-              <div><span className="text-muted-foreground">Leave Type:</span> <Badge variant="secondary">{viewing.leaveType}</Badge></div>
-              <div><span className="text-muted-foreground">Leave Balance:</span> {viewing.leaveBalance} days</div>
+              <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user.name || "—"}</div>
+              <div><span className="text-muted-foreground">Type:</span> <Badge variant="secondary">{viewing.leaveType?.name || "—"}</Badge></div>
               <div><span className="text-muted-foreground">From:</span> {viewing.startDate}</div>
               <div><span className="text-muted-foreground">To:</span> {viewing.endDate}</div>
               <div><span className="text-muted-foreground">Days:</span> <span className="font-semibold">{viewing.days}</span></div>
-              <div><span className="text-muted-foreground">Applied:</span> {viewing.appliedOn}</div>
-              <div className="col-span-2"><span className="text-muted-foreground">Reason:</span> {viewing.reason}</div>
-              <div><span className="text-muted-foreground">Approved By:</span> {viewing.approvedBy || "—"}</div>
+              <div><span className="text-muted-foreground">Applied:</span> {viewing.createdAt.split("T")[0]}</div>
+              {viewing.reason && <div className="col-span-2"><span className="text-muted-foreground">Reason:</span> {viewing.reason}</div>}
+              {viewing.note && <div className="col-span-2 p-2 bg-muted/40 rounded text-xs"><span className="text-muted-foreground">Note from approver:</span> {viewing.note}</div>}
+              {viewing.approvedAt && <div><span className="text-muted-foreground">Actioned:</span> {viewing.approvedAt.split("T")[0]}</div>}
             </div>
           </div>
         )}
