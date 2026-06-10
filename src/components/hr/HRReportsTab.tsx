@@ -5,58 +5,147 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ModalForm } from "@/components/shared/ModalForm";
-import { useToast } from "@/hooks/use-toast";
-import { staffStore } from "@/data/staffStore";
-import { deriveAttendance } from "@/data/shiftsStore";
+import { toast } from "sonner";
+import { hrApi } from "@/lib/hrApi";
+import { useDocuments } from "@/data/documentsStore";
 import { exportToCsv } from "@/lib/exportCsv";
 
 const REPORTS = [
-  { id: "headcount", title: "Headcount & Turnover", desc: "Active, onboarding, exits by department & location", icon: Users },
-  { id: "attendance", title: "Attendance Summary", desc: "Hours worked, lateness & absence by period", icon: Calendar },
-  { id: "leave", title: "Leave Balances & Usage", desc: "Annual, sick, compassionate per employee", icon: Calendar },
-  { id: "payroll", title: "Payroll Register", desc: "Gross, statutory deductions & net pay run", icon: DollarSign },
-  { id: "statutory", title: "Statutory Returns (PAYE/NHIF/NSSF)", desc: "Monthly remittance schedules", icon: DollarSign },
-  { id: "discipline", title: "Disciplinary Cases", desc: "Open / closed cases with stage breakdown", icon: AlertTriangle },
-  { id: "performance", title: "Performance & Tasks", desc: "Task completion, ratings, overdue items", icon: TrendingUp },
-  { id: "documents", title: "Document Compliance", desc: "Expiring & expired employee documents", icon: FileWarning },
+  { id: "headcount",    title: "Headcount & Turnover",            desc: "Active, onboarding, exits by department",        icon: Users },
+  { id: "attendance",   title: "Attendance Summary",              desc: "Clock-ins, clock-outs & absence by period",      icon: Calendar },
+  { id: "leave",        title: "Leave Balances & Usage",          desc: "Annual, sick, compassionate per employee",       icon: Calendar },
+  { id: "payroll",      title: "Payroll Register",                desc: "Gross, statutory deductions & net pay run",      icon: DollarSign },
+  { id: "statutory",    title: "Statutory Returns (PAYE/NHIF/NSSF)", desc: "Monthly remittance schedules",               icon: DollarSign },
+  { id: "discipline",   title: "Disciplinary Cases",              desc: "Open / closed cases with stage breakdown",       icon: AlertTriangle },
+  { id: "performance",  title: "Performance & Tasks",             desc: "Task completion, ratings, overdue items",        icon: TrendingUp },
+  { id: "documents",    title: "Document Compliance",             desc: "Expiring & expired employee documents",          icon: FileWarning },
 ];
 
-function buildRows(reportId: string, department: string): Record<string, any>[] {
-  const staff = department === "all" ? staffStore.all() : staffStore.all().filter(s => s.department === department);
-  switch (reportId) {
-    case "headcount":
-      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, role: s.role, location: s.location || "—", joinDate: s.joinDate, status: s.status }));
-    case "attendance": {
-      const att = deriveAttendance().filter(a => department === "all" || a.department === department);
-      return att.map(a => ({ id: a.id, employee: a.employeeName, date: a.date, shift: a.shift, scheduled: `${a.scheduledStart}-${a.scheduledEnd}`, clockIn: a.clockIn, clockOut: a.clockOut, hours: a.hoursWorked, status: a.status }));
+function periodToRange(period: string): { from: string; to: string } {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const d = now.getDate();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const fmt = (dt: Date) => `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`;
+  switch (period) {
+    case "today": return { from: fmt(now), to: fmt(now) };
+    case "this_week": {
+      const wd = now.getDay();
+      const mon = new Date(now); mon.setDate(d - (wd === 0 ? 6 : wd - 1));
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { from: fmt(mon), to: fmt(sun) };
     }
-    case "payroll":
-      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, kraPin: s.kraPin || "—", nhif: s.nhifNo || "—", nssf: s.nssfNo || "—", bank: s.bankName || "—", account: s.bankAccount || "—" }));
-    case "statutory":
-      return staff.filter(s => s.kraPin).map(s => ({ id: s.id, name: s.name, kraPin: s.kraPin, nhif: s.nhifNo, nssf: s.nssfNo }));
-    default:
-      return staff.map(s => ({ id: s.id, name: s.name, department: s.department, role: s.role, status: s.status }));
+    case "this_month": return { from: `${y}-${p(m + 1)}-01`, to: fmt(now) };
+    case "last_month": {
+      const lm = m === 0 ? 11 : m - 1;
+      const ly = m === 0 ? y - 1 : y;
+      const ld = new Date(ly, lm + 1, 0).getDate();
+      return { from: `${ly}-${p(lm + 1)}-01`, to: `${ly}-${p(lm + 1)}-${ld}` };
+    }
+    case "this_quarter": {
+      const q = Math.floor(m / 3) * 3;
+      return { from: `${y}-${p(q + 1)}-01`, to: fmt(now) };
+    }
+    default: return { from: `${y}-01-01`, to: fmt(now) };
   }
 }
 
 export default function HRReportsTab() {
-  const { toast } = useToast();
+  const docs = useDocuments();
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState("this_month");
   const [department, setDepartment] = useState("all");
   const [format, setFormat] = useState("csv");
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
+  const generate = async () => {
     if (!open) return;
-    const rows = buildRows(open, department);
-    if (!rows.length) { toast({ title: "No data", description: "Nothing to export for this filter." }); return; }
-    const filename = `hr-${open}-${period}.${format === "csv" ? "csv" : "csv"}`;
-    exportToCsv(filename, rows);
-    toast({ title: "Report exported", description: `${REPORTS.find(r => r.id === open)?.title} — ${rows.length} rows` });
-    setOpen(null);
+    setLoading(true);
+    try {
+      const { from, to } = periodToRange(period);
+      let rows: Record<string, any>[] = [];
+      const byDept = <T extends { department?: { name?: string } | null }>(list: T[]) =>
+        department === "all" ? list : list.filter(e => e.department?.name === department);
+
+      if (open === "headcount") {
+        const res = await hrApi.employees.list({ limit: 500 } as any);
+        rows = byDept(res.data ?? []).map(e => ({
+          employeeNo: e.employeeNumber, name: e.user.name,
+          department: e.department?.name ?? "—", jobTitle: e.jobTitle?.title ?? "—",
+          email: e.user.email, startDate: e.startDate, status: e.status,
+          employmentType: e.employmentType,
+        }));
+      } else if (open === "attendance") {
+        const res = await hrApi.attendance.list({ from, to, limit: 1000 } as any);
+        const list = (res.data ?? []).filter(a =>
+          department === "all" || (a as any).employee?.department?.name === department
+        );
+        rows = list.map(a => ({
+          employee: a.employee?.user.name ?? a.employeeId, date: a.date,
+          checkIn: a.checkIn ?? "—", checkOut: a.checkOut ?? "—",
+          status: a.status, note: a.note ?? "",
+        }));
+      } else if (open === "leave") {
+        const res = await hrApi.leaves.list({ limit: 500 } as any);
+        rows = (res.data ?? []).map(l => ({
+          employee: l.employee?.user.name ?? l.employeeId,
+          leaveType: l.leaveType?.name ?? l.leaveTypeId,
+          startDate: l.startDate, endDate: l.endDate, days: l.days,
+          paid: l.leaveType?.isPaid ? "Yes" : "No", status: l.status,
+          submittedAt: l.createdAt?.split("T")[0],
+        }));
+      } else if (open === "payroll" || open === "statutory") {
+        const res = await hrApi.payroll.list({ limit: 500 } as any);
+        const list = byDept(res.data ?? []);
+        rows = open === "statutory"
+          ? list.map(pr => ({
+              employee: pr.employee?.user.name ?? pr.employeeId,
+              employeeNo: pr.employee?.employeeNumber ?? "—",
+              month: pr.month, paye: pr.paye, nhif: pr.nhif, nssf: pr.nssf,
+            }))
+          : list.map(pr => ({
+              employee: pr.employee?.user.name ?? pr.employeeId,
+              department: pr.employee?.department?.name ?? "—",
+              month: pr.month, basicSalary: pr.basicSalary, houseAllowance: pr.houseAllowance,
+              transportAllowance: pr.transportAllowance, overtimePay: pr.overtimePay,
+              grossPay: pr.grossPay, nhif: pr.nhif, nssf: pr.nssf, paye: pr.paye,
+              otherDeductions: pr.otherDeductions, totalDeductions: pr.totalDeductions,
+              netPay: pr.netPay, status: pr.status, payDate: pr.payDate ?? "—",
+            }));
+      } else if (open === "discipline") {
+        const res = await hrApi.employees.disciplinary.listAll();
+        rows = byDept(res.data ?? []).map(dr => ({
+          employee: dr.employee?.user.name ?? dr.employeeId,
+          category: dr.category, offence: dr.offence ?? "—",
+          date: dr.date?.split("T")[0], stage: dr.stage, outcome: dr.outcome ?? "—",
+          hearingDate: dr.hearingDate?.split?.("T")?.[0] ?? "—", reportedBy: dr.reportedBy ?? "—",
+        }));
+      } else if (open === "performance") {
+        const res = await hrApi.performance.list({ limit: 500 } as any);
+        rows = byDept(res.data ?? []).map(t => ({
+          employee: t.employee?.user.name ?? t.employeeId,
+          title: t.title, category: t.category, dueDate: t.dueDate ?? "—",
+          priority: t.priority, status: t.status, rating: t.rating ?? "—",
+          assignedBy: t.assignedBy ?? "—",
+        }));
+      } else if (open === "documents") {
+        rows = docs.map(({ fileData, ...d }) => d);
+      }
+
+      if (!rows.length) { toast.info("No data for the selected filters."); return; }
+      exportToCsv(`hr-${open}-${period}.csv`, rows);
+      toast.success(`Exported ${rows.length} rows — ${REPORTS.find(r => r.id === open)?.title}`);
+      setOpen(null);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to generate report");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const current = REPORTS.find(r => r.id === open);
+  const hasDeptFilter = ["headcount", "attendance", "payroll", "statutory", "discipline", "performance"].includes(open ?? "");
 
   return (
     <div className="space-y-4">
@@ -69,7 +158,7 @@ export default function HRReportsTab() {
         {REPORTS.map(r => {
           const Icon = r.icon;
           return (
-            <Card key={r.id} className="hover:shadow-md transition cursor-pointer" onClick={() => setOpen(r.id)}>
+            <Card key={r.id} className="hover:shadow-md transition cursor-pointer" onClick={() => { setOpen(r.id); setPeriod("this_month"); setDepartment("all"); }}>
               <CardContent className="p-4 space-y-2">
                 <div className="flex items-start justify-between">
                   <div className="h-9 w-9 rounded-lg bg-primary/10 flex items-center justify-center"><Icon className="h-4 w-4 text-primary" /></div>
@@ -86,25 +175,29 @@ export default function HRReportsTab() {
         })}
       </div>
 
-      <ModalForm open={!!open} onClose={() => setOpen(null)} title={current?.title || ""} description={current?.desc} onSubmit={generate} submitLabel="Export">
+      <ModalForm open={!!open} onClose={() => setOpen(null)} title={current?.title || ""} description={current?.desc} onSubmit={generate} submitLabel={loading ? "Exporting…" : "Export"}>
         <div className="space-y-4">
-          <div><Label>Period</Label>
-            <Select value={period} onValueChange={setPeriod}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {[["today", "Today"], ["this_week", "This Week"], ["this_month", "This Month"], ["last_month", "Last Month"], ["this_quarter", "This Quarter"], ["this_year", "This Year"], ["custom", "Custom Range"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div><Label>Department</Label>
-            <Select value={department} onValueChange={setDepartment}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {["Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory", "HR", "Finance"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+          {open !== "documents" && (
+            <div><Label>Period</Label>
+              <Select value={period} onValueChange={setPeriod}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {[["today", "Today"], ["this_week", "This Week"], ["this_month", "This Month"], ["last_month", "Last Month"], ["this_quarter", "This Quarter"], ["this_year", "This Year"]].map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          {hasDeptFilter && (
+            <div><Label>Department</Label>
+              <Select value={department} onValueChange={setDepartment}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {["Fuel", "LPG", "Water", "Automotive", "Car Wash", "Inventory", "HR", "Finance"].map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div><Label>Format</Label>
             <Select value={format} onValueChange={setFormat}>
               <SelectTrigger><SelectValue /></SelectTrigger>

@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, Users, MapPin, Gauge, AlertTriangle } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, Users, MapPin, Gauge, AlertTriangle, LogIn, LogOut, CalendarDays, UserCircle } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ModuleCard } from "@/components/dashboard/ModuleCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { AlertsFeed } from "@/components/dashboard/AlertsFeed";
 import { ApproverInbox } from "@/components/dashboard/ApproverInbox";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { usePermissions } from "@/lib/permissions";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
-import { hrApi } from "@/lib/hrApi";
+import { hrApi, ApiAttendance, ApiLeaveBalance } from "@/lib/hrApi";
 import { fuelApi, ApiFuelSummary } from "@/lib/fuelApi";
+import { Link } from "react-router-dom";
+import { toast } from "sonner";
 
 const modules = [
   { title: "Fuel Management",  description: "Tank levels, pump sales, reconciliation",  icon: Fuel,     href: "/fuel",       colorVar: "--chart-fuel"  },
@@ -21,8 +24,13 @@ const modules = [
   { title: "Car Wash",         description: "Queue, packages, daily tracking",           icon: Car,      href: "/carwash",    colorVar: "--chart-wash"  },
 ];
 
+function fmtTime(dt?: string | null): string {
+  if (!dt) return "—";
+  return new Date(dt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 export default function DashboardPage() {
-  useSession(); // re-render on role/location changes
+  const { user } = useSession();
   const can = usePermissions();
   const canViewFinance  = can("finance.reports.view");
   const canViewStations = can("stations.view");
@@ -31,11 +39,53 @@ export default function DashboardPage() {
 
   const activeLoc = sessionStore.activeLocation();
   const isAllScope = activeLoc === "All Locations";
+  const isEmployee = !!user.employeeId; // user has an employee code — may have self-service data
 
-  const [stations, setStations]         = useState<ApiStationFull[]>([]);
+  const [stations, setStations]           = useState<ApiStationFull[]>([]);
   const [activeStation, setActiveStation] = useState<ApiStationFull | null>(null);
-  const [fuelSummary, setFuelSummary]   = useState<ApiFuelSummary | null>(null);
+  const [fuelSummary, setFuelSummary]     = useState<ApiFuelSummary | null>(null);
   const [employeeCount, setEmployeeCount] = useState<number | null>(null);
+
+  // Employee quick-view state
+  const today = new Date().toISOString().split("T")[0];
+  const [todayAttendance, setTodayAttendance] = useState<ApiAttendance | null | undefined>(undefined);
+  const [leaveBalances, setLeaveBalances]     = useState<ApiLeaveBalance[]>([]);
+  const [clocking, setClocking]               = useState(false);
+
+  const loadEmployee = useCallback(async () => {
+    try {
+      const [attRes, balRes] = await Promise.allSettled([
+        hrApi.self.attendance.list({ from: today, to: today }),
+        hrApi.self.leaves.balances(),
+      ]);
+      if (attRes.status === "fulfilled") {
+        setTodayAttendance(attRes.value.data?.[0] ?? null);
+      }
+      if (balRes.status === "fulfilled") {
+        setLeaveBalances(balRes.value.data ?? []);
+      }
+    } catch { /* non-critical for dashboard */ }
+  }, [today]);
+
+  const handleClockIn = async () => {
+    setClocking(true);
+    try {
+      await hrApi.self.attendance.checkIn();
+      toast.success("Clocked in");
+      loadEmployee();
+    } catch (e: any) { toast.error(e?.message || "Clock in failed"); }
+    finally { setClocking(false); }
+  };
+
+  const handleClockOut = async () => {
+    setClocking(true);
+    try {
+      await hrApi.self.attendance.checkOut();
+      toast.success("Clocked out");
+      loadEmployee();
+    } catch (e: any) { toast.error(e?.message || "Clock out failed"); }
+    finally { setClocking(false); }
+  };
 
   const load = useCallback(async () => {
     const stRes = await stationsApi.list().catch(() => ({ data: [] as ApiStationFull[] }));
@@ -55,6 +105,7 @@ export default function DashboardPage() {
   }, [activeLoc, canViewFuel, canViewHR]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (isEmployee) loadEmployee(); }, [isEmployee, loadEmployee]);
 
   const kpis = [
     ...(canViewFinance && fuelSummary != null ? [{
@@ -97,6 +148,91 @@ export default function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {kpis.map((kpi) => <KpiCard key={kpi.title} {...kpi} />)}
         </div>
+      )}
+
+      {/* Employee Quick View — shown whenever the user has an employee record */}
+      {isEmployee && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <UserCircle className="h-4 w-4 text-primary" />
+              My Work Today
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Attendance */}
+              <div className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Attendance</p>
+                    <p className="text-xs text-muted-foreground">
+                      {todayAttendance === undefined ? "Loading..." :
+                       todayAttendance?.checkOut ? `Checked out ${fmtTime(todayAttendance.checkOut)}` :
+                       todayAttendance?.checkIn  ? `Checked in ${fmtTime(todayAttendance.checkIn)}` :
+                       "Not checked in yet"}
+                    </p>
+                    {todayAttendance?.checkIn && !todayAttendance.checkOut && (
+                      <p className="text-[10px] text-muted-foreground">In: {fmtTime(todayAttendance.checkIn)}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {!todayAttendance?.checkIn && (
+                      <Button size="sm" onClick={handleClockIn} disabled={clocking || todayAttendance === undefined}>
+                        <LogIn className="h-3.5 w-3.5 mr-1" /> Clock In
+                      </Button>
+                    )}
+                    {todayAttendance?.checkIn && !todayAttendance.checkOut && (
+                      <Button size="sm" variant="destructive" onClick={handleClockOut} disabled={clocking}>
+                        <LogOut className="h-3.5 w-3.5 mr-1" /> Clock Out
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Leave balances */}
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-medium mb-2 flex items-center gap-1.5">
+                  <CalendarDays className="h-3.5 w-3.5" /> Leave Balances
+                </p>
+                {leaveBalances.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No allocations — contact HR</p>
+                ) : (
+                  <div className="space-y-1">
+                    {leaveBalances.slice(0, 3).map(b => (
+                      <div key={b.leaveType.id} className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground truncate">{b.leaveType.name}</span>
+                        <span className="font-semibold ml-2 shrink-0">{b.available} days</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Quick links */}
+              <div className="rounded-lg border p-4">
+                <p className="text-sm font-medium mb-2">Quick Links</p>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {[
+                    { label: "My Details",    hash: "details" },
+                    { label: "Attendance",    hash: "attendance" },
+                    { label: "Leave",         hash: "leave" },
+                    { label: "My Shifts",     hash: "shifts" },
+                  ].map(l => (
+                    <Link
+                      key={l.hash}
+                      to={`/employee-portal?tab=${l.hash}`}
+                      className="text-xs px-2 py-1.5 rounded border text-center hover:bg-muted/50 transition-colors text-foreground"
+                    >
+                      {l.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Fuel at-a-glance */}

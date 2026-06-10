@@ -10,21 +10,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { usersApi, ApiUser } from "@/lib/usersApi";
+import { useStations } from "@/data/stationsCache";
 
 const VALID_ROLES = ["Admin", "Manager", "Accountant", "Attendant", "LocationHead", "Employee"];
-const VALID_STATUSES = ["Active", "Inactive", "Suspended"];
 
 type FormMode = "add" | "edit" | "view";
 interface ModalState { mode: FormMode; user?: ApiUser; }
 
-const blank = { name: "", email: "", phone: "", password: "", activeRole: "Employee", homeLocation: "", roles: ["Employee"] };
+const blank = { name: "", email: "", phone: "", password: "", activeRole: "Employee", homeLocationId: "", roles: ["Employee"] };
 
 export function UsersTab() {
-  const [data,    setData]    = useState<ApiUser[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [modal,   setModal]   = useState<ModalState | null>(null);
-  const [form,    setForm]    = useState(blank);
-  const [saving,  setSaving]  = useState(false);
+  const stations                    = useStations();
+  const [data,    setData]          = useState<ApiUser[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [modal,   setModal]         = useState<ModalState | null>(null);
+  const [form,    setForm]          = useState(blank);
+  const [saving,  setSaving]        = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,15 +41,26 @@ export function UsersTab() {
   const set = (k: keyof typeof blank, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   const openAdd  = () => { setForm(blank); setModal({ mode: "add" }); };
-  const openView = (u: ApiUser) => { setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocation: u.homeLocation ?? "", roles: u.roles }); setModal({ mode: "view", user: u }); };
-  const openEdit = (u: ApiUser) => { setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocation: u.homeLocation ?? "", roles: u.roles }); setModal({ mode: "edit", user: u }); };
+  const openView = (u: ApiUser) => {
+    setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocationId: "", roles: u.roles });
+    setModal({ mode: "view", user: u });
+  };
+  const openEdit = (u: ApiUser) => {
+    setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocationId: "", roles: u.roles });
+    setModal({ mode: "edit", user: u });
+  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       if (modal?.mode === "add") {
         if (!form.email || !form.password || !form.name) return toast.error("Name, email and password are required");
-        await usersApi.create({ name: form.name, email: form.email, password: form.password, phone: form.phone || undefined, activeRole: form.activeRole, homeLocation: form.homeLocation || undefined, roles: form.roles });
+        await usersApi.create({
+          name: form.name, email: form.email, password: form.password,
+          phone: form.phone || undefined, activeRole: form.activeRole,
+          homeLocation: form.homeLocationId || undefined, // sends station ID
+          roles: form.roles,
+        });
         toast.success("User created");
       } else if (modal?.mode === "edit" && modal.user) {
         await usersApi.assignRoles(modal.user.id, form.roles);
@@ -84,7 +96,11 @@ export function UsersTab() {
   ];
 
   const filters: FilterOption[] = [
-    { key: "status", label: "Status", options: [{ label: "Active", value: "Active" }, { label: "Inactive", value: "Inactive" }, { label: "Suspended", value: "Suspended" }] },
+    { key: "status", label: "Status", options: [
+      { label: "Active", value: "Active" },
+      { label: "Inactive", value: "Inactive" },
+      { label: "Suspended", value: "Suspended" },
+    ]},
   ];
 
   const isView = modal?.mode === "view";
@@ -108,10 +124,7 @@ export function UsersTab() {
         filters={filters}
         onView={openView}
         onEdit={openEdit}
-        extraActions={[{
-          label: "Toggle Status",
-          onClick: handleStatusToggle,
-        }]}
+        extraActions={[{ label: "Toggle Status", onClick: handleStatusToggle }]}
       />
 
       {modal && (
@@ -129,14 +142,31 @@ export function UsersTab() {
                 <div><Label>Password *</Label><Input type="password" value={form.password} onChange={e => set("password", e.target.value)} placeholder="Temporary password" /></div>
               )}
             </div>
-            {modal.mode === "add" && (
-              <div><Label>Active Role</Label>
-                <Select value={form.activeRole} onValueChange={v => set("activeRole", v)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{VALID_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+
+            {isView && modal.user?.homeLocation && (
+              <div><Label>Home Location</Label><Input value={modal.user.homeLocation} readOnly /></div>
             )}
+
+            {modal.mode === "add" && (
+              <>
+                <div><Label>Active Role</Label>
+                  <Select value={form.activeRole} onValueChange={v => set("activeRole", v)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>{VALID_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Home Station (optional)</Label>
+                  <Select value={form.homeLocationId} onValueChange={v => set("homeLocationId", v)}>
+                    <SelectTrigger><SelectValue placeholder="— none —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— none —</SelectItem>
+                      {stations.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </>
+            )}
+
             <div>
               <Label className="mb-2 block">Roles {isView ? "" : "(click to toggle)"}</Label>
               <div className="flex flex-wrap gap-2">
@@ -152,11 +182,6 @@ export function UsersTab() {
               </div>
               <p className="text-xs text-muted-foreground mt-1">Employee is always included.</p>
             </div>
-            {modal.mode === "add" && (
-              <div><Label>Home Location (optional)</Label>
-                <Input value={form.homeLocation} onChange={e => set("homeLocation", e.target.value)} placeholder="Station name or location" />
-              </div>
-            )}
           </div>
         </ModalForm>
       )}

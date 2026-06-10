@@ -23,6 +23,23 @@ export interface ApiClient {
   updatedAt: string;
 }
 
+export interface ApiClientOrder {
+  id: string;
+  stationId: string;
+  clientId?: string | null;
+  clientName: string;
+  orderRef: string;
+  module: string;
+  description: string;
+  amount: number;
+  paymentMethod: string;
+  status: string;
+  orderDate: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApiCoupon {
   id: string;
   stationId: string;
@@ -67,5 +84,20 @@ export const clientsApi = {
       api.put<R<ApiCoupon>>(`/crm/coupons/${id}`, body),
     delete: (id: string) =>
       api.delete<R<{ id: string }>>(`/crm/coupons/${id}`),
+  },
+
+  orders: {
+    list: (stationId?: string | null, params?: { status?: string; module?: string; clientId?: string; page?: number; limit?: number }) => {
+      const p = new URLSearchParams();
+      if (params) Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, String(v)); });
+      const qs = p.toString() ? `?${p.toString()}` : "";
+      return api.get<R<ApiClientOrder[]> & { meta?: any }>(`/crm/orders${qs}`, sh(stationId));
+    },
+    create: (body: Partial<ApiClientOrder>, stationId?: string | null) =>
+      api.post<R<ApiClientOrder>>("/crm/orders", body, sh(stationId)),
+    update: (id: string, body: Partial<ApiClientOrder>) =>
+      api.put<R<ApiClientOrder>>(`/crm/orders/${id}`, body),
+    delete: (id: string) =>
+      api.delete<R<{ id: string }>>(`/crm/orders/${id}`),
   },
 };

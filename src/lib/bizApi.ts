@@ -59,13 +59,22 @@ export interface ApiBizSaleItem {
   productId?: string; name: string; qty: number; unitPrice: number; discount: number; totalPrice: number;
 }
 
+export type BizSaleStatus = "paid" | "pending_payment" | "void" | "refunded";
+
 export interface ApiBizSale {
   id: string; businessId: string; saleRef: string; date: string;
   items: ApiBizSaleItem[]; subtotal: number; discount: number;
   taxRate: number; taxAmount: number; totalAmount: number;
   paymentMethod: string; amountPaid: number; change: number;
   cashier?: string | null; tableId?: string | null; tableNo?: string | null;
-  notes?: string | null; status: string; createdAt: string; updatedAt: string;
+  notes?: string | null;
+  status: BizSaleStatus;
+  // Pesapal fields (M-Pesa / Card via gateway)
+  pesapalTrackingId?: string | null;
+  pesapalStatus?: string | null;
+  customerPhone?: string | null;
+  pesapalRedirectUrl?: string | null;
+  createdAt: string; updatedAt: string;
 }
 
 export interface ApiBizStockMovement {
@@ -102,6 +111,21 @@ export interface ApiBizSummary {
   byPayment: { method: string; amount: number }[];
 }
 
+/** Returned by POST /biz/payments/initiate */
+export interface ApiPaymentInitiated {
+  saleId: string;
+  saleRef: string;
+  trackingId: string;
+  redirectUrl: string;
+  amount: number;
+}
+
+/** Returned by GET /biz/payments/:trackingId/status */
+export interface ApiPaymentStatus {
+  status: "Completed" | "Pending" | "Failed" | "Invalid" | "Reversed" | "Cancelled";
+  sale: ApiBizSale | null;
+}
+
 // ── API client ────────────────────────────────────────────────────────────────
 
 export const bizApi = {
@@ -123,6 +147,8 @@ export const bizApi = {
   products: {
     list:        (businessId: string, params?: { categoryId?: string; status?: string; lowStock?: boolean }) =>
                    api.get<R<ApiBizProduct[]>>(`/biz/products${qs({ businessId, ...params })}`),
+    findByBarcode: (businessId: string, code: string) =>
+                   api.get<R<ApiBizProduct>>(`/biz/products/barcode/${encodeURIComponent(code)}${qs({ businessId })}`),
     create:      (data: Partial<ApiBizProduct>) => api.post<R<ApiBizProduct>>("/biz/products", data),
     update:      (id: string, data: Partial<ApiBizProduct>) => api.put<R<ApiBizProduct>>(`/biz/products/${id}`, data),
     delete:      (id: string) => api.delete<R<{ id: string }>>(`/biz/products/${id}`),
@@ -154,6 +180,30 @@ export const bizApi = {
     create: (data: Partial<ApiBizSale> & { items: ApiBizSaleItem[] }) =>
               api.post<R<ApiBizSale>>("/biz/sales", data),
     void:   (id: string)    => api.post<R<{ id: string; status: string }>>(`/biz/sales/${id}/void`, {}),
+  },
+
+  payments: {
+    initiate: (data: {
+      businessId: string;
+      items: ApiBizSaleItem[];
+      subtotal: number;
+      discount: number;
+      taxRate: number;
+      taxAmount: number;
+      totalAmount: number;
+      paymentMethod: "M-Pesa" | "Card";
+      customerPhone?: string;
+      cashier?: string;
+      tableId?: string;
+      tableNo?: string;
+      notes?: string;
+    }) => api.post<R<ApiPaymentInitiated>>("/biz/payments/initiate", data),
+
+    checkStatus: (trackingId: string) =>
+      api.get<R<ApiPaymentStatus>>(`/biz/payments/${encodeURIComponent(trackingId)}/status`),
+
+    cancel: (saleId: string) =>
+      api.post<R<{ id: string; status: string }>>(`/biz/payments/${saleId}/cancel`, {}),
   },
 
   stockMovements: {

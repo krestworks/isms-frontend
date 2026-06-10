@@ -87,6 +87,79 @@ export interface ApiStationModule { module: string; isEnabled: boolean; updatedA
 
 export interface PageMeta { page: number; limit: number; total: number; pages: number; }
 
+export interface ApiDisciplinaryRecord {
+  id: string;
+  employeeId: string;
+  category: string;
+  offence?: string | null;
+  description: string;
+  date: string;
+  reportedBy?: string | null;
+  stage: string;
+  outcome?: string | null;
+  hearingDate?: string | null;
+  appeal?: string | null;
+  notes?: string | null;
+  recordedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  employee?: {
+    id: string; employeeNumber: string;
+    user: { id: string; name: string };
+    department?: { id: string; name: string } | null;
+  };
+}
+
+export interface ApiPayroll {
+  id: string;
+  stationId: string;
+  employeeId: string;
+  month: string;
+  basicSalary: number;
+  houseAllowance: number;
+  transportAllowance: number;
+  overtimePay: number;
+  grossPay: number;
+  nhif: number;
+  nssf: number;
+  paye: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  netPay: number;
+  status: string;
+  payDate?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  employee?: {
+    id: string; employeeNumber: string;
+    user: { id: string; name: string };
+    department?: { id: string; name: string } | null;
+    jobTitle?: { id: string; title: string } | null;
+  };
+}
+
+export interface ApiPerformanceTask {
+  id: string;
+  stationId: string;
+  employeeId: string;
+  title: string;
+  category: string;
+  dueDate?: string | null;
+  status: string;
+  priority: string;
+  notes?: string | null;
+  rating?: number | null;
+  assignedBy?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  employee?: {
+    id: string; employeeNumber: string;
+    user: { id: string; name: string };
+    department?: { id: string; name: string } | null;
+  };
+}
+
 // ── API surface ───────────────────────────────────────────────────────────────
 
 export const hrApi = {
@@ -142,7 +215,7 @@ export const hrApi = {
       list: (params?: { employeeId?: string; stationId?: string; from?: string; to?: string }) =>
         api.get<{ success: boolean; data: ApiShiftAssignment[]; meta: PageMeta }>(`/hr/shifts/assignments${qs(params as any)}`),
       assign: (data: { employeeId: string; shiftPatternId: string; date: string; stationId?: string }) =>
-        api.post<{ success: boolean; data: ApiShiftAssignment }>("/hr/shifts/assignments", data),
+        api.post<{ success: boolean; data: ApiShiftAssignment }>("/hr/shifts/assignments", data, sh(data.stationId) as any),
     },
   },
 
@@ -179,9 +252,13 @@ export const hrApi = {
     terminate: (id: string, data: { note?: string; terminatedAt?: string }) =>
       api.post<{ success: boolean }>(`/hr/employees/${id}/terminate`, data),
     disciplinary: {
-      list:   (id: string) => api.get<{ success: boolean; data: any[] }>(`/hr/employees/${id}/disciplinary`),
-      create: (id: string, data: { type: string; description: string; date?: string }) =>
-        api.post<{ success: boolean; data: any }>(`/hr/employees/${id}/disciplinary`, data),
+      listAll: (params?: { employeeId?: string; stage?: string; category?: string }) =>
+        api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>(`/hr/disciplinary${qs(params as any)}`),
+      list:   (id: string) => api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>(`/hr/employees/${id}/disciplinary`),
+      create: (id: string, data: Partial<ApiDisciplinaryRecord>) =>
+        api.post<{ success: boolean; data: ApiDisciplinaryRecord }>(`/hr/employees/${id}/disciplinary`, data),
+      update: (employeeId: string, recordId: string, data: Partial<ApiDisciplinaryRecord>) =>
+        api.put<{ success: boolean; data: ApiDisciplinaryRecord }>(`/hr/employees/${employeeId}/disciplinary/${recordId}`, data),
     },
   },
 
@@ -208,5 +285,69 @@ export const hrApi = {
     checkOut: () => api.post<{ success: boolean; data: ApiAttendance }>("/hr/attendance/checkout", {}),
     manual:   (data: { employeeId: string; date: string; checkIn?: string; checkOut?: string; status?: string; note?: string }) =>
       api.post<{ success: boolean; data: ApiAttendance }>("/hr/attendance/manual", data),
+  },
+
+  // ── Payroll ─────────────────────────────────────────────────────────────────
+
+  payroll: {
+    list:   (params?: { employeeId?: string; month?: string; status?: string; page?: number; limit?: number }) =>
+      api.get<{ success: boolean; data: ApiPayroll[]; meta: PageMeta }>(`/hr/payroll${qs(params as any)}`),
+    create: (data: Partial<ApiPayroll> & { employeeId: string; month: string }) =>
+      api.post<{ success: boolean; data: ApiPayroll }>("/hr/payroll", data),
+    update: (id: string, data: Partial<ApiPayroll>) =>
+      api.put<{ success: boolean; data: ApiPayroll }>(`/hr/payroll/${id}`, data),
+    remove: (id: string) =>
+      api.delete<{ success: boolean }>(`/hr/payroll/${id}`),
+  },
+
+  // ── Performance ─────────────────────────────────────────────────────────────
+
+  performance: {
+    list:   (params?: { employeeId?: string; status?: string; category?: string; page?: number; limit?: number }) =>
+      api.get<{ success: boolean; data: ApiPerformanceTask[]; meta: PageMeta }>(`/hr/performance${qs(params as any)}`),
+    create: (data: Partial<ApiPerformanceTask> & { employeeId: string; title: string }) =>
+      api.post<{ success: boolean; data: ApiPerformanceTask }>("/hr/performance", data),
+    update: (id: string, data: Partial<ApiPerformanceTask>) =>
+      api.put<{ success: boolean; data: ApiPerformanceTask }>(`/hr/performance/${id}`, data),
+    remove: (id: string) =>
+      api.delete<{ success: boolean }>(`/hr/performance/${id}`),
+  },
+
+  // ── Self-service (employee portal) — no hr.* permissions required ───────────
+  // Routes: /hr/self/* — scoped to calling user's own Employee record.
+
+  self: {
+    me:               () => api.get<{ success: boolean; data: ApiEmployee }>("/hr/self/me"),
+    attendance: {
+      list:     (params?: { from?: string; to?: string; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiAttendance[]; meta: PageMeta }>(`/hr/self/attendance${qs(params as any)}`),
+      checkIn:  () => api.post<{ success: boolean; data: ApiAttendance }>("/hr/self/attendance/checkin", {}),
+      checkOut: () => api.post<{ success: boolean; data: ApiAttendance }>("/hr/self/attendance/checkout", {}),
+    },
+    leaves: {
+      list:     (params?: { status?: string; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiLeaveRequest[]; meta: PageMeta }>(`/hr/self/leaves${qs(params as any)}`),
+      types:    () => api.get<{ success: boolean; data: ApiLeaveType[] }>("/hr/self/leaves/types"),
+      balances: (year?: number) =>
+        api.get<{ success: boolean; data: ApiLeaveBalance[] }>(`/hr/self/leaves/balances${year ? `?year=${year}` : ""}`),
+      submit:   (data: { leaveTypeId: string; startDate: string; endDate: string; reason?: string }) =>
+        api.post<{ success: boolean; data: ApiLeaveRequest }>("/hr/self/leaves", data),
+      cancel:   (id: string) => api.put<{ success: boolean }>(`/hr/self/leaves/${id}/cancel`, {}),
+    },
+    shifts: {
+      list: (params?: { from?: string; to?: string; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiShiftAssignment[]; meta: PageMeta }>(`/hr/self/shifts${qs(params as any)}`),
+    },
+    disciplinary: {
+      list: () => api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>("/hr/self/disciplinary"),
+    },
+    payroll: {
+      list: (params?: { page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiPayroll[]; meta: PageMeta }>(`/hr/self/payroll${qs(params as any)}`),
+    },
+    performance: {
+      list: (params?: { page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiPerformanceTask[]; meta: PageMeta }>(`/hr/self/performance${qs(params as any)}`),
+    },
   },
 };

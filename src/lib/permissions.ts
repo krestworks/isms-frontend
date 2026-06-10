@@ -10,6 +10,7 @@ export const ROUTE_TO_MODULE: Record<string, string> = {
   "/water": "Water",
   "/automotive": "Automotive",
   "/carwash": "Car Wash",
+  "/business": "Business",
   "/inventory": "Inventory",
   "/finance": "Finance",
   "/clients": "Clients",
@@ -27,14 +28,20 @@ const MODULE_PERMISSION: Record<string, string> = {
   Water:         "water.production.view",
   Automotive:    "auto.services.view",
   "Car Wash":    "carwash.sales.view",
+  Business:      "pos.sales.view",
   Inventory:     "pos.sales.view",
   Finance:       "finance.reports.view",
   Clients:       "clients.view",
   Reports:       "finance.reports.view",
   Settings:      "settings.view",
   HR:            "hr.staff.view",
-  EmployeePortal:"hr.shifts.view",
   Locations:     "stations.view",
+};
+
+// Alternate (OR) permission that also grants access — used for modules
+// accessible by operational roles (e.g. Attendant → Business via POS permission).
+const MODULE_ALT_PERMISSION: Record<string, string> = {
+  Business: "business.pos.record",
 };
 
 // These modules are always accessible to authenticated users
@@ -63,7 +70,9 @@ export function canAccessModule(moduleName: string): boolean {
   if (ALWAYS_ALLOWED.has(moduleName)) return true;
   const permCode = MODULE_PERMISSION[moduleName];
   if (!permCode) return true;
-  return hasPermission(permCode);
+  if (hasPermission(permCode)) return true;
+  const alt = MODULE_ALT_PERMISSION[moduleName];
+  return !!alt && hasPermission(alt);
 }
 
 export function canAccessRoute(path: string): boolean {

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,87 +9,116 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-
-interface PayrollRecord {
-  id: string;
-  employeeName: string;
-  employeeId: string;
-  department: string;
-  month: string;
-  basicSalary: number;
-  houseAllowance: number;
-  transportAllowance: number;
-  overtimePay: number;
-  grossPay: number;
-  nhif: number;
-  nssf: number;
-  paye: number;
-  otherDeductions: number;
-  totalDeductions: number;
-  netPay: number;
-  status: string;
-  payDate: string;
-}
+import { toast } from "sonner";
+import { hrApi, ApiEmployee, ApiPayroll } from "@/lib/hrApi";
 
 const fmt = (n: number) => `Ksh ${n.toLocaleString()}`;
 
-const mockData: PayrollRecord[] = [
-  { id: "PAY-001", employeeName: "James Mwangi", employeeId: "EMP-001", department: "Fuel", month: "2026-03", basicSalary: 35000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 2000, grossPay: 45000, nhif: 1700, nssf: 2160, paye: 5400, otherDeductions: 0, totalDeductions: 9260, netPay: 35740, status: "paid", payDate: "2026-03-28" },
-  { id: "PAY-002", employeeName: "Grace Wanjiku", employeeId: "EMP-002", department: "LPG", month: "2026-03", basicSalary: 55000, houseAllowance: 8000, transportAllowance: 5000, overtimePay: 0, grossPay: 68000, nhif: 1700, nssf: 2160, paye: 12600, otherDeductions: 500, totalDeductions: 16960, netPay: 51040, status: "paid", payDate: "2026-03-28" },
-  { id: "PAY-003", employeeName: "Peter Ochieng", employeeId: "EMP-003", department: "Car Wash", month: "2026-04", basicSalary: 28000, houseAllowance: 3000, transportAllowance: 2000, overtimePay: 1500, grossPay: 34500, nhif: 1700, nssf: 2160, paye: 3900, otherDeductions: 0, totalDeductions: 7760, netPay: 26740, status: "pending", payDate: "" },
-  { id: "PAY-004", employeeName: "Mary Akinyi", employeeId: "EMP-004", department: "Water", month: "2026-04", basicSalary: 40000, houseAllowance: 6000, transportAllowance: 3000, overtimePay: 0, grossPay: 49000, nhif: 1700, nssf: 2160, paye: 7200, otherDeductions: 0, totalDeductions: 11060, netPay: 37940, status: "processing", payDate: "" },
-  { id: "PAY-005", employeeName: "David Kimani", employeeId: "EMP-005", department: "Automotive", month: "2026-04", basicSalary: 38000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 3000, grossPay: 49000, nhif: 1700, nssf: 2160, paye: 7200, otherDeductions: 0, totalDeductions: 11060, netPay: 37940, status: "pending", payDate: "" },
-];
+const emptyForm = {
+  employeeId: "", month: "", basicSalary: 0, houseAllowance: 0,
+  transportAllowance: 0, overtimePay: 0, nhif: 1700, nssf: 2160,
+  paye: 0, otherDeductions: 0, status: "pending", payDate: "",
+};
 
-const departments = ["Fuel", "LPG", "Water", "Automotive", "Car Wash"];
-
-const columns: Column<PayrollRecord>[] = [
+const columns: Column<ApiPayroll>[] = [
   { key: "id", label: "Pay ID", sortable: true },
-  { key: "employeeName", label: "Employee", sortable: true },
-  { key: "department", label: "Dept", render: (i) => <Badge variant="outline">{i.department}</Badge> },
+  { key: "employeeId", label: "Employee", render: i => i.employee?.user.name ?? i.employeeId },
+  { key: "employeeId", label: "Dept", render: i => i.employee?.department?.name ? <Badge variant="outline">{i.employee.department.name}</Badge> : <span className="text-muted-foreground">—</span> },
   { key: "month", label: "Month", sortable: true },
-  { key: "grossPay", label: "Gross", render: (i) => fmt(i.grossPay) },
-  { key: "totalDeductions", label: "Deductions", render: (i) => <span className="text-destructive">{fmt(i.totalDeductions)}</span> },
-  { key: "netPay", label: "Net Pay", render: (i) => <span className="font-bold">{fmt(i.netPay)}</span> },
-  { key: "status", label: "Status", render: (i) => <StatusBadge status={i.status} /> },
+  { key: "grossPay", label: "Gross", render: i => fmt(i.grossPay) },
+  { key: "totalDeductions", label: "Deductions", render: i => <span className="text-destructive">{fmt(i.totalDeductions)}</span> },
+  { key: "netPay", label: "Net Pay", render: i => <span className="font-bold">{fmt(i.netPay)}</span> },
+  { key: "status", label: "Status", render: i => <StatusBadge status={i.status} /> },
 ];
 
 const filterOpts: FilterOption[] = [
-  { key: "department", label: "Department", options: departments.map(d => ({ label: d, value: d })) },
   { key: "status", label: "Status", options: [{ label: "Pending", value: "pending" }, { label: "Processing", value: "processing" }, { label: "Paid", value: "paid" }] },
 ];
 
 export default function PayrollTab() {
-  const [data, setData] = useState(mockData);
+  const [employees, setEmployees] = useState<ApiEmployee[]>([]);
+  const [data, setData]           = useState<ApiPayroll[]>([]);
+  const [loading, setLoading]     = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<PayrollRecord | null>(null);
-  const [viewing, setViewing] = useState<PayrollRecord | null>(null);
-  const [form, setForm] = useState({ employeeName: "", employeeId: "", department: "Fuel", month: "", basicSalary: 0, houseAllowance: 0, transportAllowance: 0, overtimePay: 0, nhif: 1700, nssf: 2160, paye: 0, otherDeductions: 0, status: "pending", payDate: "" });
+  const [editing, setEditing]     = useState<ApiPayroll | null>(null);
+  const [viewing, setViewing]     = useState<ApiPayroll | null>(null);
+  const [form, setForm]           = useState(emptyForm);
 
-  const grossPay = form.basicSalary + form.houseAllowance + form.transportAllowance + form.overtimePay;
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [payRes, empsRes] = await Promise.all([
+        hrApi.payroll.list({ limit: 500 } as any),
+        hrApi.employees.list({ limit: 200 } as any),
+      ]);
+      setData(payRes.data ?? []);
+      setEmployees(empsRes.data ?? []);
+    } catch { /* non-critical */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const grossPay       = form.basicSalary + form.houseAllowance + form.transportAllowance + form.overtimePay;
   const totalDeductions = form.nhif + form.nssf + form.paye + form.otherDeductions;
-  const netPay = grossPay - totalDeductions;
+  const netPay         = grossPay - totalDeductions;
 
   const stats = {
     totalPayroll: data.reduce((s, d) => s + d.netPay, 0),
-    pending: data.filter(d => d.status === "pending").length,
-    paid: data.filter(d => d.status === "paid").length,
+    pending:   data.filter(d => d.status === "pending").length,
+    paid:      data.filter(d => d.status === "paid").length,
     processing: data.filter(d => d.status === "processing").length,
   };
 
-  const openNew = () => { setEditing(null); setForm({ employeeName: "", employeeId: "", department: "Fuel", month: new Date().toISOString().slice(0, 7), basicSalary: 0, houseAllowance: 0, transportAllowance: 0, overtimePay: 0, nhif: 1700, nssf: 2160, paye: 0, otherDeductions: 0, status: "pending", payDate: "" }); setModalOpen(true); };
-  const openEdit = (item: PayrollRecord) => { setEditing(item); setForm({ employeeName: item.employeeName, employeeId: item.employeeId, department: item.department, month: item.month, basicSalary: item.basicSalary, houseAllowance: item.houseAllowance, transportAllowance: item.transportAllowance, overtimePay: item.overtimePay, nhif: item.nhif, nssf: item.nssf, paye: item.paye, otherDeductions: item.otherDeductions, status: item.status, payDate: item.payDate }); setModalOpen(true); };
-
-  const handleSave = () => {
-    const record = { ...form, grossPay, totalDeductions, netPay };
-    if (editing) {
-      setData(d => d.map(i => (i.id === editing.id ? { ...i, ...record } : i)));
-    } else {
-      setData(d => [...d, { id: `PAY-${String(d.length + 1).padStart(3, "0")}`, ...record }]);
-    }
-    setModalOpen(false);
+  const openNew = () => {
+    setEditing(null);
+    setForm({ ...emptyForm, month: new Date().toISOString().slice(0, 7) });
+    setModalOpen(true);
   };
-  const handleDelete = (item: PayrollRecord) => setData(d => d.filter(i => i.id !== item.id));
+  const openEdit = (item: ApiPayroll) => {
+    setEditing(item);
+    setForm({
+      employeeId: item.employeeId, month: item.month,
+      basicSalary: item.basicSalary, houseAllowance: item.houseAllowance,
+      transportAllowance: item.transportAllowance, overtimePay: item.overtimePay,
+      nhif: item.nhif, nssf: item.nssf, paye: item.paye,
+      otherDeductions: item.otherDeductions, status: item.status,
+      payDate: item.payDate ?? "",
+    });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.employeeId) return toast.error("Select an employee");
+    if (!form.month) return toast.error("Month is required");
+    try {
+      if (editing) {
+        const res = await hrApi.payroll.update(editing.id, form);
+        setData(d => d.map(i => i.id === editing.id ? res.data : i));
+        toast.success("Payroll updated");
+      } else {
+        const res = await hrApi.payroll.create({ ...form, employeeId: form.employeeId, month: form.month });
+        setData(d => [...d, res.data]);
+        toast.success("Payroll entry created");
+      }
+      setModalOpen(false);
+    } catch (e: any) {
+      if (e?.message?.includes("409") || e?.message?.includes("duplicate") || e?.status === 409) {
+        toast.error("A payroll record already exists for this employee and month");
+      } else {
+        toast.error(e?.message || "Save failed");
+      }
+    }
+  };
+
+  const handleDelete = async (item: ApiPayroll) => {
+    try {
+      await hrApi.payroll.remove(item.id);
+      setData(d => d.filter(i => i.id !== item.id));
+      toast.success("Payroll entry removed");
+    } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+  };
+
   const set = (field: string, value: any) => setForm(f => ({ ...f, [field]: value }));
 
   return (
@@ -99,7 +128,12 @@ export default function PayrollTab() {
           <h3 className="text-lg font-semibold">Payroll Processing</h3>
           <p className="text-sm text-muted-foreground">Process and track monthly payroll with full breakdown</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> New Payroll Entry</Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> New Entry</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -109,22 +143,18 @@ export default function PayrollTab() {
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Paid</p><p className="text-2xl font-bold text-green-600">{stats.paid}</p></CardContent></Card>
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "id", "employeeId"]} searchPlaceholder="Search payroll..." filters={filterOpts} onView={item => setViewing(item)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["id", "employeeId", "month"]} searchPlaceholder="Search payroll…" filters={filterOpts} onView={item => setViewing(item)} onEdit={openEdit} onDelete={handleDelete} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Payroll" : "New Payroll Entry"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Save"}>
         <div className="space-y-4">
-          <p className="text-sm font-semibold text-muted-foreground">Employee</p>
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Employee Name *</Label><Input value={form.employeeName} onChange={e => set("employeeName", e.target.value)} /></div>
-            <div><Label>Employee ID</Label><Input value={form.employeeId} onChange={e => set("employeeId", e.target.value)} placeholder="EMP-XXX" /></div>
-            <div><Label>Department</Label>
-              <Select value={form.department} onValueChange={v => set("department", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{departments.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Month</Label><Input type="month" value={form.month} onChange={e => set("month", e.target.value)} /></div>
+          <div><Label>Employee *</Label>
+            <Select value={form.employeeId} onValueChange={v => set("employeeId", v)} disabled={!!editing}>
+              <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
+              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}</SelectItem>)}</SelectContent>
+            </Select>
+            {editing && <p className="text-xs text-muted-foreground mt-1">Employee cannot be changed after creation.</p>}
           </div>
+          <div><Label>Month *</Label><Input type="month" value={form.month} onChange={e => set("month", e.target.value)} disabled={!!editing} /></div>
 
           <p className="text-sm font-semibold text-muted-foreground pt-2">Earnings</p>
           <div className="grid grid-cols-2 gap-4">
@@ -149,7 +179,6 @@ export default function PayrollTab() {
             <span className="text-sm text-muted-foreground">Total Deductions:</span>
             <span className="font-bold text-destructive">{fmt(totalDeductions)}</span>
           </div>
-
           <div className="p-4 bg-primary/10 rounded-lg flex justify-between items-center">
             <span className="text-sm font-medium">NET PAY:</span>
             <span className="text-2xl font-bold">{fmt(netPay)}</span>
@@ -160,7 +189,11 @@ export default function PayrollTab() {
               <div><Label>Status</Label>
                 <Select value={form.status} onValueChange={v => set("status", v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="pending">Pending</SelectItem><SelectItem value="processing">Processing</SelectItem><SelectItem value="paid">Paid</SelectItem></SelectContent>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="processing">Processing</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
               <div><Label>Pay Date</Label><Input type="date" value={form.payDate} onChange={e => set("payDate", e.target.value)} /></div>
@@ -173,14 +206,14 @@ export default function PayrollTab() {
         {viewing && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Badge variant="outline" className="text-sm">{viewing.id} — {viewing.employeeId}</Badge>
+              <Badge variant="outline" className="text-sm">{viewing.id}</Badge>
               <StatusBadge status={viewing.status} />
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName}</div>
-              <div><span className="text-muted-foreground">Department:</span> {viewing.department}</div>
+              <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user.name ?? viewing.employeeId}</div>
+              <div><span className="text-muted-foreground">Department:</span> {viewing.employee?.department?.name ?? "—"}</div>
               <div><span className="text-muted-foreground">Month:</span> {viewing.month}</div>
-              <div><span className="text-muted-foreground">Pay Date:</span> {viewing.payDate || "—"}</div>
+              <div><span className="text-muted-foreground">Pay Date:</span> {viewing.payDate ?? "—"}</div>
             </div>
             <div className="rounded-lg border p-4 space-y-2">
               <h4 className="font-semibold text-sm text-muted-foreground">EARNINGS</h4>

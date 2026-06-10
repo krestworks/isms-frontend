@@ -1,15 +1,23 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Search, Plus, Minus, Trash2, ShoppingCart, CreditCard, Printer, X, CheckCircle2, Tag, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Search, ScanBarcode, Plus, Minus, Trash2, ShoppingCart, CreditCard,
+  Printer, X, CheckCircle2, Tag, ChevronUp,
+  Smartphone, Loader2, QrCode, AlertCircle, Monitor,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { bizApi, ApiBizBusiness, ApiBizProduct, ApiBizCategory, ApiBizSaleItem } from "@/lib/bizApi";
+import {
+  bizApi, ApiBizBusiness, ApiBizProduct, ApiBizCategory,
+  ApiBizSaleItem, ApiBizSale, ApiPaymentInitiated,
+} from "@/lib/bizApi";
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CartItem {
   productId: string;
@@ -17,35 +25,73 @@ interface CartItem {
   qty: number;
   unitPrice: number;
   markedPrice: number;
-  discount: number;   // item-level discount amount (Ksh)
+  discount: number;
   totalPrice: number;
 }
 
+type PayPhase = "idle" | "initiating" | "awaiting" | "completed" | "failed";
+type CardMode  = "remote" | "in-person";
+
 interface Props { business: ApiBizBusiness; }
 
-const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Credit"];
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const POLL_INTERVAL_MS = 3_000;
+const POLL_TIMEOUT_MS  = 5 * 60_000; // 5 minutes
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function calcTotal(item: CartItem) {
   return Math.max(0, item.qty * item.unitPrice - item.discount);
 }
 
+function qrCodeUrl(url: string) {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(url)}`;
+}
+
+function fmt(n: number) { return n.toLocaleString(); }
+
+// ── Component ─────────────────────────────────────────────────────────────────
+
 export function POSTab({ business }: Props) {
-  const [products,    setProducts]    = useState<ApiBizProduct[]>([]);
-  const [categories,  setCategories]  = useState<ApiBizCategory[]>([]);
-  const [cart,        setCart]        = useState<CartItem[]>([]);
-  const [search,      setSearch]      = useState("");
-  const [activeCat,   setActiveCat]   = useState<string>("all");
+  // Data
+  const [products,   setProducts]   = useState<ApiBizProduct[]>([]);
+  const [categories, setCategories] = useState<ApiBizCategory[]>([]);
+
+  // Cart
+  const [cart,         setCart]         = useState<CartItem[]>([]);
   const [orderDiscount, setOrderDiscount] = useState(0);
-  const [payMethod,   setPayMethod]   = useState("Cash");
-  const [amountPaid,  setAmountPaid]  = useState("");
-  const [cashier,     setCashier]     = useState("");
-  const [notes,       setNotes]       = useState("");
-  const [payOpen,     setPayOpen]     = useState(false);
-  const [receiptOpen, setReceiptOpen] = useState(false);
-  const [lastSale,    setLastSale]    = useState<any>(null);
-  const [processing,  setProcessing]  = useState(false);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+
+  // Search / filter
+  const [search,    setSearch]    = useState("");
+  const [activeCat, setActiveCat] = useState("all");
+
+  // Barcode scanner (USB/BT keyboard wedge)
+  const [barcodeInput, setBarcodeInput] = useState("");
+  const barcodeRef = useRef<HTMLInputElement>(null);
+
+  // Payment dialog
+  const [payOpen,    setPayOpen]    = useState(false);
+  const [payMethod,  setPayMethod]  = useState("Cash");
+  const [cardMode,   setCardMode]   = useState<CardMode>("remote");
+  const [amountPaid, setAmountPaid] = useState("");
+  const [cashier,    setCashier]    = useState("");
+  const [notes,      setNotes]      = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+
+  // Payment gateway state (M-Pesa / Card via Pesapal)
+  const [payPhase,   setPayPhase]   = useState<PayPhase>("idle");
+  const [payInitData, setPayInitData] = useState<ApiPaymentInitiated | null>(null);
+  const pollTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollStartRef  = useRef<number>(0);
+
+  // Receipt
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [lastSale,    setLastSale]    = useState<ApiBizSale | null>(null);
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  // ── Load products & categories ─────────────────────────────────────────────
 
   const load = useCallback(async () => {
     try {
@@ -60,10 +106,31 @@ export function POSTab({ business }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Cart ──────────────────────────────────────────────────────────────────
+  // ── Barcode scanner ────────────────────────────────────────────────────────
+  // USB / BT keyboard wedge scanners act as keyboard input.
+  // They type the barcode string and send Enter.
+
+  const handleBarcodeKey = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    const code = barcodeInput.trim();
+    setBarcodeInput("");
+    if (!code) return;
+
+    try {
+      const res = await bizApi.products.findByBarcode(business.id, code);
+      const product = res.data;
+      if (!product) { toast.error(`No product found for: ${code}`); return; }
+      addToCart(product);
+      toast.success(`Added: ${product.name}`);
+    } catch {
+      toast.error(`No product found for barcode: ${code}`);
+    }
+  };
+
+  // ── Cart helpers ───────────────────────────────────────────────────────────
 
   const addToCart = (p: ApiBizProduct) => {
-    if (p.stockQty <= 0) return toast.error(`${p.name} is out of stock`);
+    if (p.stockQty <= 0) { toast.error(`${p.name} is out of stock`); return; }
     setCart(prev => {
       const existing = prev.find(i => i.productId === p.id);
       if (existing) {
@@ -104,30 +171,92 @@ export function POSTab({ business }: Props) {
     if (expandedItem === productId) setExpandedItem(null);
   };
 
-  const clearCart = () => { setCart([]); setOrderDiscount(0); setAmountPaid(""); setNotes(""); setExpandedItem(null); };
+  const clearCart = () => {
+    setCart([]); setOrderDiscount(0); setAmountPaid(""); setNotes("");
+    setCustomerPhone(""); setExpandedItem(null);
+  };
 
-  // ── Totals ────────────────────────────────────────────────────────────────
+  // ── Totals ─────────────────────────────────────────────────────────────────
 
-  const subtotal    = cart.reduce((s, i) => s + i.totalPrice, 0);
-  const taxAmount   = Math.round((subtotal - orderDiscount) * business.taxRate / 100 * 100) / 100;
-  const total       = Math.max(0, subtotal - orderDiscount + taxAmount);
-  const paid        = parseFloat(amountPaid) || 0;
-  const change      = Math.max(0, paid - total);
+  const subtotal  = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const taxAmount = Math.round((subtotal - orderDiscount) * business.taxRate / 100 * 100) / 100;
+  const total     = Math.max(0, subtotal - orderDiscount + taxAmount);
+  const paid      = parseFloat(amountPaid) || 0;
+  const change    = Math.max(0, paid - total);
 
-  // ── Filtered products ─────────────────────────────────────────────────────
+  // ── Filtered product grid ──────────────────────────────────────────────────
 
   const visible = products.filter(p => {
     const matchCat    = activeCat === "all" || p.categoryId === activeCat;
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase()) || (p.sku ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchSearch = !search
+      || p.name.toLowerCase().includes(search.toLowerCase())
+      || (p.sku ?? "").toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   });
 
-  // ── Checkout ──────────────────────────────────────────────────────────────
+  // ── Poll helpers ───────────────────────────────────────────────────────────
 
-  const handleCheckout = async () => {
-    if (!cart.length) return toast.error("Cart is empty");
-    if (paid > 0 && paid < total) return toast.error(`Amount paid (${paid.toLocaleString()}) is less than total (${total.toLocaleString()})`);
-    setProcessing(true);
+  const stopPolling = () => {
+    if (pollTimerRef.current) { clearInterval(pollTimerRef.current); pollTimerRef.current = null; }
+  };
+
+  const startPolling = (trackingId: string) => {
+    stopPolling();
+    pollStartRef.current = Date.now();
+
+    pollTimerRef.current = setInterval(async () => {
+      if (Date.now() - pollStartRef.current > POLL_TIMEOUT_MS) {
+        stopPolling();
+        setPayPhase("failed");
+        toast.error("Payment timed out. Ask customer to check their phone / try again.");
+        return;
+      }
+
+      try {
+        const res = await bizApi.payments.checkStatus(trackingId);
+        const { status, sale } = res.data;
+
+        if (status === "Completed" && sale) {
+          stopPolling();
+          setPayPhase("completed");
+          setLastSale(sale);
+          setPayOpen(false);
+          setReceiptOpen(true);
+          clearCart();
+          load();
+        } else if (["Failed", "Invalid", "Reversed"].includes(status)) {
+          stopPolling();
+          setPayPhase("failed");
+          toast.error(`Payment ${status.toLowerCase()}. Please try again.`);
+        }
+        // "Pending" → keep polling
+      } catch {
+        // Network blip — keep polling
+      }
+    }, POLL_INTERVAL_MS);
+  };
+
+  useEffect(() => () => stopPolling(), []);
+
+  // ── Cancel Pesapal payment ─────────────────────────────────────────────────
+
+  const handleCancelPayment = async () => {
+    stopPolling();
+    if (payInitData) {
+      try { await bizApi.payments.cancel(payInitData.saleId); } catch { /* best-effort */ }
+    }
+    setPayPhase("idle");
+    setPayInitData(null);
+  };
+
+  // ── Checkout — cash / credit (immediate) ──────────────────────────────────
+
+  const handleCashCheckout = async () => {
+    if (!cart.length) { toast.error("Cart is empty"); return; }
+    if (paid > 0 && paid < total) {
+      toast.error(`Amount paid (${fmt(paid)}) is less than total (${fmt(total)})`);
+      return;
+    }
     try {
       const saleItems: ApiBizSaleItem[] = cart.map(i => ({
         productId: i.productId, name: i.name, qty: i.qty,
@@ -139,8 +268,7 @@ export function POSTab({ business }: Props) {
         subtotal, discount: orderDiscount,
         taxRate: business.taxRate, taxAmount, totalAmount: total,
         paymentMethod: payMethod,
-        amountPaid: paid || total,
-        change,
+        amountPaid: paid || total, change,
         cashier: cashier || undefined,
         notes: notes || undefined,
         status: "paid",
@@ -151,13 +279,50 @@ export function POSTab({ business }: Props) {
       clearCart();
       load();
     } catch (e: any) { toast.error(e?.message || "Sale failed"); }
-    finally { setProcessing(false); }
   };
+
+  // ── Checkout — M-Pesa or Card-remote (via Pesapal) ────────────────────────
+
+  const handlePesapalCheckout = async () => {
+    if (!cart.length) { toast.error("Cart is empty"); return; }
+    if (payMethod === "M-Pesa" && !customerPhone.trim()) {
+      toast.error("Enter the customer's M-Pesa phone number"); return;
+    }
+    setPayPhase("initiating");
+    try {
+      const saleItems: ApiBizSaleItem[] = cart.map(i => ({
+        productId: i.productId, name: i.name, qty: i.qty,
+        unitPrice: i.unitPrice, discount: i.discount, totalPrice: i.totalPrice,
+      }));
+      const res = await bizApi.payments.initiate({
+        businessId: business.id,
+        items: saleItems,
+        subtotal, discount: orderDiscount,
+        taxRate: business.taxRate, taxAmount, totalAmount: total,
+        paymentMethod: payMethod as "M-Pesa" | "Card",
+        customerPhone: customerPhone.trim() || undefined,
+        cashier: cashier || undefined,
+        notes: notes || undefined,
+      });
+      setPayInitData(res.data);
+      setPayPhase("awaiting");
+      startPolling(res.data.trackingId);
+    } catch (e: any) {
+      setPayPhase("idle");
+      toast.error(e?.message || "Failed to initiate payment");
+    }
+  };
+
+  // ── Confirm in-person card (no gateway needed) ─────────────────────────────
+
+  const handleInPersonCard = handleCashCheckout; // same flow, method = "Card"
+
+  // ── Print receipt ──────────────────────────────────────────────────────────
 
   const handlePrint = () => {
     const content = receiptRef.current?.innerHTML;
     if (!content) return;
-    const win = window.open("", "_blank", "width=380,height=620");
+    const win = window.open("", "_blank", "width=380,height=640");
     if (!win) return;
     win.document.write(`<html><head><title>Receipt — ${business.name}</title><style>
       *{box-sizing:border-box;margin:0;padding:0}
@@ -171,54 +336,79 @@ export function POSTab({ business }: Props) {
     win.document.close(); win.focus(); win.print(); win.close();
   };
 
+  // ── Helper: is payment via Pesapal gateway? ────────────────────────────────
+
+  const isPesapalMethod = payMethod === "M-Pesa" || (payMethod === "Card" && cardMode === "remote");
+  const isImmediateMethod = !isPesapalMethod; // Cash, Credit, Card in-person
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="flex gap-4 h-[calc(100vh-220px)] min-h-[580px]">
 
       {/* ── Product Grid ── */}
       <div className="flex-1 flex flex-col gap-3 min-w-0">
 
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input className="pl-9 bg-muted/50" placeholder="Search products or SKU..." value={search} onChange={e => setSearch(e.target.value)} />
+        {/* Search + barcode scanner row */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              className="pl-9 bg-muted/50"
+              placeholder="Search products or SKU..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+          {/* Barcode scanner input — USB/BT scanners type here and press Enter */}
+          <div className="relative w-44">
+            <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              ref={barcodeRef}
+              className="pl-9 bg-muted/50 font-mono text-sm"
+              placeholder="Scan barcode..."
+              value={barcodeInput}
+              onChange={e => setBarcodeInput(e.target.value)}
+              onKeyDown={handleBarcodeKey}
+            />
+          </div>
         </div>
 
         {/* Category pills */}
-        <ScrollArea className="h-8" orientation="horizontal">
-          <div className="flex gap-1.5 pb-0.5">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+          <button
+            onClick={() => setActiveCat("all")}
+            className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              activeCat === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+            }`}
+          >All</button>
+          {categories.map(cat => (
             <button
-              onClick={() => setActiveCat("all")}
-              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors ${activeCat === "all" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
-            >All</button>
-            {categories.map(c => (
-              <button
-                key={c.id}
-                onClick={() => setActiveCat(c.id)}
-                style={activeCat === c.id && c.color ? { backgroundColor: c.color + "22", borderColor: c.color, color: c.color } : {}}
-                className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border ${activeCat === c.id ? "border" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/80"}`}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </ScrollArea>
+              key={cat.id}
+              onClick={() => setActiveCat(cat.id)}
+              style={activeCat === cat.id && cat.color ? { backgroundColor: cat.color + "22", borderColor: cat.color, color: cat.color } : {}}
+              className={`shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors border ${
+                activeCat === cat.id ? "border" : "bg-muted text-muted-foreground border-transparent hover:bg-muted/80"
+              }`}
+            >{cat.name}</button>
+          ))}
+        </div>
 
-        {/* Product Cards */}
+        {/* Product cards */}
         <ScrollArea className="flex-1">
           {visible.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
               <ShoppingCart className="h-10 w-10 mb-3 opacity-30" />
               <p className="text-sm font-medium">No products found</p>
-              <p className="text-xs mt-1 opacity-70">Try a different search or category</p>
+              <p className="text-xs mt-1 opacity-70">Try a different search or scan a barcode</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-2">
               {visible.map(p => {
-                const inCart = cart.find(i => i.productId === p.id);
-                const hasMarkup = p.markedPrice > 0 && p.markedPrice > p.price;
+                const inCart     = cart.find(i => i.productId === p.id);
+                const hasMarkup  = p.markedPrice > 0 && p.markedPrice > p.price;
                 const outOfStock = p.stockQty <= 0;
                 const lowStock   = !outOfStock && p.stockQty <= p.reorderLevel;
-
                 return (
                   <button
                     key={p.id}
@@ -237,10 +427,8 @@ export function POSTab({ business }: Props) {
                     )}
                     <div className="font-medium text-sm leading-tight line-clamp-2 mb-2">{p.name}</div>
                     <div className="space-y-0.5">
-                      {hasMarkup && (
-                        <p className="text-xs text-muted-foreground line-through">Ksh {p.markedPrice.toLocaleString()}</p>
-                      )}
-                      <p className="font-bold text-primary text-sm">Ksh {p.price.toLocaleString()}</p>
+                      {hasMarkup && <p className="text-xs text-muted-foreground line-through">Ksh {fmt(p.markedPrice)}</p>}
+                      <p className="font-bold text-primary text-sm">Ksh {fmt(p.price)}</p>
                     </div>
                     <div className="mt-1.5 flex items-center justify-between gap-1">
                       <Badge
@@ -261,8 +449,6 @@ export function POSTab({ business }: Props) {
 
       {/* ── Cart Panel ── */}
       <div className="w-[300px] xl:w-80 shrink-0 flex flex-col rounded-xl border bg-card shadow-sm">
-
-        {/* Cart header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-4 w-4 text-primary" />
@@ -276,7 +462,6 @@ export function POSTab({ business }: Props) {
           )}
         </div>
 
-        {/* Cart Items */}
         <ScrollArea className="flex-1">
           {cart.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-40 text-muted-foreground">
@@ -291,8 +476,8 @@ export function POSTab({ business }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium truncate leading-tight">{item.name}</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Ksh {item.unitPrice.toLocaleString()} × {item.qty}
-                        {item.discount > 0 && <span className="text-green-600 ml-1">−{item.discount.toLocaleString()}</span>}
+                        Ksh {fmt(item.unitPrice)} × {item.qty}
+                        {item.discount > 0 && <span className="text-green-600 ml-1">−{fmt(item.discount)}</span>}
                       </p>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
@@ -301,7 +486,7 @@ export function POSTab({ business }: Props) {
                       <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full" onClick={() => updateQty(item.productId, 1)}><Plus className="h-2.5 w-2.5" /></Button>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <span className="text-xs font-bold w-16 text-right">Ksh {item.totalPrice.toLocaleString()}</span>
+                      <span className="text-xs font-bold w-16 text-right">Ksh {fmt(item.totalPrice)}</span>
                       <button
                         className="h-5 w-5 flex items-center justify-center text-muted-foreground hover:text-primary"
                         onClick={() => setExpandedItem(expandedItem === item.productId ? null : item.productId)}
@@ -335,109 +520,278 @@ export function POSTab({ business }: Props) {
           )}
         </ScrollArea>
 
-        {/* Totals + Checkout */}
         <div className="p-3 border-t space-y-3">
           {cart.length > 0 && (
             <div className="space-y-1 text-xs">
               <div className="flex justify-between text-muted-foreground">
                 <span>Subtotal ({cart.reduce((s, i) => s + i.qty, 0)} items)</span>
-                <span>Ksh {subtotal.toLocaleString()}</span>
+                <span>Ksh {fmt(subtotal)}</span>
               </div>
               {cart.some(i => i.discount > 0) && (
                 <div className="flex justify-between text-green-600">
                   <span>Item Discounts</span>
-                  <span>− Ksh {cart.reduce((s, i) => s + i.discount, 0).toLocaleString()}</span>
+                  <span>− Ksh {fmt(cart.reduce((s, i) => s + i.discount, 0))}</span>
                 </div>
               )}
               {orderDiscount > 0 && (
                 <div className="flex justify-between text-green-600">
                   <span>Order Discount</span>
-                  <span>− Ksh {orderDiscount.toLocaleString()}</span>
+                  <span>− Ksh {fmt(orderDiscount)}</span>
                 </div>
               )}
               {business.taxRate > 0 && (
                 <div className="flex justify-between text-muted-foreground">
                   <span>Tax ({business.taxRate}%)</span>
-                  <span>Ksh {taxAmount.toLocaleString()}</span>
+                  <span>Ksh {fmt(taxAmount)}</span>
                 </div>
               )}
               <Separator />
               <div className="flex justify-between font-bold text-sm text-foreground">
                 <span>Total</span>
-                <span className="text-primary">Ksh {total.toLocaleString()}</span>
+                <span className="text-primary">Ksh {fmt(total)}</span>
               </div>
             </div>
           )}
           <Button
             className="w-full h-10 font-semibold"
             disabled={cart.length === 0}
-            onClick={() => setPayOpen(true)}
+            onClick={() => { setPayPhase("idle"); setPayInitData(null); setPayOpen(true); }}
           >
             <CreditCard className="h-4 w-4 mr-2" />
-            {cart.length === 0 ? "Cart Empty" : `Checkout — Ksh ${total.toLocaleString()}`}
+            {cart.length === 0 ? "Cart Empty" : `Checkout — Ksh ${fmt(total)}`}
           </Button>
         </div>
       </div>
 
       {/* ── Payment Dialog ── */}
-      <Dialog open={payOpen} onOpenChange={setPayOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Complete Payment</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            {/* Total highlight */}
-            <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 text-center">
-              <p className="text-xs text-muted-foreground mb-1">Amount Due</p>
-              <p className="text-4xl font-bold text-primary">Ksh {total.toLocaleString()}</p>
-            </div>
+      <Dialog open={payOpen} onOpenChange={open => {
+        if (!open && payPhase === "awaiting") return; // block close while awaiting
+        setPayOpen(open);
+        if (!open) { stopPolling(); setPayPhase("idle"); setPayInitData(null); }
+      }}>
+        <DialogContent className="max-w-sm overflow-y-auto max-h-[90vh]">
+          <DialogHeader>
+            <DialogTitle>
+              {payPhase === "awaiting" ? "Awaiting Payment..." : "Complete Payment"}
+            </DialogTitle>
+          </DialogHeader>
 
-            {/* Payment method grid */}
-            <div>
-              <Label className="text-xs text-muted-foreground">Payment Method</Label>
-              <div className="grid grid-cols-2 gap-2 mt-1.5">
-                {PAY_METHODS.map(m => (
-                  <button
-                    key={m}
-                    onClick={() => setPayMethod(m)}
-                    className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors ${payMethod === m ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted/50"}`}
+          {/* ── Phase: idle / selecting method ── */}
+          {payPhase === "idle" && (
+            <div className="space-y-4">
+              {/* Amount due */}
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Amount Due</p>
+                <p className="text-4xl font-bold text-primary">Ksh {fmt(total)}</p>
+              </div>
+
+              {/* Payment method selection */}
+              <div>
+                <Label className="text-xs text-muted-foreground">Payment Method</Label>
+                <div className="grid grid-cols-2 gap-2 mt-1.5">
+                  {["Cash", "M-Pesa", "Card", "Credit"].map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setPayMethod(m)}
+                      className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                        payMethod === m ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted/50"
+                      }`}
+                    >
+                      {m === "M-Pesa" && <Smartphone className="h-3.5 w-3.5" />}
+                      {m === "Card"   && <CreditCard  className="h-3.5 w-3.5" />}
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Card sub-mode: remote QR vs in-person reader */}
+              {payMethod === "Card" && (
+                <div>
+                  <Label className="text-xs text-muted-foreground">Card Type</Label>
+                  <div className="grid grid-cols-2 gap-2 mt-1.5">
+                    <button
+                      onClick={() => setCardMode("remote")}
+                      className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                        cardMode === "remote" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted/50"
+                      }`}
+                    >
+                      <QrCode className="h-3.5 w-3.5" />Remote / QR
+                    </button>
+                    <button
+                      onClick={() => setCardMode("in-person")}
+                      className={`py-2 px-3 rounded-lg border text-sm font-medium transition-colors flex items-center justify-center gap-1.5 ${
+                        cardMode === "in-person" ? "border-primary bg-primary/10 text-primary" : "border-border bg-card hover:bg-muted/50"
+                      }`}
+                    >
+                      <Monitor className="h-3.5 w-3.5" />In-Person
+                    </button>
+                  </div>
+                  {cardMode === "remote" && (
+                    <p className="text-[11px] text-muted-foreground mt-1">Customer scans Pesapal QR code on their phone.</p>
+                  )}
+                  {cardMode === "in-person" && (
+                    <p className="text-[11px] text-muted-foreground mt-1">Customer pays on your card reader — confirm after terminal approves.</p>
+                  )}
+                </div>
+              )}
+
+              {/* M-Pesa phone number */}
+              {payMethod === "M-Pesa" && (
+                <div>
+                  <Label>Customer M-Pesa Number</Label>
+                  <Input
+                    placeholder="e.g. 0712 345 678"
+                    value={customerPhone}
+                    onChange={e => setCustomerPhone(e.target.value)}
+                    className="mt-1"
+                    type="tel"
+                    autoFocus
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    An STK push will be sent to this number via Pesapal.
+                  </p>
+                </div>
+              )}
+
+              {/* Cash / credit / in-person card: amount received */}
+              {isImmediateMethod && (
+                <>
+                  <div>
+                    <Label>Amount Received (Ksh)</Label>
+                    <Input
+                      type="number" placeholder={`${total}`}
+                      value={amountPaid} onChange={e => setAmountPaid(e.target.value)}
+                      className="mt-1" autoFocus={payMethod === "Cash" || payMethod === "Credit"}
+                    />
+                  </div>
+                  {paid >= total && paid > 0 && (
+                    <div className="rounded-lg bg-green-50 border border-green-200 p-3 flex items-center justify-between">
+                      <span className="text-sm text-green-700">Change</span>
+                      <span className="text-xl font-bold text-green-600">Ksh {fmt(change)}</span>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Common: cashier name, order discount, notes */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Cashier</Label>
+                  <Input placeholder="Staff name" value={cashier} onChange={e => setCashier(e.target.value)} className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">Order Discount (Ksh)</Label>
+                  <Input type="number" value={orderDiscount || ""} onChange={e => setOrderDiscount(+e.target.value)} className="mt-1" />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">Notes (optional)</Label>
+                <Input placeholder="e.g. table 4, customer name..." value={notes} onChange={e => setNotes(e.target.value)} className="mt-1" />
+              </div>
+
+              {/* Confirm button */}
+              {isImmediateMethod ? (
+                <Button className="w-full h-10" onClick={handleCashCheckout}>
+                  Confirm Sale
+                </Button>
+              ) : (
+                <Button className="w-full h-10" onClick={handlePesapalCheckout}>
+                  {payMethod === "M-Pesa" ? (
+                    <><Smartphone className="h-4 w-4 mr-2" />Send STK Push</>
+                  ) : (
+                    <><QrCode className="h-4 w-4 mr-2" />Generate Payment Link</>
+                  )}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* ── Phase: initiating ── */}
+          {payPhase === "initiating" && (
+            <div className="flex flex-col items-center gap-4 py-6">
+              <Loader2 className="h-10 w-10 animate-spin text-primary" />
+              <p className="text-sm font-medium text-center">Connecting to Pesapal...</p>
+              <p className="text-xs text-muted-foreground text-center">Please wait while we set up the payment.</p>
+            </div>
+          )}
+
+          {/* ── Phase: awaiting ── */}
+          {payPhase === "awaiting" && payInitData && (
+            <div className="space-y-4">
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 text-center">
+                <p className="text-xs text-muted-foreground mb-1">Amount</p>
+                <p className="text-3xl font-bold text-primary">Ksh {fmt(payInitData.amount)}</p>
+                <p className="text-xs text-muted-foreground mt-1 font-mono">{payInitData.saleRef}</p>
+              </div>
+
+              {/* M-Pesa: show STK push status */}
+              {payMethod === "M-Pesa" && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                      <Smartphone className="h-5 w-5 text-green-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold">STK Push Sent</p>
+                      <p className="text-xs text-muted-foreground">
+                        Customer should see a prompt on <strong>{customerPhone}</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    Waiting for customer to enter M-Pesa PIN...
+                  </div>
+                </div>
+              )}
+
+              {/* Card remote: show QR code */}
+              {payMethod === "Card" && payInitData.redirectUrl && (
+                <div className="rounded-lg border p-4 space-y-3">
+                  <p className="text-sm font-semibold text-center">Customer Payment QR</p>
+                  <div className="flex justify-center">
+                    <img
+                      src={qrCodeUrl(payInitData.redirectUrl)}
+                      alt="Payment QR Code"
+                      className="rounded-lg border w-44 h-44"
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    Customer scans this QR code with their phone to complete payment via Pesapal.
+                  </p>
+                  <Button
+                    variant="outline" size="sm" className="w-full text-xs"
+                    onClick={() => window.open(payInitData.redirectUrl, "_blank")}
                   >
-                    {m}
-                  </button>
-                ))}
-              </div>
+                    <QrCode className="h-3.5 w-3.5 mr-1.5" />Open Payment Link
+                  </Button>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground justify-center">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+                    Waiting for payment confirmation...
+                  </div>
+                </div>
+              )}
+
+              <Button variant="outline" className="w-full" onClick={handleCancelPayment}>
+                Cancel Payment
+              </Button>
             </div>
+          )}
 
-            <div>
-              <Label>Amount Received (Ksh)</Label>
-              <Input type="number" placeholder={`${total}`} value={amountPaid} onChange={e => setAmountPaid(e.target.value)} className="mt-1" autoFocus />
-            </div>
-
-            {paid >= total && paid > 0 && (
-              <div className="rounded-lg bg-green-50 border border-green-200 p-3 flex items-center justify-between">
-                <span className="text-sm text-green-700">Change</span>
-                <span className="text-xl font-bold text-green-600">Ksh {change.toLocaleString()}</span>
+          {/* ── Phase: failed ── */}
+          {payPhase === "failed" && (
+            <div className="space-y-4">
+              <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-4 flex flex-col items-center gap-2">
+                <AlertCircle className="h-8 w-8 text-destructive" />
+                <p className="text-sm font-semibold text-destructive">Payment Failed</p>
+                <p className="text-xs text-muted-foreground text-center">
+                  The payment was not completed. Please try again or use a different payment method.
+                </p>
               </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs text-muted-foreground">Cashier</Label>
-                <Input placeholder="Staff name" value={cashier} onChange={e => setCashier(e.target.value)} className="mt-1" />
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">Order Discount (Ksh)</Label>
-                <Input type="number" value={orderDiscount || ""} onChange={e => setOrderDiscount(+e.target.value)} className="mt-1" />
-              </div>
+              <Button className="w-full" onClick={() => setPayPhase("idle")}>Try Again</Button>
             </div>
-
-            <div>
-              <Label className="text-xs text-muted-foreground">Notes (optional)</Label>
-              <Input placeholder="e.g. table 4, customer name..." value={notes} onChange={e => setNotes(e.target.value)} className="mt-1" />
-            </div>
-
-            <Button className="w-full h-10" onClick={handleCheckout} disabled={processing}>
-              {processing ? "Processing..." : "Confirm Sale"}
-            </Button>
-          </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -459,6 +813,7 @@ export function POSTab({ business }: Props) {
                 <div className="flex justify-between"><span>Receipt:</span><span>{lastSale.saleRef}</span></div>
                 <div className="flex justify-between"><span>Date:</span><span>{lastSale.date}</span></div>
                 {lastSale.cashier && <div className="flex justify-between"><span>Cashier:</span><span>{lastSale.cashier}</span></div>}
+                {lastSale.customerPhone && <div className="flex justify-between"><span>M-Pesa:</span><span>{lastSale.customerPhone}</span></div>}
                 {lastSale.notes && <div className="flex justify-between"><span>Note:</span><span>{lastSale.notes}</span></div>}
                 <div className="line" />
                 <table className="w-full">
@@ -466,19 +821,19 @@ export function POSTab({ business }: Props) {
                     {(lastSale.items ?? []).map((item: ApiBizSaleItem, i: number) => (
                       <tr key={i}>
                         <td className="pr-1">{item.name}</td>
-                        <td className="right text-right whitespace-nowrap">{item.qty}×{item.unitPrice.toLocaleString()}</td>
-                        <td className="right text-right pl-2 whitespace-nowrap font-bold">{item.totalPrice.toLocaleString()}</td>
+                        <td className="right text-right whitespace-nowrap">{item.qty}×{fmt(item.unitPrice)}</td>
+                        <td className="right text-right pl-2 whitespace-nowrap font-bold">{fmt(item.totalPrice)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div className="line" />
-                <div className="flex justify-between"><span>Subtotal:</span><span>Ksh {lastSale.subtotal?.toLocaleString()}</span></div>
-                {lastSale.discount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-Ksh {lastSale.discount?.toLocaleString()}</span></div>}
-                {lastSale.taxAmount > 0 && <div className="flex justify-between"><span>Tax ({lastSale.taxRate}%):</span><span>Ksh {lastSale.taxAmount?.toLocaleString()}</span></div>}
-                <div className="flex justify-between total-row"><span>TOTAL:</span><span>Ksh {lastSale.totalAmount?.toLocaleString()}</span></div>
-                <div className="flex justify-between"><span>Paid ({lastSale.paymentMethod}):</span><span>Ksh {lastSale.amountPaid?.toLocaleString()}</span></div>
-                {lastSale.change > 0 && <div className="flex justify-between"><span>Change:</span><span>Ksh {lastSale.change?.toLocaleString()}</span></div>}
+                <div className="flex justify-between"><span>Subtotal:</span><span>Ksh {fmt(lastSale.subtotal)}</span></div>
+                {lastSale.discount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-Ksh {fmt(lastSale.discount)}</span></div>}
+                {lastSale.taxAmount > 0 && <div className="flex justify-between"><span>Tax ({lastSale.taxRate}%):</span><span>Ksh {fmt(lastSale.taxAmount)}</span></div>}
+                <div className="flex justify-between total-row"><span>TOTAL:</span><span>Ksh {fmt(lastSale.totalAmount)}</span></div>
+                <div className="flex justify-between"><span>Paid ({lastSale.paymentMethod}):</span><span>Ksh {fmt(lastSale.amountPaid)}</span></div>
+                {lastSale.change > 0 && <div className="flex justify-between"><span>Change:</span><span>Ksh {fmt(lastSale.change)}</span></div>}
                 <div className="line" />
                 {business.receiptFooter && <p className="text-center">{business.receiptFooter}</p>}
                 <p className="text-center text-muted-foreground">Thank you for shopping with us!</p>

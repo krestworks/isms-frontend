@@ -1,28 +1,63 @@
 import { useEffect, useState } from "react";
 import { sessionStore } from "@/data/sessionStore";
+import { stationsCache } from "@/data/stationsCache";
 import { stationsApi, ApiStationFull } from "./stationsApi";
 
-/** Returns the station that matches the user's active location scope.
- *  For managers this is their only accessible station.
- *  For admins it's the one selected in the location switcher (or the first available). */
+/** Resolve the "active" station from the cache given current session state.
+ *  Non-admins are always resolved to their homeLocation station.
+ *  Admins are resolved to whichever station is selected in the switcher
+ *  (or the first station when "All Locations" is active). */
+function resolveFromCache(): ApiStationFull | null {
+  const stations = stationsCache.all();
+  if (stations.length === 0) return null;
+
+  const user = sessionStore.user();
+  const active = sessionStore.activeLocation();
+
+  // Non-admins can only ever see their home station
+  if (!user.permissions.includes("stations.view")) {
+    if (!user.homeLocation) return null;
+    return stations.find(s => s.name === user.homeLocation) ?? null;
+  }
+
+  // Admins: match the selected location name, fall back to first
+  if (active === "All Locations") return stations[0] ?? null;
+  return stations.find(s => s.name === active) ?? stations[0] ?? null;
+}
+
 export function useActiveStation(): { station: ApiStationFull | null; stationId: string | null; loading: boolean } {
-  const [station, setStation]   = useState<ApiStationFull | null>(null);
-  const [loading, setLoading]   = useState(true);
+  const [station, setStation] = useState<ApiStationFull | null>(() => resolveFromCache());
+  const [loading, setLoading]  = useState(stationsCache.all().length === 0);
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    stationsApi.list()
-      .then(res => {
+
+    async function loadIfEmpty() {
+      if (stationsCache.all().length > 0) {
+        setStation(resolveFromCache());
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await stationsApi.list();
         if (cancelled) return;
-        const stations = res.data ?? [];
-        const active   = sessionStore.activeLocation();
-        const match    = stations.find(s => s.name === active) ?? stations[0] ?? null;
-        setStation(match);
-      })
-      .catch(() => setStation(null))
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+        stationsCache.set(res.data ?? []);
+        setStation(resolveFromCache());
+      } catch {
+        if (!cancelled) setStation(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadIfEmpty();
+
+    // Re-resolve whenever the user session or the station list changes
+    const unsub1 = sessionStore.subscribe(() => { if (!cancelled) setStation(resolveFromCache()); });
+    const unsub2 = stationsCache.subscribe(() => { if (!cancelled) setStation(resolveFromCache()); });
+
+    return () => { cancelled = true; unsub1(); unsub2(); };
   }, []);
 
   return { station, stationId: station?.id ?? null, loading };

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Download, FileText, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,10 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { useStaff } from "@/data/staffStore";
 import { downloadDataUrl, exportToCsv } from "@/lib/exportCsv";
 import { toast } from "sonner";
 import { documentsStore, useDocuments, EmployeeDocument, DOC_TYPES } from "@/data/documentsStore";
+import { hrApi, ApiEmployee } from "@/lib/hrApi";
 
 export type { EmployeeDocument } from "@/data/documentsStore";
 export { DOC_TYPES } from "@/data/documentsStore";
@@ -22,7 +22,10 @@ const emptyForm = { employeeId: "", type: "ID Card", fileName: "", fileSize: 0, 
 const formatBytes = (b: number) => b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)}MB` : `${(b / 1024).toFixed(0)}KB`;
 
 export default function DocumentsTab() {
-  const staff = useStaff();
+  const [employees, setEmployees] = useState<ApiEmployee[]>([]);
+  useEffect(() => {
+    hrApi.employees.list({ limit: 200 } as any).then(r => setEmployees(r.data ?? [])).catch(() => {});
+  }, []);
   const data = useDocuments();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<EmployeeDocument | null>(null);
@@ -61,8 +64,8 @@ export default function DocumentsTab() {
   const handleSave = () => {
     if (!form.employeeId) return toast.error("Select an employee");
     if (!editing && !form.fileData) return toast.error("Choose a file to upload");
-    const emp = staff.find(s => s.id === form.employeeId);
-    const employeeName = emp?.name || form.employeeId;
+    const emp = employees.find(e => e.id === form.employeeId);
+    const employeeName = emp?.user.name || form.employeeId;
     const payload = { ...form, employeeName, caseId: form.caseId || undefined };
     if (editing) documentsStore.update(editing.id, payload);
     else documentsStore.add(payload);
@@ -116,7 +119,7 @@ export default function DocumentsTab() {
           <div><Label>Employee *</Label>
             <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
               <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-              <SelectContent>{staff.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="grid grid-cols-2 gap-4">

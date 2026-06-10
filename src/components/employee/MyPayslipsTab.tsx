@@ -1,47 +1,59 @@
-import { useState } from "react";
-import { Download, FileText } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
+import { hrApi, ApiPayroll } from "@/lib/hrApi";
 import { toast } from "sonner";
-
-interface Payslip {
-  id: string;
-  month: string;
-  period: string;
-  basicSalary: number;
-  houseAllowance: number;
-  transportAllowance: number;
-  overtimePay: number;
-  grossPay: number;
-  nhif: number;
-  nssf: number;
-  paye: number;
-  otherDeductions: number;
-  totalDeductions: number;
-  netPay: number;
-  status: string;
-  paidOn: string;
-}
 
 const fmt = (n: number) => `Ksh ${n.toLocaleString()}`;
 
-const mockPayslips: Payslip[] = [
-  { id: "PS-001", month: "2026-03", period: "March 2026", basicSalary: 35000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 2000, grossPay: 45000, nhif: 1700, nssf: 2160, paye: 5400, otherDeductions: 0, totalDeductions: 9260, netPay: 35740, status: "paid", paidOn: "2026-03-28" },
-  { id: "PS-002", month: "2026-02", period: "February 2026", basicSalary: 35000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 0, grossPay: 43000, nhif: 1700, nssf: 2160, paye: 5100, otherDeductions: 500, totalDeductions: 9460, netPay: 33540, status: "paid", paidOn: "2026-02-27" },
-  { id: "PS-003", month: "2026-01", period: "January 2026", basicSalary: 35000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 1500, grossPay: 44500, nhif: 1700, nssf: 2160, paye: 5300, otherDeductions: 0, totalDeductions: 9160, netPay: 35340, status: "paid", paidOn: "2026-01-29" },
-  { id: "PS-004", month: "2026-04", period: "April 2026", basicSalary: 35000, houseAllowance: 5000, transportAllowance: 3000, overtimePay: 0, grossPay: 43000, nhif: 1700, nssf: 2160, paye: 5100, otherDeductions: 0, totalDeductions: 8960, netPay: 34040, status: "processing", paidOn: "" },
-];
+const fmtPeriod = (month: string) => {
+  const [y, m] = month.split("-");
+  return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+};
 
-const columns: Column<Payslip>[] = [
-  { key: "period", label: "Pay Period", sortable: true },
-  { key: "grossPay", label: "Gross Pay", render: (i) => fmt(i.grossPay) },
-  { key: "totalDeductions", label: "Deductions", render: (i) => <span className="text-destructive">{fmt(i.totalDeductions)}</span> },
-  { key: "netPay", label: "Net Pay", render: (i) => <span className="font-bold">{fmt(i.netPay)}</span> },
-  { key: "status", label: "Status", render: (i) => <StatusBadge status={i.status} /> },
-  { key: "paidOn", label: "Paid On", render: (i) => i.paidOn || "—" },
+function buildPayslipText(p: ApiPayroll): string {
+  return [
+    "══════════════════════════════════════",
+    "         ISMS PAY STATEMENT          ",
+    "══════════════════════════════════════",
+    "",
+    `Pay Period: ${fmtPeriod(p.month)}`,
+    `Payslip ID: ${p.id.slice(-8).toUpperCase()}`,
+    `Date Paid:  ${p.payDate || "Pending"}`,
+    "",
+    "─── EARNINGS ───────────────────────",
+    `Basic Salary:        ${fmt(p.basicSalary)}`,
+    `House Allowance:     ${fmt(p.houseAllowance)}`,
+    `Transport Allowance: ${fmt(p.transportAllowance)}`,
+    `Overtime Pay:        ${fmt(p.overtimePay)}`,
+    `                     ─────────────`,
+    `GROSS PAY:           ${fmt(p.grossPay)}`,
+    "",
+    "─── DEDUCTIONS ─────────────────────",
+    `NHIF:                ${fmt(p.nhif)}`,
+    `NSSF:                ${fmt(p.nssf)}`,
+    `PAYE:                ${fmt(p.paye)}`,
+    `Other Deductions:    ${fmt(p.otherDeductions)}`,
+    `                     ─────────────`,
+    `TOTAL DEDUCTIONS:    ${fmt(p.totalDeductions)}`,
+    "",
+    "══════════════════════════════════════",
+    `NET PAY:             ${fmt(p.netPay)}`,
+    "══════════════════════════════════════",
+  ].join("\n");
+}
+
+const columns: Column<ApiPayroll>[] = [
+  { key: "month",          label: "Pay Period",  sortable: true, render: r => fmtPeriod(r.month) },
+  { key: "grossPay",       label: "Gross Pay",   render: r => fmt(r.grossPay) },
+  { key: "totalDeductions", label: "Deductions", render: r => <span className="text-destructive">{fmt(r.totalDeductions)}</span> },
+  { key: "netPay",         label: "Net Pay",     render: r => <span className="font-bold">{fmt(r.netPay)}</span> },
+  { key: "status",         label: "Status",      render: r => <StatusBadge status={r.status} /> },
+  { key: "payDate",        label: "Paid On",     render: r => r.payDate || "—" },
 ];
 
 const filterOpts: FilterOption[] = [
@@ -49,83 +61,69 @@ const filterOpts: FilterOption[] = [
 ];
 
 export default function MyPayslipsTab() {
-  const [viewing, setViewing] = useState<Payslip | null>(null);
+  const [payslips, setPayslips] = useState<ApiPayroll[]>([]);
+  const [loading, setLoading]   = useState(true);
+  const [viewing, setViewing]   = useState<ApiPayroll | null>(null);
 
-  const handleDownload = (payslip: Payslip) => {
-    const content = [
-      "══════════════════════════════════════",
-      "         ISMS PAY STATEMENT          ",
-      "══════════════════════════════════════",
-      "",
-      `Pay Period: ${payslip.period}`,
-      `Payslip ID: ${payslip.id}`,
-      `Date Paid: ${payslip.paidOn || "Pending"}`,
-      "",
-      "─── EARNINGS ───────────────────────",
-      `Basic Salary:        ${fmt(payslip.basicSalary)}`,
-      `House Allowance:     ${fmt(payslip.houseAllowance)}`,
-      `Transport Allowance: ${fmt(payslip.transportAllowance)}`,
-      `Overtime Pay:        ${fmt(payslip.overtimePay)}`,
-      `                     ─────────────`,
-      `GROSS PAY:           ${fmt(payslip.grossPay)}`,
-      "",
-      "─── DEDUCTIONS ─────────────────────",
-      `NHIF:                ${fmt(payslip.nhif)}`,
-      `NSSF:                ${fmt(payslip.nssf)}`,
-      `PAYE:                ${fmt(payslip.paye)}`,
-      `Other Deductions:    ${fmt(payslip.otherDeductions)}`,
-      `                     ─────────────`,
-      `TOTAL DEDUCTIONS:    ${fmt(payslip.totalDeductions)}`,
-      "",
-      "══════════════════════════════════════",
-      `NET PAY:             ${fmt(payslip.netPay)}`,
-      "══════════════════════════════════════",
-    ].join("\n");
+  useEffect(() => {
+    hrApi.self.payroll.list({ limit: 60 })
+      .then(res => setPayslips(res.data ?? []))
+      .catch((e: any) => toast.error(e?.message || "Failed to load payslips"))
+      .finally(() => setLoading(false));
+  }, []);
 
-    const blob = new Blob([content], { type: "text/plain" });
+  const handleDownload = (p: ApiPayroll) => {
+    const blob = new Blob([buildPayslipText(p)], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = `payslip-${payslip.month}.txt`;
-    a.click();
+    a.href = url; a.download = `payslip-${p.month}.txt`; a.click();
     URL.revokeObjectURL(url);
-    toast.success(`Payslip for ${payslip.period} downloaded`);
+    toast.success(`Payslip for ${fmtPeriod(p.month)} downloaded`);
   };
+
+  const paid   = payslips.filter(p => p.status === "paid");
+  const latest = payslips[0];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">My Payslips</h3>
-          <p className="text-sm text-muted-foreground">View and download your monthly pay statements</p>
-        </div>
+      <div>
+        <h3 className="text-lg font-semibold">My Payslips</h3>
+        <p className="text-sm text-muted-foreground">View and download your monthly pay statements</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Latest Net Pay</p>
-          <p className="text-2xl font-bold">{fmt(mockPayslips[0].netPay)}</p>
-          <p className="text-xs text-muted-foreground">{mockPayslips[0].period}</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">YTD Gross</p>
-          <p className="text-2xl font-bold">{fmt(mockPayslips.filter(p => p.status === "paid").reduce((s, p) => s + p.grossPay, 0))}</p>
-          <p className="text-xs text-muted-foreground">Year to date</p>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <p className="text-sm text-muted-foreground">YTD Deductions</p>
-          <p className="text-2xl font-bold text-destructive">{fmt(mockPayslips.filter(p => p.status === "paid").reduce((s, p) => s + p.totalDeductions, 0))}</p>
-          <p className="text-xs text-muted-foreground">Year to date</p>
-        </div>
-      </div>
+      {loading ? (
+        <div className="p-8 text-center text-muted-foreground text-sm">Loading payslips...</div>
+      ) : payslips.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground text-sm">No payslips on record yet.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Latest Net Pay</p>
+              <p className="text-2xl font-bold">{latest ? fmt(latest.netPay) : "—"}</p>
+              <p className="text-xs text-muted-foreground">{latest ? fmtPeriod(latest.month) : ""}</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">YTD Gross</p>
+              <p className="text-2xl font-bold">{fmt(paid.reduce((s, p) => s + p.grossPay, 0))}</p>
+              <p className="text-xs text-muted-foreground">Year to date</p>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <p className="text-sm text-muted-foreground">YTD Deductions</p>
+              <p className="text-2xl font-bold text-destructive">{fmt(paid.reduce((s, p) => s + p.totalDeductions, 0))}</p>
+              <p className="text-xs text-muted-foreground">Year to date</p>
+            </div>
+          </div>
 
-      <DataTable data={mockPayslips} columns={columns} searchKeys={["period", "id"]} searchPlaceholder="Search payslips..." filters={filterOpts} onView={(item) => setViewing(item)} />
+          <DataTable data={payslips} columns={columns} searchKeys={["month", "id"]} searchPlaceholder="Search payslips..." filters={filterOpts} onView={setViewing} />
+        </>
+      )}
 
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Payslip Details" isView>
         {viewing && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <Badge variant="outline" className="text-sm">{viewing.period}</Badge>
+              <Badge variant="outline" className="text-sm">{fmtPeriod(viewing.month)}</Badge>
               <StatusBadge status={viewing.status} />
             </div>
 
@@ -165,7 +163,7 @@ export default function MyPayslipsTab() {
               </Button>
             </div>
 
-            {viewing.paidOn && <p className="text-xs text-muted-foreground text-center">Paid on {viewing.paidOn}</p>}
+            {viewing.payDate && <p className="text-xs text-muted-foreground text-center">Paid on {viewing.payDate}</p>}
           </div>
         )}
       </ModalForm>

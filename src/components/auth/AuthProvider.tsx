@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { authService } from "@/lib/authService";
 import { sessionStore } from "@/data/sessionStore";
+import { stationsCache } from "@/data/stationsCache";
+import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import type { Role } from "@/data/sessionStore";
+import type { SessionUser } from "@/data/sessionStore";
 import { ApiError, setAccessToken } from "@/lib/api";
 
 interface AuthContextValue {
@@ -16,6 +19,30 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// After setting a user, enforce that non-admins are locked to their home station.
+// If homeLocation is unset but only one station exists, lock to that station.
+function enforceLocationScope(user: SessionUser, stations: ApiStationFull[] = []) {
+  if (user.permissions.includes("stations.view")) return; // admin/manager — no lock
+  if (user.homeLocation) {
+    sessionStore.switchLocation(user.homeLocation);
+  } else if (stations.length === 1) {
+    // Single-station deployment and user has no explicit homeLocation: lock them to it
+    sessionStore.switchLocation(stations[0].name);
+  }
+}
+
+// Fetch the station list into the cache and return it (best-effort).
+async function loadStations(): Promise<ApiStationFull[]> {
+  try {
+    const res = await stationsApi.list();
+    const list = res.data ?? [];
+    stationsCache.set(list);
+    return list;
+  } catch {
+    return [];
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -27,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setAccessToken(null);
     sessionStore.reset();
+    stationsCache.clear();
     setIsAuthenticated(false);
   }, []);
 
@@ -44,6 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setAccessToken(data.data.accessToken);
             const user = await authService.getMe();
             sessionStore.setUser(user);
+            const stations = await loadStations();
+            enforceLocationScope(user, stations);
             setIsAuthenticated(true);
           }
         }
@@ -68,6 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await authService.login(email, password);
       sessionStore.setUser(res.data.user);
+      const stations = await loadStations();
+      enforceLocationScope(res.data.user, stations);
       setIsAuthenticated(true);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Login failed. Please try again.";
@@ -82,7 +114,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await authService.switchRole(role);
       sessionStore.setUser(res.data.user);
-      sessionStore.switchRole(role);
+      // Reload stations — role change may alter what the user can see
+      const stations = await loadStations();
+      enforceLocationScope(res.data.user, stations);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Failed to switch role.";
       setError(msg);

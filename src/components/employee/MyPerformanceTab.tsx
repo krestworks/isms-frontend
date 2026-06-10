@@ -1,47 +1,42 @@
+import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { DataTable, Column } from "@/components/shared/DataTable";
-
-interface Task {
-  id: string;
-  title: string;
-  assignedBy: string;
-  dueDate: string;
-  priority: string;
-  status: string;
-  progress: number;
-  rating: number;
-  feedback: string;
-}
-
-const myTasks: Task[] = [
-  { id: "PT-001", title: "Achieve KES 500K monthly fuel sales", assignedBy: "Susan Otieno", dueDate: "2026-04-30", priority: "high", status: "in_progress", progress: 72, rating: 0, feedback: "" },
-  { id: "PT-005", title: "Complete safety training module", assignedBy: "HR", dueDate: "2026-05-15", priority: "medium", status: "pending", progress: 0, rating: 0, feedback: "" },
-  { id: "PT-009", title: "Q1 customer service review", assignedBy: "Susan Otieno", dueDate: "2026-03-31", priority: "medium", status: "completed", progress: 100, rating: 4, feedback: "Strong service, work on upselling" },
-];
+import { hrApi, ApiPerformanceTask } from "@/lib/hrApi";
+import { toast } from "sonner";
 
 const statusColor: Record<string, string> = {
-  pending: "bg-muted text-foreground",
+  pending:     "bg-muted text-foreground",
   in_progress: "bg-blue-100 text-blue-800",
-  completed: "bg-green-100 text-green-800",
-  overdue: "bg-red-100 text-red-800",
+  done:        "bg-green-100 text-green-800",
+  overdue:     "bg-red-100 text-red-800",
 };
 
-export default function MyPerformanceTab() {
-  const completed = myTasks.filter(t => t.status === "completed");
-  const ratings = completed.filter(t => t.rating > 0);
-  const avg = ratings.length ? (ratings.reduce((s, t) => s + t.rating, 0) / ratings.length).toFixed(1) : "—";
+const columns: Column<ApiPerformanceTask>[] = [
+  { key: "id",       label: "Task",     render: t => t.id.slice(-6).toUpperCase() },
+  { key: "title",    label: "Description" },
+  { key: "category", label: "Category", render: t => <Badge variant="outline">{t.category}</Badge> },
+  { key: "dueDate",  label: "Due",      sortable: true, render: t => t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—" },
+  { key: "priority", label: "Priority", render: t => <Badge variant={t.priority === "high" ? "destructive" : "outline"}>{t.priority}</Badge> },
+  { key: "status",   label: "Status",   render: t => <span className={`px-2 py-0.5 rounded text-xs ${statusColor[t.status] ?? statusColor.pending}`}>{t.status}</span> },
+  { key: "rating",   label: "Rating",   render: t => t.rating ? `${t.rating}/5 ⭐` : "—" },
+];
 
-  const columns: Column<Task>[] = [
-    { key: "id", label: "Task" },
-    { key: "title", label: "Description" },
-    { key: "dueDate", label: "Due", sortable: true },
-    { key: "priority", label: "Priority", render: t => <Badge variant={t.priority === "high" ? "destructive" : "outline"}>{t.priority}</Badge> },
-    { key: "progress", label: "Progress", render: t => <div className="w-24"><Progress value={t.progress} className="h-2" /><span className="text-[10px]">{t.progress}%</span></div> },
-    { key: "status", label: "Status", render: t => <span className={`px-2 py-0.5 rounded text-xs ${statusColor[t.status]}`}>{t.status}</span> },
-    { key: "rating", label: "Rating", render: t => t.rating > 0 ? `${t.rating}/5 ⭐` : "—" },
-  ];
+export default function MyPerformanceTab() {
+  const [tasks, setTasks]     = useState<ApiPerformanceTask[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    hrApi.self.performance.list({ limit: 100 })
+      .then(res => setTasks(res.data ?? []))
+      .catch((e: any) => toast.error(e?.message || "Failed to load performance tasks"))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const done      = tasks.filter(t => t.status === "done");
+  const rated     = done.filter(t => t.rating && t.rating > 0);
+  const avg       = rated.length ? (rated.reduce((s, t) => s + (t.rating ?? 0), 0) / rated.length).toFixed(1) : "—";
+  const withNotes = done.filter(t => t.notes);
 
   return (
     <div className="space-y-4">
@@ -52,25 +47,31 @@ export default function MyPerformanceTab() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "My Tasks", value: myTasks.length },
-          { label: "In Progress", value: myTasks.filter(t => t.status === "in_progress").length, color: "text-blue-600" },
-          { label: "Completed", value: completed.length, color: "text-green-600" },
-          { label: "Avg Rating", value: `${avg}${typeof avg === "string" && avg !== "—" ? "/5" : ""}`, color: "text-amber-600" },
+          { label: "My Tasks",    value: tasks.length },
+          { label: "In Progress", value: tasks.filter(t => t.status === "in_progress").length, color: "text-blue-600" },
+          { label: "Done",        value: done.length, color: "text-green-600" },
+          { label: "Avg Rating",  value: avg === "—" ? "—" : `${avg}/5`, color: "text-amber-600" },
         ].map(s => (
-          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p></CardContent></Card>
+          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color ?? ""}`}>{s.value}</p></CardContent></Card>
         ))}
       </div>
 
-      <DataTable data={myTasks} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search my tasks..." />
+      {loading ? (
+        <div className="p-8 text-center text-muted-foreground text-sm">Loading tasks...</div>
+      ) : tasks.length === 0 ? (
+        <div className="p-8 text-center text-muted-foreground text-sm">No performance tasks assigned yet.</div>
+      ) : (
+        <DataTable data={tasks} columns={columns} searchKeys={["title", "category"]} searchPlaceholder="Search my tasks..." />
+      )}
 
-      {completed.filter(t => t.feedback).length > 0 && (
+      {withNotes.length > 0 && (
         <Card>
           <CardContent className="p-4 space-y-2">
-            <p className="text-sm font-semibold">Recent Feedback</p>
-            {completed.filter(t => t.feedback).map(t => (
+            <p className="text-sm font-semibold">Manager Notes</p>
+            {withNotes.map(t => (
               <div key={t.id} className="border-l-2 border-primary pl-3 py-1 text-sm">
                 <p className="font-medium">{t.title}</p>
-                <p className="text-muted-foreground italic">"{t.feedback}" — {t.rating}/5</p>
+                <p className="text-muted-foreground italic">"{t.notes}"{t.rating ? ` — ${t.rating}/5` : ""}</p>
               </div>
             ))}
           </CardContent>

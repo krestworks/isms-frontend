@@ -3,16 +3,20 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { sessionStore, useSession } from "@/data/sessionStore";
-import { useLocations } from "@/data/locationsStore";
+import { useStations } from "@/data/stationsCache";
+import { useAuth } from "@/components/auth/AuthProvider";
 import { canSwitchLocation } from "@/lib/permissions";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
-  const locations = useLocations();
+  const stations = useStations();
+  const { switchRole } = useAuth();
   const canSwitch = canSwitchLocation();
+
+  // Admins see "All Locations" + every real station. Non-admins see only their home station.
   const visibleLocations = canSwitch
-    ? ["All Locations", ...locations.map(l => l.name)]
-    : user.homeLocation ? [user.homeLocation] : ["All Locations"];
+    ? ["All Locations", ...stations.map(s => s.name)]
+    : user.homeLocation ? [user.homeLocation] : [];
 
   return (
     <div className="flex items-center gap-2">
@@ -32,7 +36,10 @@ export function HeaderSwitchers() {
           <DropdownMenuLabel className="text-xs">Switch role</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {user.roles.map(r => (
-            <DropdownMenuItem key={r} onClick={() => sessionStore.switchRole(r)}>
+            <DropdownMenuItem
+              key={r}
+              onClick={() => { if (r !== user.activeRole) switchRole(r).catch(() => {}); }}
+            >
               <Check className={`h-3.5 w-3.5 mr-2 ${user.activeRole === r ? "opacity-100" : "opacity-0"}`} />
               {r}
             </DropdownMenuItem>
@@ -40,7 +47,7 @@ export function HeaderSwitchers() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Location switcher */}
+      {/* Location switcher — disabled for non-admins */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild disabled={!canSwitch}>
           <Button variant="ghost" size="sm" className="h-9 gap-2 px-2">
