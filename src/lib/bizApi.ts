@@ -33,6 +33,7 @@ export interface ApiBizProduct {
   name: string; sku?: string | null; barcode?: string | null; description?: string | null;
   markedPrice: number; price: number; costPrice: number; unit: string;
   stockQty: number; reorderLevel: number;
+  imageUrl?: string | null;
   expiryDate?: string | null; requiresPrescription: boolean;
   status: string; createdAt: string; updatedAt: string;
 }

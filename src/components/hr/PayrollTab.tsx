@@ -16,7 +16,7 @@ const fmt = (n: number) => `Ksh ${n.toLocaleString()}`;
 
 const emptyForm = {
   employeeId: "", month: "", basicSalary: 0, houseAllowance: 0,
-  transportAllowance: 0, overtimePay: 0, nhif: 1700, nssf: 2160,
+  transportAllowance: 0, overtimePay: 0, nhif: 0, nssf: 0,
   paye: 0, otherDeductions: 0, status: "pending", payDate: "",
 };
 

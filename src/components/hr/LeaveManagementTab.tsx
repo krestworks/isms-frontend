@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Plus, X } from "lucide-react";
+import { Check, Plus, X, List, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,12 +11,14 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { hrApi, ApiLeaveRequest, ApiLeaveType } from "@/lib/hrApi";
+import { hrApi, ApiLeaveRequest, ApiLeaveType, ApiPublicHoliday } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
+import { LeaveCalendar } from "@/components/shared/LeaveCalendar";
 
 export default function LeaveManagementTab() {
-  const [requests, setRequests] = useState<ApiLeaveRequest[]>([]);
+  const [requests,   setRequests]   = useState<ApiLeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<ApiLeaveType[]>([]);
+  const [holidays,   setHolidays]   = useState<ApiPublicHoliday[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitOpen, setSubmitOpen] = useState(false);
   const [approveTarget, setApproveTarget] = useState<{ req: ApiLeaveRequest; action: "approve" | "reject" } | null>(null);
@@ -26,18 +28,21 @@ export default function LeaveManagementTab() {
   const [saving, setSaving] = useState(false);
 
   const can = usePermissions();
-  const canSubmit = can("hr.leaves.view");
+  const canSubmit  = can("hr.leaves.view");
   const canApprove = can("hr.leaves.approve");
+  const [view, setView] = useState<"list" | "calendar">("list");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [reqRes, typesRes] = await Promise.all([
+      const [reqRes, typesRes, holRes] = await Promise.all([
         hrApi.leaves.list({ page: 1 }),
         hrApi.leaveTypes.list(),
+        hrApi.holidays.list(),
       ]);
       setRequests(reqRes.data ?? []);
       setLeaveTypes(typesRes.data ?? []);
+      setHolidays(holRes.data ?? []);
     } catch {
       toast.error("Failed to load leave data");
     } finally {
@@ -117,16 +122,33 @@ export default function LeaveManagementTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h3 className="text-lg font-semibold">Leave Management</h3>
           <p className="text-sm text-muted-foreground">Review, approve and track leave applications</p>
         </div>
-        {canSubmit && (
-          <Button onClick={() => setSubmitOpen(true)}>
-            <Plus className="h-4 w-4 mr-2" /> Request Leave
-          </Button>
-        )}
+        <div className="flex gap-2 items-center">
+          {/* View toggle */}
+          <div className="flex rounded-lg border overflow-hidden">
+            <button
+              onClick={() => setView("list")}
+              className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              <List className="h-3.5 w-3.5" /> List
+            </button>
+            <button
+              onClick={() => setView("calendar")}
+              className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors border-l ${view === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" /> Calendar
+            </button>
+          </div>
+          {canSubmit && (
+            <Button onClick={() => setSubmitOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" /> Request Leave
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -136,6 +158,9 @@ export default function LeaveManagementTab() {
         <Card><CardContent className="p-4"><p className="text-sm text-muted-foreground">Days Granted</p><p className="text-2xl font-bold">{stats.totalDays}</p></CardContent></Card>
       </div>
 
+      {view === "calendar" ? (
+        <LeaveCalendar leaves={requests} mode="hr" holidays={holidays} />
+      ) : (
       <DataTable
         data={requests}
         columns={columns}
@@ -166,6 +191,7 @@ export default function LeaveManagementTab() {
           </div>
         )}
       />
+      )}
 
       {/* Submit Leave */}
       <ModalForm

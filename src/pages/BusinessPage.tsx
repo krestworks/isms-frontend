@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, BizType } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
@@ -33,6 +34,7 @@ export default function BusinessPage() {
   const [enabling, setEnabling]     = useState<BizType | null>(null);
   const [form, setForm]             = useState(emptyForm);
   const [saving, setSaving]         = useState(false);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -66,14 +68,19 @@ export default function BusinessPage() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (b: ApiBizBusiness, e: React.MouseEvent) => {
+  const handleDelete = (b: ApiBizBusiness, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Remove ${b.name}? This will delete all its data.`)) return;
-    try {
-      await bizApi.businesses.delete(b.id);
-      toast.success("Business removed");
-      load();
-    } catch (e: any) { toast.error(e?.message || "Failed to remove"); }
+    setConfirmDlg({
+      title: `Remove ${b.name}?`,
+      description: "This will permanently delete the business and all its data. This action cannot be undone.",
+      onConfirm: async () => {
+        try {
+          await bizApi.businesses.delete(b.id);
+          toast.success("Business removed");
+          load();
+        } catch (err: any) { toast.error(err?.message || "Failed to remove"); }
+      },
+    });
   };
 
   const enabledMap = new Map(businesses.map(b => [b.type, b]));
@@ -156,9 +163,13 @@ export default function BusinessPage() {
                       <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
                       <p className="text-xs text-muted-foreground mt-2">Not enabled at this station</p>
                     </div>
-                    <Button size="sm" className="w-full mt-auto" onClick={() => openEnable(meta.type)}>
-                      <Plus className="h-3.5 w-3.5 mr-1.5" />Enable
-                    </Button>
+                    {canManage ? (
+                      <Button size="sm" className="w-full mt-auto" onClick={() => openEnable(meta.type)}>
+                        <Plus className="h-3.5 w-3.5 mr-1.5" />Enable
+                      </Button>
+                    ) : (
+                      <p className="text-xs text-muted-foreground text-center mt-auto pt-1">Contact admin to enable</p>
+                    )}
                   </CardContent>
                 </Card>
               );
@@ -166,6 +177,15 @@ export default function BusinessPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Remove"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
 
       <ModalForm
         open={!!enabling}

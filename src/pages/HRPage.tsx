@@ -7,6 +7,7 @@ import LeaveManagementTab from "@/components/hr/LeaveManagementTab";
 import PayrollTab from "@/components/hr/PayrollTab";
 import PayrollSettingsTab from "@/components/hr/PayrollSettingsTab";
 import AttendanceTab from "@/components/hr/AttendanceTab";
+import ShiftsTab from "@/components/hr/ShiftsTab";
 import DisciplinaryTab from "@/components/hr/DisciplinaryTab";
 import PerformanceTab from "@/components/hr/PerformanceTab";
 import DocumentsTab from "@/components/hr/DocumentsTab";
@@ -21,6 +22,7 @@ export default function HRPage() {
           <TabsTrigger value="setup">Setup</TabsTrigger>
           <TabsTrigger value="onboarding">Staff Onboarding</TabsTrigger>
           <TabsTrigger value="leave">Leave</TabsTrigger>
+          <TabsTrigger value="shifts">Shifts</TabsTrigger>
           <TabsTrigger value="attendance">Attendance</TabsTrigger>
           <TabsTrigger value="payroll">Payroll</TabsTrigger>
           <TabsTrigger value="payroll-settings">Payroll Settings</TabsTrigger>
@@ -33,6 +35,7 @@ export default function HRPage() {
         <TabsContent value="setup"><HRSetupTab /></TabsContent>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
         <TabsContent value="leave"><LeaveManagementTab /></TabsContent>
+        <TabsContent value="shifts"><ShiftsTab /></TabsContent>
         <TabsContent value="attendance"><AttendanceTab /></TabsContent>
         <TabsContent value="payroll"><PayrollTab /></TabsContent>
         <TabsContent value="payroll-settings"><PayrollSettingsTab /></TabsContent>

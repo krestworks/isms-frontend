@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, List, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,8 +10,9 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { LeaveCalendar } from "@/components/shared/LeaveCalendar";
 import { toast } from "sonner";
-import { hrApi, ApiLeaveRequest, ApiLeaveBalance, ApiLeaveType } from "@/lib/hrApi";
+import { hrApi, ApiLeaveRequest, ApiLeaveBalance, ApiLeaveType, ApiPublicHoliday } from "@/lib/hrApi";
 
 const blank = { leaveTypeId: "", startDate: "", endDate: "", reason: "" };
 
@@ -36,26 +37,30 @@ const filterOpts: FilterOption[] = [
 ];
 
 export default function MyLeaveTab() {
-  const [requests, setRequests]     = useState<ApiLeaveRequest[]>([]);
-  const [balances, setBalances]     = useState<ApiLeaveBalance[]>([]);
+  const [requests,   setRequests]   = useState<ApiLeaveRequest[]>([]);
+  const [balances,   setBalances]   = useState<ApiLeaveBalance[]>([]);
   const [leaveTypes, setLeaveTypes] = useState<ApiLeaveType[]>([]);
+  const [holidays,   setHolidays]   = useState<ApiPublicHoliday[]>([]);
   const [loading, setLoading]       = useState(true);
   const [modalOpen, setModalOpen]   = useState(false);
   const [viewing, setViewing]       = useState<ApiLeaveRequest | null>(null);
   const [form, setForm]             = useState(blank);
   const [saving, setSaving]         = useState(false);
+  const [view, setView]             = useState<"list" | "calendar">("list");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [reqRes, balRes, typRes] = await Promise.all([
+      const [reqRes, balRes, typRes, holRes] = await Promise.all([
         hrApi.self.leaves.list({ limit: 100 }),
         hrApi.self.leaves.balances(),
         hrApi.self.leaves.types(),
+        hrApi.holidays.list(),
       ]);
       setRequests(reqRes.data ?? []);
       setBalances(balRes.data ?? []);
       setLeaveTypes(typRes.data ?? []);
+      setHolidays(holRes.data ?? []);
     } catch (e: any) {
       toast.error(e?.message || "Failed to load leave data");
     } finally {
@@ -125,6 +130,21 @@ export default function MyLeaveTab() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">My Leave History</h3>
         <div className="flex gap-2">
+          {/* View toggle */}
+          <div className="flex rounded-lg border overflow-hidden">
+            <button
+              onClick={() => setView("list")}
+              className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${view === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              <List className="h-3.5 w-3.5" /> List
+            </button>
+            <button
+              onClick={() => setView("calendar")}
+              className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors border-l ${view === "calendar" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              <CalendarDays className="h-3.5 w-3.5" /> Calendar
+            </button>
+          </div>
           <Button variant="outline" size="icon" onClick={load} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
@@ -134,15 +154,19 @@ export default function MyLeaveTab() {
         </div>
       </div>
 
-      <DataTable
-        data={requests}
-        columns={columns}
-        searchKeys={["id"]}
-        searchPlaceholder="Search leave requests..."
-        filters={filterOpts}
-        onView={r => setViewing(r)}
-        extraActions={[{ label: "Cancel", onClick: handleCancel }]}
-      />
+      {view === "calendar" ? (
+        <LeaveCalendar leaves={requests} mode="employee" holidays={holidays} />
+      ) : (
+        <DataTable
+          data={requests}
+          columns={columns}
+          searchKeys={["id"]}
+          searchPlaceholder="Search leave requests..."
+          filters={filterOpts}
+          onView={r => setViewing(r)}
+          extraActions={[{ label: "Cancel", onClick: handleCancel }]}
+        />
+      )}
 
       {/* Apply modal */}
       <ModalForm

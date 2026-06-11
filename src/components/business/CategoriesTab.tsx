@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizCategory, ApiBizProduct } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
@@ -31,6 +32,7 @@ export function CategoriesTab({ business }: Props) {
   const [editing,   setEditing]  = useState<ApiBizCategory | null>(null);
   const [form,      setForm]     = useState(emptyForm);
   const [saving,    setSaving]   = useState(false);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -73,14 +75,23 @@ export function CategoriesTab({ business }: Props) {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (c: ApiBizCategory) => {
-    const count = products.filter(p => p.categoryId === c.id).length;
-    if (count > 0 && !confirm(`"${c.name}" has ${count} product(s). Delete anyway?`)) return;
+  const doDeleteCategory = async (c: ApiBizCategory) => {
     try {
       await bizApi.categories.delete(c.id);
       toast.success("Category deleted");
       load();
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  };
+
+  const handleDelete = (c: ApiBizCategory) => {
+    const count = products.filter(p => p.categoryId === c.id).length;
+    setConfirmDlg({
+      title: `Delete "${c.name}"?`,
+      description: count > 0
+        ? `This category has ${count} product(s). They will become uncategorised.`
+        : "This category will be permanently deleted.",
+      onConfirm: () => doDeleteCategory(c),
+    });
   };
 
   // Build a product-count map
@@ -151,6 +162,15 @@ export function CategoriesTab({ business }: Props) {
         searchPlaceholder="Search categories..."
         onEdit={openEdit}
         onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
       />
 
       <ModalForm

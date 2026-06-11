@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizSale, ApiBizSaleItem } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
@@ -49,6 +50,7 @@ export function SalesTab({ business }: Props) {
   const [fromDate,  setFromDate]  = useState(firstOfMonth());
   const [toDate,    setToDate]    = useState(today());
   const [viewing,   setViewing]   = useState<ApiBizSale | null>(null);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,13 +63,18 @@ export function SalesTab({ business }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleVoid = async (s: ApiBizSale) => {
-    if (!confirm(`Void sale ${s.saleRef}? This will restore stock.`)) return;
-    try {
-      await bizApi.sales.void(s.id);
-      toast.success("Sale voided — stock restored");
-      load();
-    } catch (e: any) { toast.error(e?.message || "Failed to void sale"); }
+  const handleVoid = (s: ApiBizSale) => {
+    setConfirmDlg({
+      title: `Void sale ${s.saleRef}?`,
+      description: "This will mark the sale as void and restore stock quantities.",
+      onConfirm: async () => {
+        try {
+          await bizApi.sales.void(s.id);
+          toast.success("Sale voided — stock restored");
+          load();
+        } catch (e: any) { toast.error(e?.message || "Failed to void sale"); }
+      },
+    });
   };
 
   const activeSales  = records.filter(s => s.status !== "void");
@@ -146,6 +153,15 @@ export function SalesTab({ business }: Props) {
           onClick: handleVoid,
           show: (s: ApiBizSale) => s.status !== "void",
         }] : []}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Void Sale"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
       />
 
       {/* View Sale Modal */}

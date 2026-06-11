@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Download, Trash2, ShieldAlert } from "lucide-react";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +22,7 @@ const actionColor: Record<string, string> = {
 
 export default function AuditLogTab() {
   const data = useAuditLog();
+  const [confirmClear, setConfirmClear] = useState(false);
   const stats = {
     total: data.length,
     today: data.filter(e => e.ts.startsWith(new Date().toISOString().split("T")[0])).length,
@@ -51,7 +53,7 @@ export default function AuditLogTab() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => exportToCsv("audit-log.csv", data)}><Download className="h-4 w-4 mr-2" /> Export</Button>
-          <Button variant="outline" className="text-destructive" onClick={() => { if (confirm("Clear audit log?")) { auditLog.clear(); toast.success("Cleared"); } }}><Trash2 className="h-4 w-4 mr-2" /> Clear</Button>
+          <Button variant="outline" className="text-destructive" onClick={() => setConfirmClear(true)}><Trash2 className="h-4 w-4 mr-2" /> Clear</Button>
         </div>
       </div>
 
@@ -66,6 +68,15 @@ export default function AuditLogTab() {
       </div>
 
       <DataTable data={data} columns={columns} searchKeys={["userName", "target", "details"]} searchPlaceholder="Search audit entries..." filters={filters} />
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear audit log?"
+        description="All audit entries will be permanently erased. This cannot be undone."
+        confirmLabel="Clear All"
+        onConfirm={() => { auditLog.clear(); toast.success("Audit log cleared"); setConfirmClear(false); }}
+        onCancel={() => setConfirmClear(false)}
+      />
     </div>
   );
 }

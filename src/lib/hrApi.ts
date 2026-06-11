@@ -34,6 +34,17 @@ export interface ApiJobTitle {
 
 export interface ApiLeaveType {
   id: string; name: string; daysAllowed: number; isPaid: boolean; stationId: string; isActive: boolean;
+  // Policy fields
+  carryOver?: boolean; carryOverMax?: number;
+  noticeDays?: number; maxConsecutive?: number;
+  minTenureMonths?: number; genderRestriction?: string | null;
+  accrualType?: string;
+  excludeHolidays?: boolean; excludeWeekends?: boolean;
+}
+
+export interface ApiPublicHoliday {
+  id: string; name: string; date: string; isRecurring: boolean; stationId: string;
+  createdAt: string; updatedAt: string;
 }
 
 export interface ApiShiftPattern {
@@ -222,12 +233,23 @@ export const hrApi = {
   leaveTypes: {
     list:   (stationId?: string) =>
       api.get<{ success: boolean; data: ApiLeaveType[] }>("/hr/leaves/types", sh(stationId) as any),
-    create: (data: { name: string; daysAllowed?: number; isPaid?: boolean }, stationId?: string) =>
+    create: (data: Partial<Omit<ApiLeaveType, "id" | "stationId" | "createdAt" | "updatedAt" | "isActive">> & { name: string }, stationId?: string) =>
       api.post<{ success: boolean; data: ApiLeaveType }>("/hr/leaves/types", data, sh(stationId) as any),
-    update: (id: string, data: { name?: string; daysAllowed?: number; isPaid?: boolean; isActive?: boolean }) =>
+    update: (id: string, data: Partial<Omit<ApiLeaveType, "id" | "stationId" | "createdAt" | "updatedAt">>) =>
       api.put<{ success: boolean; data: ApiLeaveType }>(`/hr/leaves/types/${id}`, data),
     remove: (id: string) =>
       api.delete<{ success: boolean }>(`/hr/leaves/types/${id}`),
+  },
+
+  holidays: {
+    list:   (params?: { stationId?: string }) =>
+      api.get<{ success: boolean; data: ApiPublicHoliday[] }>(`/hr/holidays${qs(params as any)}`),
+    create: (data: { name: string; date: string; isRecurring?: boolean }, stationId?: string) =>
+      api.post<{ success: boolean; data: ApiPublicHoliday }>("/hr/holidays", data, sh(stationId) as any),
+    update: (id: string, data: { name?: string; date?: string; isRecurring?: boolean }) =>
+      api.put<{ success: boolean; data: ApiPublicHoliday }>(`/hr/holidays/${id}`, data),
+    remove: (id: string) =>
+      api.delete<{ success: boolean }>(`/hr/holidays/${id}`),
   },
 
   // ── Employees ───────────────────────────────────────────────────────────────

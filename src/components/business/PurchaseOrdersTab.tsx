@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizPurchaseOrder, ApiBizSupplier, ApiBizProduct, ApiBizPOItem } from "@/lib/bizApi";
@@ -30,6 +31,7 @@ export function PurchaseOrdersTab({ business }: Props) {
   const [form,      setForm]      = useState(emptyForm);
   const [items,     setItems]     = useState<ApiBizPOItem[]>([]);
   const [saving,    setSaving]    = useState(false);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; confirmLabel?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,13 +101,19 @@ export function PurchaseOrdersTab({ business }: Props) {
     finally { setSaving(false); }
   };
 
-  const handleReceive = async (o: ApiBizPurchaseOrder) => {
-    if (!confirm(`Mark order ${o.orderRef} as received? Stock will be added to inventory.`)) return;
-    try {
-      await bizApi.purchaseOrders.receive(o.id);
-      toast.success("Order received — stock updated");
-      load();
-    } catch (e: any) { toast.error(e?.message || "Failed to receive"); }
+  const handleReceive = (o: ApiBizPurchaseOrder) => {
+    setConfirmDlg({
+      title: `Mark order ${o.orderRef} as received?`,
+      description: "Stock quantities will be added to inventory based on the order line items.",
+      confirmLabel: "Mark Received",
+      onConfirm: async () => {
+        try {
+          await bizApi.purchaseOrders.receive(o.id);
+          toast.success("Order received — stock updated");
+          load();
+        } catch (e: any) { toast.error(e?.message || "Failed to receive"); }
+      },
+    });
   };
 
   const handleDelete = async (o: ApiBizPurchaseOrder) => {
@@ -154,6 +162,16 @@ export function PurchaseOrdersTab({ business }: Props) {
           onClick: handleReceive,
           show: (o: ApiBizPurchaseOrder) => o.status === "pending" || o.status === "partial",
         }]}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel={confirmDlg?.confirmLabel ?? "Confirm"}
+        variant="default"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
       />
 
       {/* Create / Edit */}

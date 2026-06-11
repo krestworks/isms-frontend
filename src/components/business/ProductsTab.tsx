@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, AlertTriangle, Upload, Download, Package, TrendingDown, BarChart2, Tag } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Upload, Download, Package, TrendingDown, BarChart2, Tag, ImageIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -20,16 +21,16 @@ interface Props { business: ApiBizBusiness; }
 const emptyForm = {
   name: "", sku: "", barcode: "", description: "", categoryId: "",
   markedPrice: 0, price: 0, costPrice: 0, unit: "pcs",
-  stockQty: 0, reorderLevel: 5,
+  stockQty: 0, reorderLevel: 5, imageUrl: "",
   expiryDate: "", requiresPrescription: false, status: "active",
 };
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
 
 function downloadTemplate(products: ApiBizProduct[]) {
-  const header = "Name,SKU,Barcode,Current Stock,New Stock Qty,Adjustment Type,Notes";
+  const header = "Name,SKU,Barcode,Low Stock Alert Level,Current Stock,New Stock Qty,Adjustment Type,Notes";
   const rows = products.map(p =>
-    [p.name, p.sku ?? "", p.barcode ?? "", p.stockQty, "", "adjustment", ""].join(",")
+    [p.name, p.sku ?? "", p.barcode ?? "", p.reorderLevel, p.stockQty, "", "adjustment", ""].join(",")
   );
   const csv = [header, ...rows].join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
@@ -78,6 +79,8 @@ export function ProductsTab({ business }: Props) {
   const [uploadRows,  setUploadRows]  = useState<ReturnType<typeof parseStockCsv>>([]);
   const [uploading,   setUploading]   = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imgRef  = useRef<HTMLInputElement>(null);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,10 +111,19 @@ export function ProductsTab({ business }: Props) {
       name: p.name, sku: p.sku ?? "", barcode: p.barcode ?? "", description: p.description ?? "",
       categoryId: p.categoryId ?? "",
       markedPrice: p.markedPrice ?? 0, price: p.price, costPrice: p.costPrice, unit: p.unit,
-      stockQty: p.stockQty, reorderLevel: p.reorderLevel,
+      stockQty: p.stockQty, reorderLevel: p.reorderLevel, imageUrl: p.imageUrl ?? "",
       expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, status: p.status,
     });
     setModalOpen(true);
+  };
+
+  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => set("imageUrl", ev.target?.result as string);
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handleSave = async () => {
@@ -125,6 +137,7 @@ export function ProductsTab({ business }: Props) {
         businessId: business.id,
         categoryName: cat?.name ?? "",
         markedPrice: form.markedPrice || 0,
+        imageUrl: form.imageUrl || null,
       };
       if (!payload.categoryId)  delete payload.categoryId;
       if (!payload.sku)         delete payload.sku;
@@ -145,10 +158,15 @@ export function ProductsTab({ business }: Props) {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (p: ApiBizProduct) => {
-    if (!confirm(`Delete "${p.name}"?`)) return;
-    try { await bizApi.products.delete(p.id); toast.success("Product deleted"); load(); }
-    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  const handleDelete = (p: ApiBizProduct) => {
+    setConfirmDlg({
+      title: `Delete "${p.name}"?`,
+      description: "This product will be permanently removed from inventory.",
+      onConfirm: async () => {
+        try { await bizApi.products.delete(p.id); toast.success("Product deleted"); load(); }
+        catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+      },
+    });
   };
 
   const handleAdjust = async () => {
@@ -206,6 +224,10 @@ export function ProductsTab({ business }: Props) {
   // ── Columns ───────────────────────────────────────────────────────────────
 
   const columns: Column<ApiBizProduct>[] = [
+    { key: "imageUrl", label: "", render: p => p.imageUrl
+      ? <img src={p.imageUrl} alt={p.name} className="h-9 w-9 rounded-md object-cover border border-border" />
+      : <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center"><Package className="h-4 w-4 text-muted-foreground/40" /></div>
+    },
     { key: "name",        label: "Product",  sortable: true },
     { key: "categoryName",label: "Category", render: p => p.categoryName || <span className="text-muted-foreground text-xs">—</span> },
     { key: "sku",         label: "SKU",      render: p => p.sku ? <span className="font-mono text-xs text-muted-foreground">{p.sku}</span> : <span className="text-muted-foreground text-xs">—</span> },
@@ -295,11 +317,47 @@ export function ProductsTab({ business }: Props) {
         }]}
       />
 
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
+
       {/* ── Add / Edit Product ── */}
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
         title={editing ? `Edit — ${editing.name}` : "Add Product"}
         onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Add Product"}>
         <div className="grid grid-cols-2 gap-3">
+          {/* Image */}
+          <div className="col-span-2">
+            <Label>Product Image</Label>
+            <div className="flex gap-2 items-center mt-1">
+              {form.imageUrl ? (
+                <div className="relative flex-shrink-0">
+                  <img src={form.imageUrl} alt="preview" className="h-14 w-14 rounded-lg object-cover border border-border" />
+                  <button type="button" onClick={() => set("imageUrl", "")}
+                    className="absolute -top-1.5 -right-1.5 bg-destructive text-white rounded-full h-4 w-4 flex items-center justify-center hover:bg-destructive/80">
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="h-14 w-14 rounded-lg bg-muted flex items-center justify-center border border-dashed border-border flex-shrink-0">
+                  <ImageIcon className="h-5 w-5 text-muted-foreground/40" />
+                </div>
+              )}
+              <div className="flex-1 space-y-1.5">
+                <Input value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="Paste image URL..." />
+                <Button type="button" variant="outline" size="sm" onClick={() => imgRef.current?.click()} className="w-full h-7 text-xs">
+                  <Upload className="h-3 w-3 mr-1.5" /> Upload from device
+                </Button>
+                <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
+              </div>
+            </div>
+          </div>
+
           <div className="col-span-2">
             <Label>Product Name *</Label>
             <Input value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. Coca-Cola 500ml" />
@@ -355,8 +413,9 @@ export function ProductsTab({ business }: Props) {
             <Input type="number" value={form.stockQty || ""} onChange={e => set("stockQty", +e.target.value)} />
           </div>
           <div>
-            <Label>Reorder Level</Label>
-            <Input type="number" value={form.reorderLevel || ""} onChange={e => set("reorderLevel", +e.target.value)} />
+            <Label>Low Stock Alert Level</Label>
+            <Input type="number" min={0} value={form.reorderLevel || ""} onChange={e => set("reorderLevel", +e.target.value)} />
+            <p className="text-[10px] text-muted-foreground mt-0.5">Show "Low" badge when stock falls to or below this qty</p>
           </div>
           <div>
             <Label>SKU</Label>
@@ -486,10 +545,16 @@ export function ProductsTab({ business }: Props) {
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Product Details" isView>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="col-span-2 flex items-start justify-between">
-              <div>
-                <h3 className="font-bold text-base">{viewing.name}</h3>
-                <p className="text-muted-foreground text-xs">{viewing.categoryName || "Uncategorized"}</p>
+            <div className="col-span-2 flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                {viewing.imageUrl
+                  ? <img src={viewing.imageUrl} alt={viewing.name} className="h-16 w-16 rounded-xl object-cover border flex-shrink-0" />
+                  : <div className="h-16 w-16 rounded-xl bg-muted flex items-center justify-center border flex-shrink-0"><Package className="h-6 w-6 text-muted-foreground/30" /></div>
+                }
+                <div className="min-w-0">
+                  <h3 className="font-bold text-base truncate">{viewing.name}</h3>
+                  <p className="text-muted-foreground text-xs">{viewing.categoryName || "Uncategorized"}</p>
+                </div>
               </div>
               <StatusBadge status={viewing.status} />
             </div>

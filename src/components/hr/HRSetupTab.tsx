@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Plus, Network, ToggleLeft, ToggleRight } from "lucide-react";
+import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { Plus, Network, ToggleLeft, ToggleRight, CalendarDays, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,9 +12,10 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { toast } from "sonner";
+import { Switch } from "@/components/ui/switch";
 import {
   hrApi,
-  ApiStation, ApiDepartment, ApiJobTitle, ApiLeaveType, ApiShiftPattern, ApiStationModule,
+  ApiStation, ApiDepartment, ApiJobTitle, ApiLeaveType, ApiShiftPattern, ApiStationModule, ApiPublicHoliday,
 } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
 
@@ -36,6 +38,7 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiDepartment | null>(null);
   const [form, setForm] = useState({ name: "", description: "", parentId: "" });
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.departments");
 
@@ -69,13 +72,18 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
     } catch (e: any) { toast.error(e.message || "Failed to save"); }
   };
 
-  const handleDelete = async (d: ApiDepartment) => {
-    if (!window.confirm(`Delete department "${d.name}"?`)) return;
-    try {
-      await hrApi.departments.remove(d.id);
-      toast.success("Department deleted");
-      load();
-    } catch (e: any) { toast.error(e.message || "Cannot delete"); }
+  const handleDelete = (d: ApiDepartment) => {
+    setConfirmDlg({
+      title: `Delete department "${d.name}"?`,
+      description: "This will permanently delete the department.",
+      onConfirm: async () => {
+        try {
+          await hrApi.departments.remove(d.id);
+          toast.success("Department deleted");
+          load();
+        } catch (e: any) { toast.error(e.message || "Cannot delete"); }
+      },
+    });
   };
 
   const columns: Column<ApiDepartment>[] = [
@@ -140,6 +148,15 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
           </div>
         </div>
       </ModalForm>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
     </div>
   );
 }
@@ -152,6 +169,7 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiJobTitle | null>(null);
   const [form, setForm] = useState({ title: "", description: "", departmentId: "", grade: "" });
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.jobtitles");
 
@@ -185,10 +203,15 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
     } catch (e: any) { toast.error(e.message || "Failed to save"); }
   };
 
-  const handleDelete = async (jt: ApiJobTitle) => {
-    if (!window.confirm(`Delete job title "${jt.title}"?`)) return;
-    try { await hrApi.jobTitles.remove(jt.id); toast.success("Deleted"); load(); }
-    catch (e: any) { toast.error(e.message || "Cannot delete"); }
+  const handleDelete = (jt: ApiJobTitle) => {
+    setConfirmDlg({
+      title: `Delete job title "${jt.title}"?`,
+      description: "This job title will be permanently removed.",
+      onConfirm: async () => {
+        try { await hrApi.jobTitles.remove(jt.id); toast.success("Deleted"); load(); }
+        catch (e: any) { toast.error(e.message || "Cannot delete"); }
+      },
+    });
   };
 
   const columns: Column<ApiJobTitle>[] = [
@@ -225,6 +248,15 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
           <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional" /></div>
         </div>
       </ModalForm>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
     </div>
   );
 }
@@ -232,10 +264,20 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
 // ── Leave Types ───────────────────────────────────────────────────────────────
 
 function LeaveTypesSubTab({ stationId }: { stationId: string }) {
+  const blankForm = {
+    name: "", daysAllowed: "21", isPaid: true,
+    carryOver: false, carryOverMax: "0",
+    noticeDays: "0", maxConsecutive: "0",
+    minTenureMonths: "0", genderRestriction: "",
+    accrualType: "annual",
+    excludeHolidays: true, excludeWeekends: true,
+  };
+
   const [data, setData] = useState<ApiLeaveType[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiLeaveType | null>(null);
-  const [form, setForm] = useState({ name: "", daysAllowed: "21", isPaid: true });
+  const [form, setForm] = useState(blankForm);
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.leavetypes");
 
@@ -246,16 +288,35 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
 
   useEffect(() => { load(); }, [stationId]);
 
-  const openNew = () => { setEditing(null); setForm({ name: "", daysAllowed: "21", isPaid: true }); setModalOpen(true); };
-  const openEdit = (lt: ApiLeaveType) => { setEditing(lt); setForm({ name: lt.name, daysAllowed: String(lt.daysAllowed), isPaid: lt.isPaid }); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm(blankForm); setModalOpen(true); };
+  const openEdit = (lt: ApiLeaveType) => {
+    setEditing(lt);
+    setForm({
+      name: lt.name, daysAllowed: String(lt.daysAllowed), isPaid: lt.isPaid,
+      carryOver: lt.carryOver ?? false, carryOverMax: String(lt.carryOverMax ?? 0),
+      noticeDays: String(lt.noticeDays ?? 0), maxConsecutive: String(lt.maxConsecutive ?? 0),
+      minTenureMonths: String(lt.minTenureMonths ?? 0), genderRestriction: lt.genderRestriction ?? "",
+      accrualType: lt.accrualType ?? "annual",
+      excludeHolidays: lt.excludeHolidays ?? true, excludeWeekends: lt.excludeWeekends ?? true,
+    });
+    setModalOpen(true);
+  };
 
   const handleSave = async () => {
     try {
+      const payload = {
+        name: form.name, daysAllowed: parseInt(form.daysAllowed, 10), isPaid: form.isPaid,
+        carryOver: form.carryOver, carryOverMax: parseInt(form.carryOverMax, 10),
+        noticeDays: parseInt(form.noticeDays, 10), maxConsecutive: parseInt(form.maxConsecutive, 10),
+        minTenureMonths: parseInt(form.minTenureMonths, 10), genderRestriction: form.genderRestriction || null,
+        accrualType: form.accrualType,
+        excludeHolidays: form.excludeHolidays, excludeWeekends: form.excludeWeekends,
+      };
       if (editing) {
-        await hrApi.leaveTypes.update(editing.id, { name: form.name, daysAllowed: parseInt(form.daysAllowed, 10), isPaid: form.isPaid });
+        await hrApi.leaveTypes.update(editing.id, payload);
         toast.success("Leave type updated");
       } else {
-        await hrApi.leaveTypes.create({ name: form.name, daysAllowed: parseInt(form.daysAllowed, 10), isPaid: form.isPaid }, stationId || undefined);
+        await hrApi.leaveTypes.create(payload, stationId || undefined);
         toast.success("Leave type created");
       }
       setModalOpen(false);
@@ -263,10 +324,15 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
     } catch (e: any) { toast.error(e.message || "Failed to save"); }
   };
 
-  const handleDelete = async (lt: ApiLeaveType) => {
-    if (!window.confirm(`Delete leave type "${lt.name}"?`)) return;
-    try { await hrApi.leaveTypes.remove(lt.id); toast.success("Deleted"); load(); }
-    catch (e: any) { toast.error(e.message || "Cannot delete — check for existing requests"); }
+  const handleDelete = (lt: ApiLeaveType) => {
+    setConfirmDlg({
+      title: `Delete leave type "${lt.name}"?`,
+      description: "This leave type will be permanently removed. Existing requests may be affected.",
+      onConfirm: async () => {
+        try { await hrApi.leaveTypes.remove(lt.id); toast.success("Deleted"); load(); }
+        catch (e: any) { toast.error(e.message || "Cannot delete — check for existing requests"); }
+      },
+    });
   };
 
   const handleToggle = async (lt: ApiLeaveType) => {
@@ -299,20 +365,91 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
         title={editing ? "Edit Leave Type" : "Add Leave Type"}
         onSubmit={handleSave} submitLabel={editing ? "Update" : "Create"}>
-        <div className="space-y-4">
-          <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Annual Leave" /></div>
-          <div><Label>Days Allowed Per Year</Label><Input type="number" min={1} value={form.daysAllowed} onChange={e => setForm(f => ({ ...f, daysAllowed: e.target.value }))} /></div>
-          <div><Label>Leave Type</Label>
-            <Select value={form.isPaid ? "paid" : "unpaid"} onValueChange={v => setForm(f => ({ ...f, isPaid: v === "paid" }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="paid">Paid</SelectItem>
-                <SelectItem value="unpaid">Unpaid</SelectItem>
-              </SelectContent>
-            </Select>
+        <div className="space-y-5">
+          {/* Basic */}
+          <div className="space-y-3">
+            <div><Label>Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Annual Leave" /></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Days Allowed / Year</Label><Input type="number" min={1} value={form.daysAllowed} onChange={e => setForm(f => ({ ...f, daysAllowed: e.target.value }))} /></div>
+              <div><Label>Pay Type</Label>
+                <Select value={form.isPaid ? "paid" : "unpaid"} onValueChange={v => setForm(f => ({ ...f, isPaid: v === "paid" }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="unpaid">Unpaid</SelectItem></SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+
+          {/* Policy section */}
+          <div className="border rounded-lg p-4 space-y-4">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Leave Policy</p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>Accrual Type</Label>
+                <Select value={form.accrualType} onValueChange={v => setForm(f => ({ ...f, accrualType: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="annual">Annual (lump sum)</SelectItem><SelectItem value="monthly">Monthly</SelectItem></SelectContent>
+                </Select>
+              </div>
+              <div><Label>Gender Restriction</Label>
+                <Select value={form.genderRestriction || "none"} onValueChange={v => setForm(f => ({ ...f, genderRestriction: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No restriction</SelectItem>
+                    <SelectItem value="Male">Male only</SelectItem>
+                    <SelectItem value="Female">Female only</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div><Label>Notice Required (days)</Label><Input type="number" min={0} value={form.noticeDays} onChange={e => setForm(f => ({ ...f, noticeDays: e.target.value }))} /></div>
+              <div><Label>Max Consecutive (days)</Label><Input type="number" min={0} value={form.maxConsecutive} onChange={e => setForm(f => ({ ...f, maxConsecutive: e.target.value }))} placeholder="0 = unlimited" /></div>
+              <div><Label>Min Tenure (months)</Label><Input type="number" min={0} value={form.minTenureMonths} onChange={e => setForm(f => ({ ...f, minTenureMonths: e.target.value }))} /></div>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center justify-between py-1.5 border-b">
+                <div>
+                  <p className="text-sm font-medium">Exclude Weekends</p>
+                  <p className="text-xs text-muted-foreground">Saturdays and Sundays don't count against leave days</p>
+                </div>
+                <Switch checked={form.excludeWeekends} onCheckedChange={v => setForm(f => ({ ...f, excludeWeekends: v }))} />
+              </div>
+              <div className="flex items-center justify-between py-1.5 border-b">
+                <div>
+                  <p className="text-sm font-medium">Exclude Public Holidays</p>
+                  <p className="text-xs text-muted-foreground">Public holidays don't count against leave days</p>
+                </div>
+                <Switch checked={form.excludeHolidays} onCheckedChange={v => setForm(f => ({ ...f, excludeHolidays: v }))} />
+              </div>
+              <div className="flex items-center justify-between py-1.5">
+                <div>
+                  <p className="text-sm font-medium">Allow Carry Over</p>
+                  <p className="text-xs text-muted-foreground">Unused days roll over to the next year</p>
+                </div>
+                <Switch checked={form.carryOver} onCheckedChange={v => setForm(f => ({ ...f, carryOver: v }))} />
+              </div>
+              {form.carryOver && (
+                <div className="pl-2 pt-1">
+                  <Label>Max Carry Over Days (0 = unlimited)</Label>
+                  <Input type="number" min={0} value={form.carryOverMax} onChange={e => setForm(f => ({ ...f, carryOverMax: e.target.value }))} className="mt-1.5" />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </ModalForm>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
     </div>
   );
 }
@@ -324,6 +461,7 @@ function ShiftsSubTab({ stationId }: { stationId: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiShiftPattern | null>(null);
   const [form, setForm] = useState({ name: "", startTime: "08:00", endTime: "17:00", isDefault: false });
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.shifts");
 
@@ -353,10 +491,15 @@ function ShiftsSubTab({ stationId }: { stationId: string }) {
     } catch (e: any) { toast.error(e.message || "Failed to save"); }
   };
 
-  const handleDelete = async (s: ApiShiftPattern) => {
-    if (!window.confirm(`Delete shift "${s.name}"?`)) return;
-    try { await hrApi.shifts.remove(s.id); toast.success("Deleted"); load(); }
-    catch (e: any) { toast.error(e.message || "Cannot delete — shift has assignments"); }
+  const handleDelete = (s: ApiShiftPattern) => {
+    setConfirmDlg({
+      title: `Delete shift "${s.name}"?`,
+      description: "This shift pattern will be permanently removed.",
+      onConfirm: async () => {
+        try { await hrApi.shifts.remove(s.id); toast.success("Deleted"); load(); }
+        catch (e: any) { toast.error(e.message || "Cannot delete — shift has assignments"); }
+      },
+    });
   };
 
   const columns: Column<ApiShiftPattern>[] = [
@@ -391,6 +534,154 @@ function ShiftsSubTab({ stationId }: { stationId: string }) {
           </div>
         </div>
       </ModalForm>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        description={confirmDlg?.description}
+        confirmLabel="Delete"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
+    </div>
+  );
+}
+
+// ── Public Holidays ───────────────────────────────────────────────────────────
+
+function HolidaysSubTab({ stationId }: { stationId: string }) {
+  const currentYear = new Date().getFullYear();
+  const [data, setData] = useState<ApiPublicHoliday[]>([]);
+  const [yearFilter, setYearFilter] = useState(currentYear);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<ApiPublicHoliday | null>(null);
+  const [form, setForm] = useState({ name: "", date: "", isRecurring: true });
+  const [confirmDlg, setConfirmDlg] = useState<{ title: string; onConfirm: () => void } | null>(null);
+  const can = usePermissions();
+  const canManage = can("hr.setup.holidays");
+
+  const load = async () => {
+    try { const r = await hrApi.holidays.list(stationId ? { stationId } : undefined); setData(r.data); }
+    catch (e: any) { toast.error(e?.message || "Failed to load holidays"); }
+  };
+
+  useEffect(() => { load(); }, [stationId]);
+
+  const visible = data.filter(h => {
+    const d = new Date(h.date);
+    if (h.isRecurring) return true;
+    return d.getFullYear() === yearFilter;
+  });
+
+  const openNew = () => { setEditing(null); setForm({ name: "", date: "", isRecurring: true }); setModalOpen(true); };
+  const openEdit = (h: ApiPublicHoliday) => {
+    setEditing(h);
+    setForm({ name: h.name, date: h.date.slice(0, 10), isRecurring: h.isRecurring });
+    setModalOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.name || !form.date) return toast.error("Name and date are required");
+    try {
+      if (editing) {
+        await hrApi.holidays.update(editing.id, { name: form.name, date: form.date, isRecurring: form.isRecurring });
+        toast.success("Holiday updated");
+      } else {
+        await hrApi.holidays.create({ name: form.name, date: form.date, isRecurring: form.isRecurring }, stationId || undefined);
+        toast.success("Holiday added");
+      }
+      setModalOpen(false);
+      load();
+    } catch (e: any) { toast.error(e.message || "Failed to save"); }
+  };
+
+  const handleDelete = (h: ApiPublicHoliday) => {
+    setConfirmDlg({
+      title: `Remove "${h.name}"?`,
+      onConfirm: async () => {
+        try { await hrApi.holidays.remove(h.id); toast.success("Holiday removed"); load(); }
+        catch (e: any) { toast.error(e.message || "Cannot delete"); }
+      },
+    });
+  };
+
+  const columns: Column<ApiPublicHoliday>[] = [
+    { key: "name", label: "Holiday", sortable: true },
+    {
+      key: "date", label: "Date", render: h => {
+        const d = new Date(h.date);
+        return h.isRecurring
+          ? d.toLocaleDateString("en-GB", { day: "2-digit", month: "long" })
+          : d.toLocaleDateString("en-GB", { day: "2-digit", month: "long", year: "numeric" });
+      }
+    },
+    { key: "isRecurring", label: "Recurrence", render: h => <Badge variant={h.isRecurring ? "default" : "secondary"}>{h.isRecurring ? "Yearly" : "Once"}</Badge> },
+    { key: "stationId", label: "Scope", render: h => <Badge variant="outline">{h.stationId === "global" ? "All Stations" : "This Station"}</Badge> },
+  ];
+
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - 2 + i);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm text-muted-foreground">Recurring holidays show every year. One-time holidays are filtered by year.</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border overflow-hidden">
+            {years.map(y => (
+              <button key={y} onClick={() => setYearFilter(y)}
+                className={`px-3 py-1 text-xs transition-colors ${y === yearFilter ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}>
+                {y}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="outline" onClick={load}><RefreshCw className="h-3.5 w-3.5" /></Button>
+          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add Holiday</Button>}
+        </div>
+      </div>
+
+      {visible.length === 0 ? (
+        <Card><CardContent className="p-8 text-center">
+          <CalendarDays className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
+          <p className="text-sm text-muted-foreground">No public holidays configured yet.</p>
+          {canManage && <Button size="sm" className="mt-3" onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add First Holiday</Button>}
+        </CardContent></Card>
+      ) : (
+        <DataTable data={visible} columns={columns} searchKeys={["name"]} searchPlaceholder="Search holidays..."
+          onEdit={canManage ? openEdit : undefined}
+          onDelete={canManage ? handleDelete : undefined} />
+      )}
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
+        title={editing ? "Edit Holiday" : "Add Public Holiday"}
+        onSubmit={handleSave} submitLabel={editing ? "Update" : "Add Holiday"}>
+        <div className="space-y-4">
+          <div><Label>Holiday Name *</Label><Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. New Year's Day" /></div>
+          <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
+          <div className="flex items-center justify-between py-2 border rounded-lg px-4">
+            <div>
+              <p className="text-sm font-medium">Recurring Annually</p>
+              <p className="text-xs text-muted-foreground">Holiday repeats every year on the same date</p>
+            </div>
+            <Switch checked={form.isRecurring} onCheckedChange={v => setForm(f => ({ ...f, isRecurring: v }))} />
+          </div>
+          {stationId && (
+            <p className="text-xs text-amber-700 bg-amber-50 p-2 rounded">
+              This holiday will apply to the selected station only. Leave station as "All Stations" to make it global.
+            </p>
+          )}
+        </div>
+      </ModalForm>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title ?? ""}
+        confirmLabel="Remove"
+        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
+        onCancel={() => setConfirmDlg(null)}
+      />
     </div>
   );
 }
@@ -472,7 +763,7 @@ export default function HRSetupTab() {
     <div className="space-y-4">
       <div>
         <h3 className="text-lg font-semibold">HR Setup</h3>
-        <p className="text-sm text-muted-foreground">Configure departments, job titles, leave types, shift patterns, and station modules</p>
+        <p className="text-sm text-muted-foreground">Configure departments, job titles, leave types, public holidays, shift patterns, and station modules</p>
       </div>
 
       {/* Station picker — used by shifts and modules */}
@@ -499,12 +790,14 @@ export default function HRSetupTab() {
           <TabsTrigger value="departments">Departments</TabsTrigger>
           <TabsTrigger value="jobtitles">Job Titles</TabsTrigger>
           <TabsTrigger value="leavetypes">Leave Types</TabsTrigger>
+          <TabsTrigger value="holidays">Holidays</TabsTrigger>
           <TabsTrigger value="shifts">Shift Patterns</TabsTrigger>
           <TabsTrigger value="modules">Station Modules</TabsTrigger>
         </TabsList>
         <TabsContent value="departments"><DepartmentsSubTab stationId={selectedStationId} /></TabsContent>
         <TabsContent value="jobtitles"><JobTitlesSubTab stationId={selectedStationId} /></TabsContent>
         <TabsContent value="leavetypes"><LeaveTypesSubTab stationId={selectedStationId} /></TabsContent>
+        <TabsContent value="holidays"><HolidaysSubTab stationId={selectedStationId} /></TabsContent>
         <TabsContent value="shifts"><ShiftsSubTab stationId={selectedStationId} /></TabsContent>
         <TabsContent value="modules"><ModulesSubTab station={selectedStation} /></TabsContent>
       </Tabs>
