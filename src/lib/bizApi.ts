@@ -14,7 +14,7 @@ type R<T> = { success: boolean; data: T; message?: string };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type BizType = "mart" | "pharmacy" | "restaurant" | "bakery";
+export type BizType = "mart" | "pharmacy" | "restaurant" | "Tyre Centre";
 
 export interface ApiBizBusiness {
   id: string; stationId: string; type: BizType; name: string;

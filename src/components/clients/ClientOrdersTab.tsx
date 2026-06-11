@@ -13,7 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { clientsApi, ApiClientOrder } from "@/lib/clientsApi";
 
-const MODULES         = ["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Mini Mart", "Pharmacy", "Restaurant", "Bakery"];
+const MODULES         = ["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Mini Mart", "Pharmacy", "Restaurant", "Tyre Centre"];
 const PAYMENT_METHODS = ["Cash", "M-Pesa", "Card", "Credit", "Bank Transfer"];
 const STATUSES        = ["pending", "processing", "completed", "cancelled"];
 

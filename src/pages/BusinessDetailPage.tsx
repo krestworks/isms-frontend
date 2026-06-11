@@ -20,14 +20,14 @@ import { ReportsTab }        from "@/components/business/ReportsTab";
 import { SetupTab }          from "@/components/business/SetupTab";
 
 const ICONS: Record<string, React.ElementType> = {
-  mart: ShoppingCart, pharmacy: Pill, restaurant: UtensilsCrossed, bakery: Croissant,
+  mart: ShoppingCart, pharmacy: Pill, restaurant: UtensilsCrossed, Tyre Centre: Croissant,
 };
 
 const TYPE_COLORS: Record<string, string> = {
   mart:       "bg-blue-500/10 text-blue-600 border-blue-200",
   pharmacy:   "bg-green-500/10 text-green-600 border-green-200",
   restaurant: "bg-orange-500/10 text-orange-600 border-orange-200",
-  bakery:     "bg-yellow-500/10 text-yellow-600 border-yellow-200",
+  Tyre Centre:     "bg-yellow-500/10 text-yellow-600 border-yellow-200",
 };
 
 export default function BusinessDetailPage() {

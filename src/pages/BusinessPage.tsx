@@ -17,7 +17,7 @@ const BIZ_TYPES: { type: BizType; label: string; icon: React.ElementType; desc: 
   { type: "mart",       label: "Mart",       icon: ShoppingCart,    desc: "Convenience store & retail POS",     color: "text-blue-600",   bg: "bg-blue-500/10 border-blue-200" },
   { type: "pharmacy",   label: "Pharmacy",   icon: Pill,            desc: "Drug store with prescriptions",       color: "text-green-600",  bg: "bg-green-500/10 border-green-200" },
   { type: "restaurant", label: "Restaurant", icon: UtensilsCrossed, desc: "Food service with table management", color: "text-orange-600", bg: "bg-orange-500/10 border-orange-200" },
-  { type: "bakery",     label: "Bakery",     icon: Croissant,       desc: "Bakery & confectionery retail",       color: "text-yellow-600", bg: "bg-yellow-500/10 border-yellow-200" },
+  { type: "Tyre Centre",     label: "Tyre Centre",     icon: Croissant,       desc: "Tyre Centre & confectionery retail",       color: "text-yellow-600", bg: "bg-yellow-500/10 border-yellow-200" },
 ];
 
 const emptyForm = { name: "", taxRate: 16, receiptHeader: "", receiptFooter: "" };

@@ -17,10 +17,10 @@ const TYPE_LABELS: Record<BizType, string> = {
   mart:       "Mini Mart",
   pharmacy:   "Pharmacy",
   restaurant: "Restaurant",
-  bakery:     "Bakery",
+  Tyre Centre:     "Tyre Centre",
 };
 
-const TYPES: BizType[] = ["mart", "pharmacy", "restaurant", "bakery"];
+const TYPES: BizType[] = ["mart", "pharmacy", "restaurant", "Tyre Centre"];
 
 const emptyForm: { name: string; type: BizType; taxRate: number; currency: string; status: string; receiptHeader: string; receiptFooter: string } = {
   name: "", type: "mart", taxRate: 16, currency: "KES", status: "active",
