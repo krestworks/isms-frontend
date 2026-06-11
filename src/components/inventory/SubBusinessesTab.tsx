@@ -17,7 +17,7 @@ const TYPE_LABELS: Record<BizType, string> = {
   mart:       "Mini Mart",
   pharmacy:   "Pharmacy",
   restaurant: "Restaurant",
-  Tyre Centre:     "Tyre Centre",
+  "Tyre Centre":"Tyre Centre",
 };
 
 const TYPES: BizType[] = ["mart", "pharmacy", "restaurant", "Tyre Centre"];
