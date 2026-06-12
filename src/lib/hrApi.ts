@@ -5,7 +5,8 @@ import { api } from "./api";
 const sh = (stationId?: string): { headers: Record<string, string> } | undefined =>
   stationId ? { headers: { "x-station-id": stationId } } : undefined;
 
-const qs = (params: Record<string, string | number | undefined>) => {
+const qs = (params?: Record<string, string | number | undefined>) => {
+  if (!params) return "";
   const p = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, String(v)); });
   const s = p.toString();
@@ -97,6 +98,22 @@ export interface ApiShiftAssignment {
 export interface ApiStationModule { module: string; isEnabled: boolean; updatedAt?: string; }
 
 export interface PageMeta { page: number; limit: number; total: number; pages: number; }
+
+export interface ApiDocument {
+  id: string;
+  employeeId: string;
+  type: string;
+  fileName: string;
+  fileSize: number;
+  fileData?: string;
+  expiresOn?: string | null;
+  status: string;
+  notes?: string | null;
+  caseId?: string | null;
+  uploadedBy: string;
+  uploadedAt: string;
+  employee?: { id: string; employeeNumber: string; user: { name: string } };
+}
 
 export interface ApiDisciplinaryRecord {
   id: string;
@@ -260,14 +277,15 @@ export const hrApi = {
     create: (data: {
       email?: string; password?: string; name?: string; phone?: string;
       userId?: string;
-      employeeNumber?: string; stationId: string;
+      employeeNumber?: string; stationId?: string;
       departmentId?: string; jobTitleId?: string;
       employmentType?: string; contractType?: string;
       startDate: string; endDate?: string;
       nationalId?: string; dateOfBirth?: string; gender?: string; address?: string;
       emergencyContact?: object; bankDetails?: object;
       salaryGrade?: string; basicSalary?: number;
-    }) => api.post<{ success: boolean; data: ApiEmployee }>("/hr/employees", data),
+    }) => api.post<{ success: boolean; data: ApiEmployee }>("/hr/employees", data,
+      data.stationId ? sh(data.stationId) as any : undefined),
     get:    (id: string) => api.get<{ success: boolean; data: ApiEmployee }>(`/hr/employees/${id}`),
     update: (id: string, data: Record<string, unknown>) =>
       api.put<{ success: boolean; data: ApiEmployee }>(`/hr/employees/${id}`, data),
@@ -371,5 +389,19 @@ export const hrApi = {
       list: (params?: { page?: number; limit?: number }) =>
         api.get<{ success: boolean; data: ApiPerformanceTask[]; meta: PageMeta }>(`/hr/self/performance${qs(params as any)}`),
     },
+  },
+
+  // ── Documents ───────────────────────────────────────────────────────────────
+
+  documents: {
+    list:     (params?: { employeeId?: string; type?: string; status?: string; caseId?: string }) =>
+      api.get<{ success: boolean; data: ApiDocument[] }>(`/hr/documents${qs(params as any)}`),
+    create:   (data: { employeeId: string; type: string; fileName: string; fileSize?: number; fileData?: string; expiresOn?: string; status?: string; notes?: string; caseId?: string }) =>
+      api.post<{ success: boolean; data: ApiDocument }>("/hr/documents", data),
+    update:   (id: string, data: Partial<{ type: string; fileName: string; fileSize: number; fileData: string; expiresOn: string; status: string; notes: string; caseId: string }>) =>
+      api.put<{ success: boolean; data: ApiDocument }>(`/hr/documents/${id}`, data),
+    download: (id: string) =>
+      api.get<{ success: boolean; data: { fileName: string; fileData: string } }>(`/hr/documents/${id}/download`),
+    remove:   (id: string) => api.delete<{ success: boolean }>(`/hr/documents/${id}`),
   },
 };

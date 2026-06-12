@@ -46,7 +46,7 @@ export function UsersTab() {
     setModal({ mode: "view", user: u });
   };
   const openEdit = (u: ApiUser) => {
-    setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocationId: "", roles: u.roles });
+    setForm({ name: u.name, email: u.email, phone: u.phone ?? "", password: "", activeRole: u.activeRole, homeLocationId: u.homeLocation || "", roles: u.roles });
     setModal({ mode: "edit", user: u });
   };
 
@@ -63,8 +63,15 @@ export function UsersTab() {
         });
         toast.success("User created");
       } else if (modal?.mode === "edit" && modal.user) {
-        await usersApi.assignRoles(modal.user.id, form.roles);
-        toast.success("Roles updated");
+        await Promise.all([
+          usersApi.update(modal.user.id, {
+            name: form.name || undefined,
+            phone: form.phone || null,
+            homeLocation: form.homeLocationId || null,
+          }),
+          usersApi.assignRoles(modal.user.id, form.roles),
+        ]);
+        toast.success("User updated");
       }
       setModal(null);
       load();
@@ -130,12 +137,12 @@ export function UsersTab() {
       {modal && (
         <ModalForm
           open onClose={() => setModal(null)}
-          title={isView ? "User Details" : modal.mode === "add" ? "Add User" : "Edit Roles"}
+          title={isView ? "User Details" : modal.mode === "add" ? "Add User" : "Edit User"}
           onSubmit={handleSave} isView={isView}
-          submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Update Roles" : "Create User"}>
+          submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Save Changes" : "Create User"}>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
-              <div><Label>Full Name</Label><Input value={form.name} onChange={e => set("name", e.target.value)} readOnly={isView || modal.mode === "edit"} /></div>
+              <div><Label>Full Name</Label><Input value={form.name} onChange={e => set("name", e.target.value)} readOnly={isView} /></div>
               <div><Label>Email</Label><Input type="email" value={form.email} onChange={e => set("email", e.target.value)} readOnly={isView || modal.mode === "edit"} /></div>
               <div><Label>Phone</Label><Input value={form.phone} onChange={e => set("phone", e.target.value)} readOnly={isView} /></div>
               {modal.mode === "add" && (
@@ -143,28 +150,29 @@ export function UsersTab() {
               )}
             </div>
 
-            {isView && modal.user?.homeLocation && (
-              <div><Label>Home Location</Label><Input value={modal.user.homeLocation} readOnly /></div>
-            )}
+            {modal.mode !== "view" ? (
+              <div>
+                <Label>Home Station</Label>
+                <Select value={form.homeLocationId} onValueChange={v => set("homeLocationId", v)} disabled={modal.mode === "view"}>
+                  <SelectTrigger><SelectValue placeholder="— none —" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">— none —</SelectItem>
+                    {stations.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {modal.mode === "edit" && <p className="text-xs text-muted-foreground mt-1">Setting this allows the user to access station-specific features.</p>}
+              </div>
+            ) : modal.user?.homeLocation ? (
+              <div><Label>Home Station</Label><Input value={stations.find(s => s.id === modal.user?.homeLocation)?.name || modal.user.homeLocation} readOnly /></div>
+            ) : null}
 
             {modal.mode === "add" && (
-              <>
-                <div><Label>Active Role</Label>
-                  <Select value={form.activeRole} onValueChange={v => set("activeRole", v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{VALID_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div><Label>Home Station (optional)</Label>
-                  <Select value={form.homeLocationId} onValueChange={v => set("homeLocationId", v)}>
-                    <SelectTrigger><SelectValue placeholder="— none —" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">— none —</SelectItem>
-                      {stations.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
+              <div><Label>Active Role</Label>
+                <Select value={form.activeRole} onValueChange={v => set("activeRole", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>{VALID_ROLES.map(r => <SelectItem key={r} value={r}>{r}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
             )}
 
             <div>

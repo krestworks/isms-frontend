@@ -40,6 +40,8 @@ export const usersApi = {
     api.post<R<ApiUser>>("/users", body),
   get: (id: string) =>
     api.get<R<ApiUser>>(`/users/${id}`),
+  update: (id: string, body: { name?: string; phone?: string; homeLocation?: string | null }) =>
+    api.put<R<ApiUser>>(`/users/${id}`, body),
   assignRoles: (id: string, roles: string[]) =>
     api.put<R<ApiUser>>(`/users/${id}/roles`, { roles }),
   updateStatus: (id: string, status: string) =>

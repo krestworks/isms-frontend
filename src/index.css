@@ -124,6 +124,14 @@
   }
 }
 
+/* Login page right panel — light mode override */
+.light-panel {
+  background: linear-gradient(135deg, #f1f5f9, #ffffff, #f8fafc);
+}
+.dark .light-panel {
+  background: linear-gradient(135deg, #0f172a, #1e293b, #0f172a);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

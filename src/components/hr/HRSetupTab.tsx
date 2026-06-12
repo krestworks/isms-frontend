@@ -37,7 +37,7 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
   const [viewMode, setViewMode] = useState<"list" | "tree">("list");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiDepartment | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", parentId: "" });
+  const [form, setForm] = useState({ name: "", description: "", parentId: "", isGlobal: true });
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.departments");
@@ -55,16 +55,21 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
 
   useEffect(() => { load(); }, [stationId]);
 
-  const openNew = () => { setEditing(null); setForm({ name: "", description: "", parentId: "" }); setModalOpen(true); };
-  const openEdit = (d: ApiDepartment) => { setEditing(d); setForm({ name: d.name, description: d.description || "", parentId: d.parentId || "" }); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ name: "", description: "", parentId: "", isGlobal: !stationId }); setModalOpen(true); };
+  const openEdit = (d: ApiDepartment) => {
+    setEditing(d);
+    setForm({ name: d.name, description: d.description || "", parentId: d.parentId || "", isGlobal: d.stationId === "global" });
+    setModalOpen(true);
+  };
 
   const handleSave = async () => {
     try {
+      const scopedStationId = form.isGlobal ? undefined : (stationId || undefined);
       if (editing) {
         await hrApi.departments.update(editing.id, { name: form.name, description: form.description || undefined, parentId: form.parentId || null });
         toast.success("Department updated");
       } else {
-        await hrApi.departments.create({ name: form.name, description: form.description || undefined, parentId: form.parentId || undefined }, stationId || undefined);
+        await hrApi.departments.create({ name: form.name, description: form.description || undefined, parentId: form.parentId || undefined }, scopedStationId);
         toast.success("Department created");
       }
       setModalOpen(false);
@@ -146,6 +151,18 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
               </SelectContent>
             </Select>
           </div>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Available to all stations</p>
+              <p className="text-xs text-muted-foreground">Global departments are shared across every station</p>
+            </div>
+            <Switch
+              checked={form.isGlobal}
+              onCheckedChange={v => setForm(f => ({ ...f, isGlobal: v }))}
+              disabled={!stationId}
+            />
+          </div>
+          {!stationId && <p className="text-xs text-muted-foreground -mt-2">Select a specific station above to create a station-scoped department.</p>}
         </div>
       </ModalForm>
 
@@ -168,7 +185,7 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
   const [depts, setDepts] = useState<ApiDepartment[]>([]);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ApiJobTitle | null>(null);
-  const [form, setForm] = useState({ title: "", description: "", departmentId: "", grade: "" });
+  const [form, setForm] = useState({ title: "", description: "", departmentId: "", grade: "", isGlobal: true });
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
   const can = usePermissions();
   const canManage = can("hr.setup.jobtitles");
@@ -186,16 +203,21 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
 
   useEffect(() => { load(); }, [stationId]);
 
-  const openNew = () => { setEditing(null); setForm({ title: "", description: "", departmentId: "", grade: "" }); setModalOpen(true); };
-  const openEdit = (jt: ApiJobTitle) => { setEditing(jt); setForm({ title: jt.title, description: jt.description || "", departmentId: jt.departmentId || "", grade: jt.grade || "" }); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ title: "", description: "", departmentId: "", grade: "", isGlobal: !stationId }); setModalOpen(true); };
+  const openEdit = (jt: ApiJobTitle) => {
+    setEditing(jt);
+    setForm({ title: jt.title, description: jt.description || "", departmentId: jt.departmentId || "", grade: jt.grade || "", isGlobal: jt.stationId === "global" });
+    setModalOpen(true);
+  };
 
   const handleSave = async () => {
     try {
+      const scopedStationId = form.isGlobal ? undefined : (stationId || undefined);
       if (editing) {
         await hrApi.jobTitles.update(editing.id, { title: form.title, description: form.description || undefined, departmentId: form.departmentId || null, grade: form.grade || undefined });
         toast.success("Job title updated");
       } else {
-        await hrApi.jobTitles.create({ title: form.title, description: form.description || undefined, departmentId: form.departmentId || undefined, grade: form.grade || undefined }, stationId || undefined);
+        await hrApi.jobTitles.create({ title: form.title, description: form.description || undefined, departmentId: form.departmentId || undefined, grade: form.grade || undefined }, scopedStationId);
         toast.success("Job title created");
       }
       setModalOpen(false);
@@ -246,6 +268,14 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
             </Select>
           </div>
           <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Optional" /></div>
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Available to all stations</p>
+              <p className="text-xs text-muted-foreground">Global job titles are shared across every station</p>
+            </div>
+            <Switch checked={form.isGlobal} onCheckedChange={v => setForm(f => ({ ...f, isGlobal: v }))} disabled={!stationId} />
+          </div>
+          {!stationId && <p className="text-xs text-muted-foreground -mt-2">Select a specific station above to create a station-scoped job title.</p>}
         </div>
       </ModalForm>
 
@@ -271,6 +301,7 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
     minTenureMonths: "0", genderRestriction: "",
     accrualType: "annual",
     excludeHolidays: true, excludeWeekends: true,
+    isGlobal: true,
   };
 
   const [data, setData] = useState<ApiLeaveType[]>([]);
@@ -288,7 +319,7 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
 
   useEffect(() => { load(); }, [stationId]);
 
-  const openNew = () => { setEditing(null); setForm(blankForm); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ ...blankForm, isGlobal: !stationId }); setModalOpen(true); };
   const openEdit = (lt: ApiLeaveType) => {
     setEditing(lt);
     setForm({
@@ -298,12 +329,14 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
       minTenureMonths: String(lt.minTenureMonths ?? 0), genderRestriction: lt.genderRestriction ?? "",
       accrualType: lt.accrualType ?? "annual",
       excludeHolidays: lt.excludeHolidays ?? true, excludeWeekends: lt.excludeWeekends ?? true,
+      isGlobal: lt.stationId === "global",
     });
     setModalOpen(true);
   };
 
   const handleSave = async () => {
     try {
+      const scopedStationId = form.isGlobal ? undefined : (stationId || undefined);
       const payload = {
         name: form.name, daysAllowed: parseInt(form.daysAllowed, 10), isPaid: form.isPaid,
         carryOver: form.carryOver, carryOverMax: parseInt(form.carryOverMax, 10),
@@ -316,7 +349,7 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
         await hrApi.leaveTypes.update(editing.id, payload);
         toast.success("Leave type updated");
       } else {
-        await hrApi.leaveTypes.create(payload, stationId || undefined);
+        await hrApi.leaveTypes.create(payload, scopedStationId);
         toast.success("Leave type created");
       }
       setModalOpen(false);
@@ -435,10 +468,21 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
                 <div className="pl-2 pt-1">
                   <Label>Max Carry Over Days (0 = unlimited)</Label>
                   <Input type="number" min={0} value={form.carryOverMax} onChange={e => setForm(f => ({ ...f, carryOverMax: e.target.value }))} className="mt-1.5" />
+
                 </div>
               )}
             </div>
           </div>
+
+          {/* Scope */}
+          <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+            <div>
+              <p className="text-sm font-medium">Available to all stations</p>
+              <p className="text-xs text-muted-foreground">Global leave types are shared across every station</p>
+            </div>
+            <Switch checked={form.isGlobal} onCheckedChange={v => setForm(f => ({ ...f, isGlobal: v }))} disabled={!stationId} />
+          </div>
+          {!stationId && <p className="text-xs text-muted-foreground -mt-2">Select a specific station above to create a station-scoped leave type.</p>}
         </div>
       </ModalForm>
 
@@ -605,6 +649,31 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
     });
   };
 
+  const KENYA_DEFAULTS = [
+    { name: "New Year's Day",  date: "2024-01-01", isRecurring: true },
+    { name: "Labour Day",      date: "2024-05-01", isRecurring: true },
+    { name: "Madaraka Day",    date: "2024-06-01", isRecurring: true },
+    { name: "Huduma Day",      date: "2024-10-10", isRecurring: true },
+    { name: "Mashujaa Day",    date: "2024-10-20", isRecurring: true },
+    { name: "Jamhuri Day",     date: "2024-12-12", isRecurring: true },
+    { name: "Christmas Day",   date: "2024-12-25", isRecurring: true },
+    { name: "Boxing Day",      date: "2024-12-26", isRecurring: true },
+    { name: "Good Friday",     date: "2024-03-29", isRecurring: false },
+    { name: "Easter Monday",   date: "2024-04-01", isRecurring: false },
+  ];
+
+  const loadKenyaDefaults = async () => {
+    try {
+      let created = 0;
+      for (const h of KENYA_DEFAULTS) {
+        await hrApi.holidays.create(h, undefined);
+        created++;
+      }
+      toast.success(`${created} Kenya public holidays added`);
+      load();
+    } catch (e: any) { toast.error(e.message || "Failed to load defaults"); }
+  };
+
   const columns: Column<ApiPublicHoliday>[] = [
     { key: "name", label: "Holiday", sortable: true },
     {
@@ -638,6 +707,9 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
             ))}
           </div>
           <Button size="sm" variant="outline" onClick={load}><RefreshCw className="h-3.5 w-3.5" /></Button>
+          {canManage && data.length === 0 && (
+            <Button size="sm" variant="outline" onClick={loadKenyaDefaults}>Load Kenya Defaults</Button>
+          )}
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add Holiday</Button>}
         </div>
       </div>
@@ -646,7 +718,12 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
         <Card><CardContent className="p-8 text-center">
           <CalendarDays className="h-10 w-10 text-muted-foreground mx-auto mb-3 opacity-50" />
           <p className="text-sm text-muted-foreground">No public holidays configured yet.</p>
-          {canManage && <Button size="sm" className="mt-3" onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add First Holiday</Button>}
+          {canManage && (
+            <div className="flex items-center gap-2 mt-3 justify-center">
+              <Button size="sm" variant="outline" onClick={loadKenyaDefaults}>Load Kenya Defaults</Button>
+              <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add Holiday</Button>
+            </div>
+          )}
         </CardContent></Card>
       ) : (
         <DataTable data={visible} columns={columns} searchKeys={["name"]} searchPlaceholder="Search holidays..."

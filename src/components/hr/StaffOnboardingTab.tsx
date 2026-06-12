@@ -154,7 +154,14 @@ export default function StaffOnboardingTab() {
       }
       setModalOpen(false);
       load();
-    } catch (e: any) { toast.error(e.message || "Failed to save"); }
+    } catch (e: any) {
+      const fieldErrors: { field: string; message: string }[] = (e as any).data?.errors;
+      if (fieldErrors?.length) {
+        fieldErrors.forEach(fe => toast.error(`${fe.field}: ${fe.message}`));
+      } else {
+        toast.error(e.message || "Failed to save");
+      }
+    }
   };
 
   const handleTerminate = async () => {

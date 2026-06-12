@@ -10,9 +10,7 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { documentsStore, useDocuments } from "@/data/documentsStore";
-import { downloadDataUrl } from "@/lib/exportCsv";
-import { hrApi, ApiEmployee, ApiDisciplinaryRecord } from "@/lib/hrApi";
+import { hrApi, ApiEmployee, ApiDisciplinaryRecord, ApiDocument } from "@/lib/hrApi";
 import { toast } from "sonner";
 
 export const DISCIPLINARY_STAGES = [
@@ -56,11 +54,11 @@ export interface DisciplinaryCase {
 }
 
 function toCase(r: ApiDisciplinaryRecord): DisciplinaryCase {
-  const appeal = r.appeal ? (() => { try { return JSON.parse(r.appeal!); } catch { return {}; } })() : {};
+  const appeal = r.appeal ? (() => { try { return JSON.parse(r.appeal!) ?? {}; } catch { return {}; } })() : {};
   return {
     id:               r.id,
     employeeId:       r.employeeId,
-    employeeName:     r.employee?.user.name ?? r.employeeId,
+    employeeName:     r.employee?.user?.name ?? r.employeeId,
     offence:          r.offence ?? "",
     category:         r.category,
     reportedBy:       r.reportedBy ?? "",
@@ -92,15 +90,15 @@ const stageColor: Record<string, string> = {
 };
 
 export default function DisciplinaryTab() {
-  const allDocs = useDocuments();
-  const [data, setData]         = useState<DisciplinaryCase[]>([]);
+  const [data, setData]           = useState<DisciplinaryCase[]>([]);
   const [employees, setEmployees] = useState<ApiEmployee[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [saving, setSaving]     = useState(false);
+  const [caseDocs, setCaseDocs]   = useState<ApiDocument[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [saving, setSaving]       = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing]   = useState<DisciplinaryCase | null>(null);
-  const [viewing, setViewing]   = useState<DisciplinaryCase | null>(null);
-  const [form, setForm]         = useState(emptyForm);
+  const [editing, setEditing]     = useState<DisciplinaryCase | null>(null);
+  const [viewing, setViewing]     = useState<DisciplinaryCase | null>(null);
+  const [form, setForm]           = useState(emptyForm);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
@@ -116,18 +114,24 @@ export default function DisciplinaryTab() {
     finally { setLoading(false); }
   }, []);
 
+  const loadCaseDocs = useCallback(async (caseId: string) => {
+    try {
+      const r = await hrApi.documents.list({ caseId });
+      setCaseDocs(r.data ?? []);
+    } catch { setCaseDocs([]); }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
 
-  const attachFile = (caseId: string, employeeId: string, employeeName: string, file: File, docType: string) => {
+  const attachFile = (caseId: string, employeeId: string, file: File, docType: string) => {
     if (file.size > 5 * 1024 * 1024) return toast.error("Max 5MB");
     const reader = new FileReader();
-    reader.onload = () => {
-      documentsStore.add({
-        employeeId, employeeName, type: docType, fileName: file.name, fileSize: file.size,
-        fileData: reader.result as string, uploadedOn: new Date().toISOString().split("T")[0],
-        expiresOn: "—", status: "valid", notes: `Attached to ${caseId}`, caseId,
-      });
-      toast.success("Document attached to case");
+    reader.onload = async () => {
+      try {
+        await hrApi.documents.create({ employeeId, type: docType, fileName: file.name, fileSize: file.size, fileData: reader.result as string, notes: `Attached to case ${caseId}`, caseId });
+        toast.success("Document attached");
+        loadCaseDocs(caseId);
+      } catch (e: any) { toast.error(e.message || "Failed to attach document"); }
     };
     reader.readAsDataURL(file);
   };
@@ -225,7 +229,7 @@ export default function DisciplinaryTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => setViewing(c)} onEdit={openEdit} actions={(c) => (
+      <DataTable data={data} columns={columns} searchKeys={["employeeName", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => { setViewing(c); loadCaseDocs(c.id); }} onEdit={openEdit} actions={(c) => (
         <Button size="sm" variant="ghost" className="h-7 text-xs" title="Download PDF" onClick={() => { generateDisciplinaryPdf(c); toast.success("PDF generated"); }}><FileDown className="h-3.5 w-3.5" /></Button>
       )} />
 
@@ -332,27 +336,32 @@ export default function DisciplinaryTab() {
 
             <div className="pt-3 border-t">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> Attached Documents ({allDocs.filter(d => d.caseId === viewing.id).length})</p>
+                <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> Attached Documents ({caseDocs.length})</p>
                 <div>
                   <input ref={fileRef} type="file" className="hidden" onChange={e => {
                     const f = e.target.files?.[0]; if (!f || !viewing) return;
-                    attachFile(viewing.id, viewing.employeeId, viewing.employeeName, f, "Disciplinary Evidence");
+                    attachFile(viewing.id, viewing.employeeId, f, "Disciplinary Evidence");
                     e.target.value = "";
                   }} />
                   <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => fileRef.current?.click()}><Upload className="h-3 w-3 mr-1" /> Attach</Button>
                 </div>
               </div>
               <div className="space-y-1.5">
-                {allDocs.filter(d => d.caseId === viewing.id).map(d => (
+                {caseDocs.map(d => (
                   <div key={d.id} className="flex items-center justify-between p-2 rounded bg-muted/40 text-xs">
                     <span className="flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> {d.fileName} <Badge variant="outline" className="text-[9px]">{d.type}</Badge></span>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => d.fileData ? downloadDataUrl(d.fileName, d.fileData) : toast.info("No stored file")}><Download className="h-3 w-3" /></Button>
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => documentsStore.remove(d.id)}><Trash2 className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={async () => {
+                        try { const r = await hrApi.documents.download(d.id); const a = document.createElement("a"); a.href = r.data.fileData; a.download = r.data.fileName; a.click(); }
+                        catch (e: any) { toast.error(e.message || "Download failed"); }
+                      }}><Download className="h-3 w-3" /></Button>
+                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={async () => {
+                        try { await hrApi.documents.remove(d.id); loadCaseDocs(viewing.id); } catch (e: any) { toast.error(e.message); }
+                      }}><Trash2 className="h-3 w-3" /></Button>
                     </div>
                   </div>
                 ))}
-                {allDocs.filter(d => d.caseId === viewing.id).length === 0 && <p className="text-xs text-muted-foreground italic">No documents linked yet</p>}
+                {caseDocs.length === 0 && <p className="text-xs text-muted-foreground italic">No documents linked yet</p>}
               </div>
             </div>
           </div>
