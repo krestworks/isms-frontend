@@ -26,6 +26,16 @@ export interface ApiRole {
   status: string;
 }
 
+export interface HrEmployeeStub {
+  id: string;
+  name: string | null;
+  employeeNumber: string;
+  stationId: string;
+  department?: { id: string; name: string } | null;
+  jobTitle?: { id: string; title: string } | null;
+  user: { id: string; name: string; email: string; status: string } | null;
+}
+
 export const usersApi = {
   list: (params?: { status?: string; role?: string; page?: number; limit?: number }) => {
     const p = new URLSearchParams();
@@ -36,8 +46,8 @@ export const usersApi = {
     const qs = p.toString();
     return api.get<R<ApiUser[]>>(`/users${qs ? `?${qs}` : ""}`);
   },
-  create: (body: { name: string; email: string; password: string; phone?: string; activeRole?: string; homeLocation?: string; roles?: string[]; isEmployee?: boolean }) =>
-    api.post<R<ApiUser>>("/users", body),
+  create: (body: { name: string; email: string; password?: string; sendInvite?: boolean; phone?: string; activeRole?: string; homeLocation?: string; roles?: string[]; isEmployee?: boolean }) =>
+    api.post<{ success: boolean; data: ApiUser; dev_invite_link?: string }>("/users", body),
   get: (id: string) =>
     api.get<R<ApiUser>>(`/users/${id}`),
   update: (id: string, body: { name?: string; phone?: string; homeLocation?: string | null }) =>
@@ -46,6 +56,17 @@ export const usersApi = {
     api.put<R<ApiUser>>(`/users/${id}/roles`, { roles }),
   updateStatus: (id: string, status: string) =>
     api.put<R<ApiUser>>(`/users/${id}/status`, { status }),
+
+  /** HR employees with no account or Pending activation — used for bulk invite */
+  hrNeedsInvite: () =>
+    api.get<R<HrEmployeeStub[]>>("/hr/employees/needs-invite"),
+
+  /** Bulk-create/refresh accounts from HR employee records and send invites */
+  bulkInviteFromHr: (entries: { employeeId: string; email?: string; name?: string; roles: string[] }[]) =>
+    api.post<{ success: boolean; data: { employeeId: string; email?: string; name?: string; dev_invite_link?: string; error?: string }[] }>(
+      "/users/bulk-invite-from-hr",
+      { employees: entries }
+    ),
 };
 
 export const rolesApi = {

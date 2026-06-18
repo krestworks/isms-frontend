@@ -1,4 +1,9 @@
-import { Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard, DollarSign, Settings, Users, FileText, UserCog, UserCircle, MapPin, Package, Store, type LucideIcon } from "lucide-react";
+import {
+  Fuel, Flame, Droplets, Wrench, Car, LayoutDashboard,
+  DollarSign, Settings, Users, FileText, UserCog, UserCircle,
+  MapPin, Package, Store, Building2, Clock, Calendar, Umbrella,
+  Receipt, TrendingUp, AlertTriangle, X, type LucideIcon,
+} from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { canAccessRoute } from "@/lib/permissions";
@@ -18,13 +23,13 @@ import {
 } from "@/components/ui/sidebar";
 
 const operations = [
-  { title: "Fuel Management", url: "/fuel",       icon: Fuel },
-  { title: "LPG Management",  url: "/lpg",        icon: Flame },
-  { title: "Water Production", url: "/water",     icon: Droplets },
-  { title: "Auto Services",   url: "/automotive", icon: Wrench },
-  { title: "Car Wash",        url: "/carwash",    icon: Car },
-  { title: "Business",        url: "/business",   icon: Store },
-  { title: "Inventory",       url: "/inventory",  icon: Package },
+  { title: "Fuel Management",  url: "/fuel",       icon: Fuel },
+  { title: "LPG Management",   url: "/lpg",        icon: Flame },
+  { title: "Water Production", url: "/water",      icon: Droplets },
+  { title: "Auto Services",    url: "/automotive", icon: Wrench },
+  { title: "Car Wash",         url: "/carwash",    icon: Car },
+  { title: "Business",         url: "/business",   icon: Store },
+  { title: "Inventory",        url: "/inventory",  icon: Package },
 ];
 
 const administration = [
@@ -39,12 +44,31 @@ const management = [
   { title: "Settings",          url: "/settings", icon: Settings },
 ];
 
+const employeeItems = [
+  { title: "My Overview",    url: "/employee-portal",              icon: LayoutDashboard },
+  { title: "My Details",     url: "/employee-portal/details",      icon: UserCircle },
+  { title: "Clock In / Out", url: "/employee-portal/attendance",   icon: Clock },
+  { title: "My Shifts",      url: "/employee-portal/shifts",       icon: Calendar },
+  { title: "My Leave",       url: "/employee-portal/leave",        icon: Umbrella },
+  { title: "My Payslips",    url: "/employee-portal/payslips",     icon: Receipt },
+  { title: "My Performance", url: "/employee-portal/performance",  icon: TrendingUp },
+  { title: "Disciplinary",   url: "/employee-portal/disciplinary", icon: AlertTriangle },
+  { title: "My Documents",   url: "/employee-portal/documents",    icon: FileText },
+];
+
 export function AppSidebar() {
   const { user } = useSession();
-  const { state } = useSidebar();
-  const collapsed = state === "collapsed";
-  const location = useLocation();
-  const isActive = (path: string) => location.pathname === path || (path !== "/" && location.pathname.startsWith(path));
+  const { state, isMobile, setOpenMobile } = useSidebar();
+  const collapsed  = state === "collapsed";
+  const location   = useLocation();
+  const isSuperAdmin = user.activeRole === "SuperAdmin";
+  const isEmployee   = user.activeRole === "Employee";
+
+  // isActive: exact match for root and employee portal overview; prefix match for everything else
+  const isActive = (url: string) => {
+    if (url === "/" || url === "/employee-portal") return location.pathname === url;
+    return location.pathname === url || location.pathname.startsWith(url + "/");
+  };
 
   const initials = user.name
     .split(" ")
@@ -58,9 +82,10 @@ export function AppSidebar() {
       <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
         <NavLink
           to={item.url}
-          end={item.url === "/"}
+          end={item.url === "/" || item.url === "/employee-portal"}
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
           activeClassName="bg-sidebar-accent text-sidebar-primary font-medium shadow-glow"
+          onClick={() => { if (isMobile) setOpenMobile(false); }}
         >
           <item.icon className="h-4 w-4 shrink-0" />
           {!collapsed && <span>{item.title}</span>}
@@ -85,47 +110,90 @@ export function AppSidebar() {
   return (
     <Sidebar collapsible="icon" className="border-r-0">
       <SidebarHeader className="p-4 border-b border-sidebar-border">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center shrink-0">
-            <Fuel className="h-5 w-5 text-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <div className="flex flex-col">
-              <span className="font-bold text-sm text-sidebar-accent-foreground tracking-tight">ISMS</span>
-              <span className="text-[10px] text-sidebar-foreground">Station Management</span>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center shrink-0">
+              <Fuel className="h-5 w-5 text-primary-foreground" />
             </div>
+            {!collapsed && (
+              <div className="flex flex-col">
+                <span className="font-bold text-sm text-sidebar-accent-foreground tracking-tight">ISMS</span>
+                <span className="text-[10px] text-sidebar-foreground">Station Management</span>
+              </div>
+            )}
+          </div>
+          {isMobile && (
+            <button
+              onClick={() => setOpenMobile(false)}
+              className="h-7 w-7 flex items-center justify-center rounded-md text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors"
+              aria-label="Close sidebar"
+            >
+              <X className="h-4 w-4" />
+            </button>
           )}
         </div>
       </SidebarHeader>
 
       <SidebarContent className="px-2 py-3">
-        {/* Dashboard — always first, always accessible */}
-        <SidebarGroup>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {renderItem({ title: "Dashboard", url: "/", icon: LayoutDashboard })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
 
-        {/* Employee Portal — always accessible to authenticated users */}
-        <SidebarGroup>
-          <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">My Portal</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {renderItem({ title: "Employee Portal", url: "/employee-portal", icon: UserCircle })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {/* ── Employee workspace ──────────────────────────────────────────────── */}
+        {isEmployee && (
+          <SidebarGroup>
+            <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">
+              My Workspace
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>{employeeItems.map(renderItem)}</SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
-        {/* Operations — modules filtered by permission */}
-        {renderGroup("Operations", operations)}
+        {/* ── Non-employee layout ─────────────────────────────────────────────── */}
+        {!isEmployee && (
+          <>
+            {/* Dashboard */}
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {renderItem({ title: "Dashboard", url: "/", icon: LayoutDashboard })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
 
-        {/* Administration — Locations + HR (admin/manager only) */}
-        {renderGroup("Administration", administration)}
+            {/* SuperAdmin: Accounts Management */}
+            {isSuperAdmin && (
+              <SidebarGroup>
+                <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">Platform</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {renderItem({ title: "Accounts", url: "/accounts", icon: Building2 })}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+            )}
 
-        {/* Management — Finance, Clients, Reports, Settings */}
-        {renderGroup("Management", management)}
+            {/* Non-SuperAdmin regular sections */}
+            {!isSuperAdmin && (
+              <>
+                {/* Employee Portal quick link — for users who also have an employee record */}
+                {user.isEmployee && (
+                  <SidebarGroup>
+                    <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">My Portal</SidebarGroupLabel>
+                    <SidebarGroupContent>
+                      <SidebarMenu>
+                        {renderItem({ title: "Employee Portal", url: "/employee-portal", icon: UserCircle })}
+                      </SidebarMenu>
+                    </SidebarGroupContent>
+                  </SidebarGroup>
+                )}
+
+                {renderGroup("Operations", operations)}
+                {renderGroup("Administration", administration)}
+                {renderGroup("Management", management)}
+              </>
+            )}
+          </>
+        )}
       </SidebarContent>
 
       <SidebarFooter className="p-3 border-t border-sidebar-border">

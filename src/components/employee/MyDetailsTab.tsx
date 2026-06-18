@@ -1,5 +1,6 @@
 import { useMyEmployee } from "@/lib/useMyEmployee";
 import { useSession } from "@/data/sessionStore";
+import { useStations } from "@/data/stationsCache";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -20,6 +21,7 @@ function NotOnboarded() {
 export default function MyDetailsTab() {
   const { user } = useSession();
   const { employee, loading, error } = useMyEmployee();
+  const stations = useStations();
 
   if (loading) return <div className="p-8 text-center text-muted-foreground text-sm">Loading your details...</div>;
   if (!employee && !error) return <NotOnboarded />;
@@ -63,7 +65,7 @@ export default function MyDetailsTab() {
             <div><span className="text-muted-foreground">Job Title:</span> {employee.jobTitle?.title || "—"}</div>
             <div><span className="text-muted-foreground">Joined:</span> {new Date(employee.startDate).toLocaleDateString()}</div>
             <div><span className="text-muted-foreground">Employment:</span> {employee.employmentType}</div>
-            <div><span className="text-muted-foreground">Location:</span> {user.homeLocation || "—"}</div>
+            <div><span className="text-muted-foreground">Location:</span> {stations.find(s => s.id === user.homeLocation)?.name || user.homeLocation || "—"}</div>
             {employee.salaryGrade && <div><span className="text-muted-foreground">Grade:</span> {employee.salaryGrade}</div>}
           </CardContent>
         </Card>

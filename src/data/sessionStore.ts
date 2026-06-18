@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { auditLog } from "./auditLogStore";
 
-export type Role = "Admin" | "Manager" | "Accountant" | "Attendant" | "LocationHead" | "Employee";
+export type Role = "SuperAdmin" | "Admin" | "Manager" | "Accountant" | "Attendant" | "LocationHead" | "Employee";
 
 export interface SessionUser {
   id: string;
@@ -15,6 +15,7 @@ export interface SessionUser {
   permissions: string[];   // effective permission codes for the current active role
   homeLocation?: string;   // set for LocationHead — their assigned station
   employeeId?: string;
+  isEmployee?: boolean;
   status?: string;
   lastLogin?: string | null;
   createdAt?: string;

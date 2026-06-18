@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, MapPin, ArrowRight, RefreshCw, RotateCcw, Trash2, AlertTriangle } from "lucide-react";
+import { Plus, MapPin, ArrowRight, RefreshCw, RotateCcw, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,6 +51,10 @@ export default function LocationsPage() {
   // Purge confirmation state
   const [purgeTarget, setPurgeTarget]       = useState<ApiStationFull | null>(null);
   const [purging, setPurging]               = useState(false);
+
+  // Card pagination
+  const CARDS_PER_PAGE = 4;
+  const [cardPage, setCardPage] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -229,43 +233,73 @@ export default function LocationsPage() {
           ))}
         </div>
 
-        {/* Location cards */}
-        {stations.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {stations.map(loc => {
-              const isActive = activeLocation === loc.name;
-              const isHome   = user.homeLocation === loc.name;
-              const canSwitch = canViewAll || isHome;
-              return (
-                <Card key={loc.id} className={isActive ? "border-primary shadow-md" : ""}>
-                  <CardContent className="p-4 space-y-2">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="font-semibold text-sm flex items-center gap-2">
-                          {loc.name}
-                          {isActive && <Badge variant="default" className="text-[9px]">Active</Badge>}
-                          {isHome   && <Badge variant="outline" className="text-[9px]">Home</Badge>}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{loc.type}{loc.city ? ` · ${loc.city}` : ""}</p>
-                      </div>
-                      <StatusBadge status={loc.status} />
-                    </div>
-                    {loc.phone && <p className="text-xs text-muted-foreground">{loc.phone}</p>}
-                    <Button
-                      size="sm"
-                      variant={isActive ? "secondary" : "outline"}
-                      className="w-full"
-                      disabled={!canSwitch || isActive}
-                      onClick={() => switchTo(loc.name)}
-                    >
-                      {isActive ? "Currently viewing" : <>Switch to this location <ArrowRight className="h-3.5 w-3.5 ml-1.5" /></>}
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
+        {/* Location cards — paginated, one row at a time */}
+        {stations.length > 0 && (() => {
+          const totalPages = Math.ceil(stations.length / CARDS_PER_PAGE);
+          const safePage   = Math.min(cardPage, totalPages - 1);
+          const pageStations = stations.slice(safePage * CARDS_PER_PAGE, (safePage + 1) * CARDS_PER_PAGE);
+          return (
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {pageStations.map(loc => {
+                  const isActive  = activeLocation === loc.name;
+                  const isHome    = user.homeLocation === loc.id;
+                  const canSwitch = canViewAll || isHome;
+                  return (
+                    <Card key={loc.id} className={isActive ? "border-primary shadow-md" : ""}>
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-start justify-between">
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm flex items-center gap-1.5 flex-wrap">
+                              <span className="truncate">{loc.name}</span>
+                              {isActive && <Badge variant="default" className="text-[9px]">Active</Badge>}
+                              {isHome   && <Badge variant="outline" className="text-[9px]">Home</Badge>}
+                            </p>
+                            <p className="text-xs text-muted-foreground">{loc.type}{loc.city ? ` · ${loc.city}` : ""}</p>
+                          </div>
+                          <StatusBadge status={loc.status} />
+                        </div>
+                        {loc.phone && <p className="text-xs text-muted-foreground">{loc.phone}</p>}
+                        <Button
+                          size="sm"
+                          variant={isActive ? "secondary" : "outline"}
+                          className="w-full"
+                          disabled={!canSwitch || isActive}
+                          onClick={() => switchTo(loc.name)}
+                        >
+                          {isActive ? "Currently viewing" : <>Switch <ArrowRight className="h-3.5 w-3.5 ml-1" /></>}
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+
+              {/* Pagination controls */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-1">
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => setCardPage(p => Math.max(0, p - 1))}
+                    disabled={safePage === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" /> Previous
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {safePage + 1} / {totalPages}
+                  </span>
+                  <Button
+                    variant="outline" size="sm"
+                    onClick={() => setCardPage(p => Math.min(totalPages - 1, p + 1))}
+                    disabled={safePage === totalPages - 1}
+                  >
+                    Next <ChevronRight className="h-4 w-4 ml-1" />
+                  </Button>
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Table */}
         <DataTable

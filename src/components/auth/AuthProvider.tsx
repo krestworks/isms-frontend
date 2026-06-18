@@ -24,7 +24,9 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function enforceLocationScope(user: SessionUser, stations: ApiStationFull[] = []) {
   if (user.permissions.includes("stations.view")) return; // admin/manager — no lock
   if (user.homeLocation) {
-    sessionStore.switchLocation(user.homeLocation);
+    // homeLocation is stored as a station ID — resolve to the display name for the location store
+    const station = stations.find(s => s.id === user.homeLocation);
+    sessionStore.switchLocation(station?.name ?? user.homeLocation);
   } else if (stations.length === 1) {
     // Single-station deployment and user has no explicit homeLocation: lock them to it
     sessionStore.switchLocation(stations[0].name);
