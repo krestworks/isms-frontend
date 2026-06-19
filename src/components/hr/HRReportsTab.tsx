@@ -15,7 +15,7 @@ const REPORTS = [
   { id: "attendance",   title: "Attendance Summary",              desc: "Clock-ins, clock-outs & absence by period",      icon: Calendar },
   { id: "leave",        title: "Leave Balances & Usage",          desc: "Annual, sick, compassionate per employee",       icon: Calendar },
   { id: "payroll",      title: "Payroll Register",                desc: "Gross, statutory deductions & net pay run",      icon: DollarSign },
-  { id: "statutory",    title: "Statutory Returns (PAYE/NHIF/NSSF)", desc: "Monthly remittance schedules",               icon: DollarSign },
+  { id: "statutory",    title: "Statutory Returns (PAYE/SHA/NSSF)", desc: "Monthly remittance schedules",               icon: DollarSign },
   { id: "discipline",   title: "Disciplinary Cases",              desc: "Open / closed cases with stage breakdown",       icon: AlertTriangle },
   { id: "performance",  title: "Performance & Tasks",             desc: "Task completion, ratings, overdue items",        icon: TrendingUp },
   { id: "documents",    title: "Document Compliance",             desc: "Expiring & expired employee documents",          icon: FileWarning },
@@ -102,14 +102,14 @@ export default function HRReportsTab() {
           ? list.map(pr => ({
               employee: pr.employee?.user.name ?? pr.employeeId,
               employeeNo: pr.employee?.employeeNumber ?? "—",
-              month: pr.month, paye: pr.paye, nhif: pr.nhif, nssf: pr.nssf,
+              month: pr.month, paye: pr.paye, sha: pr.nhif, nssf: pr.nssf,
             }))
           : list.map(pr => ({
               employee: pr.employee?.user.name ?? pr.employeeId,
               department: pr.employee?.department?.name ?? "—",
               month: pr.month, basicSalary: pr.basicSalary, houseAllowance: pr.houseAllowance,
               transportAllowance: pr.transportAllowance, overtimePay: pr.overtimePay,
-              grossPay: pr.grossPay, nhif: pr.nhif, nssf: pr.nssf, paye: pr.paye,
+              grossPay: pr.grossPay, sha: pr.nhif, nssf: pr.nssf, paye: pr.paye,
               otherDeductions: pr.otherDeductions, totalDeductions: pr.totalDeductions,
               netPay: pr.netPay, status: pr.status, payDate: pr.payDate ?? "—",
             }));

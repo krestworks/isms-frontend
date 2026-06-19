@@ -41,6 +41,7 @@ export interface ApiLeaveType {
   minTenureMonths?: number; genderRestriction?: string | null;
   accrualType?: string;
   excludeHolidays?: boolean; excludeWeekends?: boolean;
+  requiresDocument?: boolean;
 }
 
 export interface ApiPublicHoliday {
@@ -59,22 +60,37 @@ export interface ApiEmployee {
   startDate: string; endDate?: string;
   gender?: string; nationalId?: string; dateOfBirth?: string; address?: string;
   emergencyContact?: { name: string; phone: string; relation?: string } | null;
-  bankDetails?: { bankName: string; accountNo: string; branchCode?: string } | null;
+  bankDetails?: { bankName: string; bankCode?: string; accountNo: string; branchCode?: string; paymentMethod?: string } | null;
+  kraPin?: string; shaNo?: string; nssfNo?: string; paymentMethod?: string;
   salaryGrade?: string; basicSalary?: number;
   status: string; terminatedAt?: string; terminationNote?: string;
   user: { id: string; name: string; email: string; phone?: string; activeRole: string; status: string; };
   department?: { id: string; name: string } | null;
   jobTitle?: { id: string; title: string; grade?: string } | null;
+  departmentId?: string; jobTitleId?: string;
   createdAt: string; updatedAt: string;
 }
 
 export interface ApiLeaveRequest {
   id: string; employeeId: string; leaveTypeId: string;
+  leaveRef?: string;
   startDate: string; endDate: string; days: number;
+  isHalfDay?: boolean; halfDayPeriod?: string;
   reason?: string; status: string; approvedBy?: string; approvedAt?: string; note?: string;
-  employee?: { id: string; user: { id: string; name: string; email: string } };
+  appliedBy?: string;
+  employee?: { id: string; name?: string; user: { id: string; name: string; email: string } };
   leaveType?: { id: string; name: string; isPaid: boolean };
   createdAt: string; updatedAt: string;
+}
+
+export interface ApiLeaveSlip {
+  ref: string;
+  employee: { name: string; number?: string; department: string; jobTitle: string; email: string };
+  leaveType: string; isPaid: boolean;
+  startDate: string; endDate: string; days: number;
+  isHalfDay: boolean; halfDayPeriod?: string;
+  reason?: string; status: string; note?: string;
+  appliedOn: string; approvedOn?: string;
 }
 
 export interface ApiLeaveBalance {
@@ -188,6 +204,65 @@ export interface ApiPerformanceTask {
   };
 }
 
+export interface ApiNotification {
+  id: string; userId: string;
+  type: string; title: string; message: string; link?: string | null;
+  isRead: boolean; readAt?: string | null; createdAt: string;
+}
+
+// ── Recruitment types ─────────────────────────────────────────────────────────
+
+export interface ApiJob {
+  id: string; jobCode: string; stationId: string;
+  title: string; departmentId?: string | null;
+  description: string; requirements?: string | null; responsibilities?: string | null;
+  salaryMin?: number | null; salaryMax?: number | null; currency: string;
+  employmentType: string; location?: string | null; isRemote: boolean;
+  slots: number; closingDate?: string | null;
+  status: "Draft" | "Published" | "Closed" | "Archived";
+  publishedAt?: string | null; tags?: string | null; createdBy?: string;
+  department?: { id: string; name: string } | null;
+  _count?: { applications: number };
+  applications?: ApiJobApplication[];
+  createdAt: string; updatedAt: string;
+}
+
+export interface ApiAiScreening {
+  score: number;
+  recommendation: "Shortlist" | "Interview" | "Hold" | "Reject";
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  redFlags: string[];
+}
+
+export interface ApiInterviewQuestions {
+  questions: Array<{ type: string; question: string; probe?: string }>;
+}
+
+export interface ApiJobApplication {
+  id: string; jobId: string;
+  applicantName: string; applicantEmail: string; applicantPhone?: string | null;
+  coverLetter?: string | null; resumeText?: string | null; resumeFile?: string | null;
+  linkedinUrl?: string | null; portfolioUrl?: string | null;
+  source?: string; expectedSalary?: number | null; noticePeriod?: string | null;
+  status: "Applied" | "Screening" | "Shortlisted" | "Interview" | "Offered" | "Rejected" | "Withdrawn";
+  reviewedBy?: string | null; reviewedAt?: string | null;
+  aiScore?: number | null; aiSummary?: string | null; aiInterviewQ?: string | null; aiScreenedAt?: string | null;
+  interviewDate?: string | null; interviewNotes?: string | null;
+  offerSalary?: number | null; offerDate?: string | null;
+  rejectionReason?: string | null; internalNotes?: string | null;
+  job?: { id: string; title: string; jobCode: string; stationId: string };
+  stages?: ApiApplicationStageLog[];
+  createdAt: string; updatedAt: string;
+}
+
+export interface ApiApplicationStageLog {
+  id: string; applicationId: string;
+  fromStage: string; toStage: string;
+  note?: string | null; changedBy?: string | null; changedAt: string;
+}
+
 // ── API surface ───────────────────────────────────────────────────────────────
 
 export const hrApi = {
@@ -195,6 +270,20 @@ export const hrApi = {
   // Stations (for dropdowns)
   stations: {
     list: () => api.get<{ success: boolean; data: ApiStation[] }>("/stations"),
+  },
+
+  // ── Banks ───────────────────────────────────────────────────────────────────
+
+  banks: {
+    list:     () => api.get<{ success: boolean; data: { code: string; name: string }[] }>("/hr/banks"),
+    branches: (code: string) => api.get<{ success: boolean; data: { code: string; name: string }[] }>(`/hr/banks/${code}/branches`),
+  },
+
+  // ── Payroll Settings ─────────────────────────────────────────────────────────
+
+  payrollSettings: {
+    get:  () => api.get<{ success: boolean; data: Record<string, any> }>("/hr/payroll/settings"),
+    save: (data: Record<string, any>) => api.put<{ success: boolean; data: Record<string, any> }>("/hr/payroll/settings", data),
   },
 
   // ── Setup ───────────────────────────────────────────────────────────────────
@@ -307,13 +396,23 @@ export const hrApi = {
   leaves: {
     list:   (params?: { status?: string; employeeId?: string; stationId?: string; page?: number }) =>
       api.get<{ success: boolean; data: ApiLeaveRequest[]; meta: PageMeta }>(`/hr/leaves${qs(params as any)}`),
-    submit: (data: { leaveTypeId: string; startDate: string; endDate: string; reason?: string }) =>
-      api.post<{ success: boolean; data: ApiLeaveRequest }>("/hr/leaves", data),
+    submit: (data: {
+      leaveTypeId: string; startDate: string; endDate: string; reason?: string;
+      employeeId?: string; isHalfDay?: boolean; halfDayPeriod?: string; allowBackdate?: boolean;
+    }) => api.post<{ success: boolean; data: ApiLeaveRequest }>("/hr/leaves", data),
     approve: (id: string, action: "approve" | "reject", note?: string) =>
       api.put<{ success: boolean; data: ApiLeaveRequest }>(`/hr/leaves/${id}/approve`, { action, note }),
+    adjust:  (id: string, returnDate: string, note?: string) =>
+      api.put<{ success: boolean; data: ApiLeaveRequest }>(`/hr/leaves/${id}/adjust`, { returnDate, note }),
     cancel:  (id: string) => api.put<{ success: boolean }>(`/hr/leaves/${id}/cancel`, {}),
     balances: (params?: { employeeId?: string; year?: number }) =>
       api.get<{ success: boolean; data: ApiLeaveBalance[] }>(`/hr/leaves/balances${qs(params as any)}`),
+    adjustBalance: (data: { employeeId: string; leaveTypeId: string; year?: number; total: number; note?: string }) =>
+      api.post<{ success: boolean; data: ApiLeaveBalance }>("/hr/leaves/adjust-balance", data),
+    exportLeaves: (params?: { status?: string; employeeId?: string; from?: string; to?: string }) =>
+      `/hr/leaves/export${qs(params as any)}`,
+    getSlip: (id: string) =>
+      api.get<{ success: boolean; data: ApiLeaveSlip }>(`/hr/leaves/${id}/slip`),
   },
 
   // ── Attendance ──────────────────────────────────────────────────────────────
@@ -388,6 +487,52 @@ export const hrApi = {
     performance: {
       list: (params?: { page?: number; limit?: number }) =>
         api.get<{ success: boolean; data: ApiPerformanceTask[]; meta: PageMeta }>(`/hr/self/performance${qs(params as any)}`),
+    },
+    documents: {
+      list: () => api.get<{ success: boolean; data: ApiDocument[] }>("/hr/self/documents"),
+    },
+    notifications: {
+      list:         (params?: { unreadOnly?: boolean; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiNotification[]; unreadCount: number; meta: PageMeta }>(`/hr/self/notifications${qs({ ...params, unreadOnly: params?.unreadOnly ? "true" : undefined } as any)}`),
+      markRead:     (id: string) => api.put<{ success: boolean }>(`/hr/self/notifications/${id}/read`, {}),
+      markAllRead:  () => api.put<{ success: boolean }>("/hr/self/notifications/mark-all-read", {}),
+      clear:        () => api.delete<{ success: boolean }>("/hr/self/notifications"),
+    },
+  },
+
+  // ── Recruitment ─────────────────────────────────────────────────────────────
+
+  recruitment: {
+    jobs: {
+      list:    (params?: { status?: string; departmentId?: string; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiJob[]; meta: PageMeta }>(`/hr/recruitment/jobs${qs(params as any)}`),
+      create:  (data: Partial<ApiJob> & { title: string; description: string }) =>
+        api.post<{ success: boolean; data: ApiJob }>("/hr/recruitment/jobs", data),
+      get:     (id: string) => api.get<{ success: boolean; data: ApiJob }>(`/hr/recruitment/jobs/${id}`),
+      update:  (id: string, data: Partial<ApiJob>) =>
+        api.put<{ success: boolean; data: ApiJob }>(`/hr/recruitment/jobs/${id}`, data),
+      publish: (id: string) =>
+        api.post<{ success: boolean; data: ApiJob }>(`/hr/recruitment/jobs/${id}/publish`, {}),
+      close:   (id: string, archive?: boolean) =>
+        api.post<{ success: boolean; data: ApiJob }>(`/hr/recruitment/jobs/${id}/close`, { archive }),
+      remove:  (id: string) => api.delete<{ success: boolean }>(`/hr/recruitment/jobs/${id}`),
+      batchScreen: (id: string) =>
+        api.post<{ success: boolean; screened: number; results: Array<{ id: string; name: string; score: number; recommendation: string }> }>(`/hr/recruitment/jobs/${id}/batch-screen`, {}),
+      generatePost: (data: { title: string; employmentType?: string; department?: string }) =>
+        api.post<{ success: boolean; data: { description: string; requirements: string; responsibilities: string } }>("/hr/recruitment/jobs/generate-post", data),
+    },
+    applications: {
+      list:    (params?: { jobId?: string; status?: string; page?: number; limit?: number; aiScoreMin?: number }) =>
+        api.get<{ success: boolean; data: ApiJobApplication[]; meta: PageMeta }>(`/hr/recruitment/applications${qs(params as any)}`),
+      get:     (id: string) => api.get<{ success: boolean; data: ApiJobApplication }>(`/hr/recruitment/applications/${id}`),
+      stage:   (id: string, data: { status: string; note?: string; interviewDate?: string; offerSalary?: number; rejectionReason?: string; internalNotes?: string }) =>
+        api.put<{ success: boolean; data: ApiJobApplication }>(`/hr/recruitment/applications/${id}/stage`, data),
+      notes:   (id: string, data: { internalNotes?: string; interviewNotes?: string; interviewDate?: string }) =>
+        api.put<{ success: boolean; data: ApiJobApplication }>(`/hr/recruitment/applications/${id}/notes`, data),
+      screen:  (id: string) =>
+        api.post<{ success: boolean; data: ApiJobApplication; ai: ApiAiScreening }>(`/hr/recruitment/applications/${id}/screen`, {}),
+      questions: (id: string) =>
+        api.post<{ success: boolean; data: ApiInterviewQuestions }>(`/hr/recruitment/applications/${id}/questions`, {}),
     },
   },
 

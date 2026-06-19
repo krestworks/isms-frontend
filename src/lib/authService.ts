@@ -1,5 +1,6 @@
 import { api, setAccessToken } from "./api";
 import type { Role, SessionUser } from "@/data/sessionStore";
+import type { AccountBranding } from "@/data/brandingStore";
 
 export interface LoginResponse {
   success: boolean;
@@ -66,5 +67,15 @@ export const authService = {
       setAccessToken(res.data.accessToken);
     }
     return res;
+  },
+
+  async getMyAccount(): Promise<AccountBranding | null> {
+    const res = await api.get<{ success: boolean; data: AccountBranding | null }>("/auth/my-account");
+    return res.data ?? null;
+  },
+
+  async updateMyAccount(data: Partial<AccountBranding>): Promise<AccountBranding> {
+    const res = await api.put<{ success: boolean; data: AccountBranding }>("/auth/my-account", data);
+    return res.data;
   },
 };

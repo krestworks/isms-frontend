@@ -14,7 +14,13 @@ import { hrApi, ApiAttendance, ApiEmployee, ApiStation } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
 import { exportToCsv } from "@/lib/exportCsv";
 
-const STATUSES = ["Present", "Absent", "Late", "On Leave", "Half Day"];
+const STATUSES = [
+  { value: "Present",  label: "Present"  },
+  { value: "Absent",   label: "Absent"   },
+  { value: "Late",     label: "Late"     },
+  { value: "HalfDay",  label: "Half Day" },
+  { value: "OnLeave",  label: "On Leave" },
+];
 
 function calcHours(checkIn?: string | null, checkOut?: string | null): string {
   if (!checkIn || !checkOut) return "—";
@@ -34,7 +40,10 @@ export default function AttendanceTab() {
   const [toDate, setToDate] = useState(today);
   const [manualOpen, setManualOpen] = useState(false);
   const [viewing, setViewing] = useState<ApiAttendance | null>(null);
-  const [manualForm, setManualForm] = useState({ employeeId: "", date: today, checkIn: "", checkOut: "", status: "Present", note: "" });
+  const [manualForm, setManualForm] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("hr_attendance_form") || "null") || { employeeId: "", date: today, checkIn: "", checkOut: "", status: "Present", note: "" }; }
+    catch { return { employeeId: "", date: today, checkIn: "", checkOut: "", status: "Present", note: "" }; }
+  });
   const [saving, setSaving] = useState(false);
 
   const can = usePermissions();
@@ -123,7 +132,7 @@ export default function AttendanceTab() {
   ];
 
   const filterOpts: FilterOption[] = [
-    { key: "status", label: "Status", options: STATUSES.map(s => ({ label: s, value: s })) },
+    { key: "status", label: "Status", options: STATUSES.map(s => ({ label: s.label, value: s.value })) },
   ];
 
   return (
@@ -221,9 +230,9 @@ export default function AttendanceTab() {
           <div><Label>Check Out</Label><Input type="time" value={manualForm.checkOut} onChange={e => setManualForm(f => ({ ...f, checkOut: e.target.value }))} /></div>
           <div>
             <Label>Status</Label>
-            <Select value={manualForm.status} onValueChange={v => setManualForm(f => ({ ...f, status: v }))}>
+            <Select value={manualForm.status} onValueChange={v => setManualForm(f => { const nf = { ...f, status: v }; localStorage.setItem("hr_attendance_form", JSON.stringify(nf)); return nf; })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+              <SelectContent>{STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="col-span-2">

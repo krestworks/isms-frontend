@@ -6,6 +6,8 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { hrApi, ApiPayroll } from "@/lib/hrApi";
+import { brandingStore } from "@/data/brandingStore";
+import { BrandedDocHeader } from "@/components/shared/BrandedDocHeader";
 import { toast } from "sonner";
 
 const fmt = (n: number) => `Ksh ${n.toLocaleString()}`;
@@ -16,10 +18,17 @@ const fmtPeriod = (month: string) => {
 };
 
 function buildPayslipText(p: ApiPayroll): string {
+  const b = brandingStore.get();
+  const name = b?.name ?? "ISMS";
+  const tagline = b?.tagline ? `\n    ${b.tagline}` : "";
+  const width = 38;
+  const centered = (s: string) => s.padStart(Math.floor((width + s.length) / 2)).padEnd(width);
   return [
-    "══════════════════════════════════════",
-    "         ISMS PAY STATEMENT          ",
-    "══════════════════════════════════════",
+    "═".repeat(width),
+    centered(name),
+    ...(tagline ? [centered(b!.tagline!)] : []),
+    centered("PAY STATEMENT"),
+    "═".repeat(width),
     "",
     `Pay Period: ${fmtPeriod(p.month)}`,
     `Payslip ID: ${p.id.slice(-8).toUpperCase()}`,
@@ -34,7 +43,7 @@ function buildPayslipText(p: ApiPayroll): string {
     `GROSS PAY:           ${fmt(p.grossPay)}`,
     "",
     "─── DEDUCTIONS ─────────────────────",
-    `NHIF:                ${fmt(p.nhif)}`,
+    `SHA:                 ${fmt(p.nhif)}`,
     `NSSF:                ${fmt(p.nssf)}`,
     `PAYE:                ${fmt(p.paye)}`,
     `Other Deductions:    ${fmt(p.otherDeductions)}`,
@@ -122,6 +131,12 @@ export default function MyPayslipsTab() {
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Payslip Details" isView>
         {viewing && (
           <div className="space-y-4">
+            <BrandedDocHeader
+              docTitle="PAYSLIP"
+              docDate={fmtPeriod(viewing.month)}
+              docRef={viewing.id.slice(-8).toUpperCase()}
+              hideLogo
+            />
             <div className="flex items-center justify-between">
               <Badge variant="outline" className="text-sm">{fmtPeriod(viewing.month)}</Badge>
               <StatusBadge status={viewing.status} />
@@ -143,7 +158,7 @@ export default function MyPayslipsTab() {
             <div className="rounded-lg border p-4 space-y-2">
               <h4 className="font-semibold text-sm text-muted-foreground">DEDUCTIONS</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <span className="text-muted-foreground">NHIF</span><span className="text-right">{fmt(viewing.nhif)}</span>
+                <span className="text-muted-foreground">SHA</span><span className="text-right">{fmt(viewing.nhif)}</span>
                 <span className="text-muted-foreground">NSSF</span><span className="text-right">{fmt(viewing.nssf)}</span>
                 <span className="text-muted-foreground">PAYE</span><span className="text-right">{fmt(viewing.paye)}</span>
                 <span className="text-muted-foreground">Other</span><span className="text-right">{fmt(viewing.otherDeductions)}</span>

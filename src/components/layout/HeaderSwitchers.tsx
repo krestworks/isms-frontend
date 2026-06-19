@@ -6,6 +6,7 @@ import { sessionStore, useSession } from "@/data/sessionStore";
 import { useStations } from "@/data/stationsCache";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { canSwitchLocation } from "@/lib/permissions";
+import { setActiveStationId } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 
@@ -82,7 +83,15 @@ export function HeaderSwitchers() {
           <DropdownMenuLabel className="text-xs">Switch location</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {visibleLocations.map(l => (
-            <DropdownMenuItem key={l} onClick={() => sessionStore.switchLocation(l)}>
+            <DropdownMenuItem key={l} onClick={() => {
+              sessionStore.switchLocation(l);
+              if (l === "All Locations") {
+                setActiveStationId(null);
+              } else {
+                const station = stations.find(s => s.name === l);
+                setActiveStationId(station?.id ?? null);
+              }
+            }}>
               <Check className={`h-3.5 w-3.5 mr-2 ${activeLocation === l ? "opacity-100" : "opacity-0"}`} />
               {l}
               {l === homeStationName && <Badge variant="outline" className="ml-auto text-[9px]">Home</Badge>}

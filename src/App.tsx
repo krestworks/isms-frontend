@@ -25,6 +25,7 @@ import InventoryPage from "./pages/InventoryPage";
 import AccountsPage from "./pages/AccountsPage";
 import LoginPage from "./pages/LoginPage";
 import ActivatePage from "./pages/ActivatePage";
+import CareersPage from "./pages/CareersPage";
 import NotFound from "./pages/NotFound";
 import { RouteGuard } from "./components/layout/RouteGuard";
 
@@ -61,8 +62,10 @@ const App = () => (
         <AuthProvider>
           <Routes>
             {/* Public */}
-            <Route path="/login"    element={<LoginPage />} />
-            <Route path="/activate" element={<ActivatePage />} />
+            <Route path="/login"              element={<LoginPage />} />
+            <Route path="/activate"           element={<ActivatePage />} />
+            <Route path="/careers/:accountId"          element={<CareersPage />} />
+            <Route path="/careers/:accountId/:jobId"   element={<CareersPage />} />
 
             {/* Protected */}
             <Route element={<RequireAuth><AppLayout /></RequireAuth>}>

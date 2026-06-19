@@ -4,15 +4,34 @@ export interface ApiAccount {
   id: string;
   name: string;
   contactEmail?: string | null;
+  contactPhone?: string | null;
   phone?: string | null;
-  status: "Active" | "Suspended" | "Pending" | "Inactive";
+  status: "Active" | "Suspended" | "Pending" | "Inactive" | "Cancelled";
   plan?: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: { users: number; stations: number };
 }
 
+export interface ApiAccountUser {
+  id: string;
+  name: string;
+  email: string;
+  activeRole: string;
+  status: string;
+  createdAt: string;
+}
+
+export interface ApiAccountStation {
+  id: string;
+  name: string;
+  type: string;
+  status: string;
+}
+
 export interface ApiAccountDetail extends ApiAccount {
+  users: ApiAccountUser[];
+  stations: ApiAccountStation[];
   adminUser?: {
     id: string;
     name: string;
@@ -44,7 +63,15 @@ export const accountsApi = {
     );
   },
 
+  update(id: string, data: { name?: string; contactEmail?: string; contactPhone?: string }) {
+    return api.put<{ success: boolean; data: ApiAccount }>(`/accounts/${id}`, data);
+  },
+
   updateStatus(id: string, status: ApiAccount["status"]) {
     return api.put<{ success: boolean; data: ApiAccount }>(`/accounts/${id}/status`, { status });
+  },
+
+  resendInvite(id: string) {
+    return api.post<{ success: boolean; message: string; dev_invite_link?: string }>(`/accounts/${id}/resend-invite`, {});
   },
 };

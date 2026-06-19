@@ -57,6 +57,9 @@ export const usersApi = {
   updateStatus: (id: string, status: string) =>
     api.put<R<ApiUser>>(`/users/${id}/status`, { status }),
 
+  resendInvite: (id: string) =>
+    api.post<{ success: boolean; message: string; dev_invite_link?: string }>(`/users/${id}/resend-invite`, {}),
+
   /** HR employees with no account or Pending activation — used for bulk invite */
   hrNeedsInvite: () =>
     api.get<R<HrEmployeeStub[]>>("/hr/employees/needs-invite"),

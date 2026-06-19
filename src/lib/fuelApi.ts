@@ -65,9 +65,19 @@ type R<T> = { success: boolean; data: T; message?: string };
 
 // ── API ───────────────────────────────────────────────────────────────────────
 
+export interface ApiFuelMonthlySummary {
+  month: string;
+  fuel: number;
+  litres: number;
+  transactions: number;
+}
+
 export const fuelApi = {
   summary: (stationId?: string | null) =>
     api.get<R<ApiFuelSummary>>(`/fuel/summary`, sh(stationId)),
+
+  monthlySummary: (months = 6, stationId?: string | null) =>
+    api.get<R<ApiFuelMonthlySummary[]>>(`/fuel/sales/monthly-summary?months=${months}`, sh(stationId)),
 
   tanks: {
     list: (stationId?: string | null) =>

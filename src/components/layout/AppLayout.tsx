@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { HeaderSwitchers } from "./HeaderSwitchers";
 import { NotificationsBell } from "./NotificationsBell";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { useSession } from "@/data/sessionStore";
 import { toast } from "sonner";
 
 export function AppLayout() {
   const { logout } = useAuth();
+  const { activeLocation } = useSession();
 
   async function handleLogout() {
     await logout();
@@ -47,7 +49,7 @@ export function AppLayout() {
               </Button>
             </div>
           </header>
-          <main className="flex-1 overflow-auto p-4 md:p-6">
+          <main key={activeLocation} className="flex-1 overflow-auto p-4 md:p-6">
             <Outlet />
           </main>
         </div>

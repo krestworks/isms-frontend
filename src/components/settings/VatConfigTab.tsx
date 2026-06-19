@@ -32,20 +32,19 @@ export function VatConfigTab() {
   const [form,    setForm]    = useState<Omit<ApiVatRate, "id" | "stationId">>(blank);
 
   const load = useCallback(async () => {
-    if (!stationId) return;
     setLoading(true);
     try {
-      const [cfgRes, ratesRes] = await Promise.all([
-        settingsApi.config.get<VatConfig>("vat", stationId),
-        settingsApi.vatRates.list(stationId),
-      ]);
-      if (cfgRes.data && Object.keys(cfgRes.data).length) setConfig(cfgRes.data);
+      const ratesRes = await settingsApi.vatRates.list(stationId);
       setRates(ratesRes.data ?? []);
+      if (stationId) {
+        const cfgRes = await settingsApi.config.get<VatConfig>("vat", stationId);
+        if (cfgRes.data && Object.keys(cfgRes.data).length) setConfig(cfgRes.data);
+      }
     } catch (e: any) { toast.error(e?.message || "Failed to load VAT config"); }
     finally { setLoading(false); }
   }, [stationId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   const saveConfig = async () => {
     if (!stationId) return toast.error("No station selected");
@@ -98,37 +97,47 @@ export function VatConfigTab() {
         <h3 className="text-lg font-semibold text-foreground">VAT & Currency Configuration</h3>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
-          <Button onClick={saveConfig} size="sm" disabled={saving}><Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save Config"}</Button>
+          {stationId && <Button onClick={saveConfig} size="sm" disabled={saving}><Save className="h-4 w-4 mr-1" /> {saving ? "Saving…" : "Save Config"}</Button>}
         </div>
       </div>
+      {!stationId && (
+        <p className="text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+          Select a specific station to edit VAT configuration. VAT rates below are shown for all your stations.
+        </p>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader><CardTitle className="text-sm">Currency Settings</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div><Label>Currency Code</Label><Input value={config.currency} onChange={e => setConfig(c => ({ ...c, currency: e.target.value }))} /></div>
-            <div><Label>Currency Symbol</Label><Input value={config.currencySymbol} onChange={e => setConfig(c => ({ ...c, currencySymbol: e.target.value }))} /></div>
-            <div><Label>Invoice Prefix</Label><Input value={config.invoicePrefix} onChange={e => setConfig(c => ({ ...c, invoicePrefix: e.target.value }))} /></div>
-            <div><Label>Receipt Prefix</Label><Input value={config.receiptPrefix} onChange={e => setConfig(c => ({ ...c, receiptPrefix: e.target.value }))} /></div>
-          </CardContent>
-        </Card>
+      {stationId && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader><CardTitle className="text-sm">Currency Settings</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div><Label>Currency Code</Label><Input value={config.currency} onChange={e => setConfig(c => ({ ...c, currency: e.target.value }))} /></div>
+              <div><Label>Currency Symbol</Label><Input value={config.currencySymbol} onChange={e => setConfig(c => ({ ...c, currencySymbol: e.target.value }))} /></div>
+              <div><Label>Invoice Prefix</Label><Input value={config.invoicePrefix} onChange={e => setConfig(c => ({ ...c, invoicePrefix: e.target.value }))} /></div>
+              <div><Label>Receipt Prefix</Label><Input value={config.receiptPrefix} onChange={e => setConfig(c => ({ ...c, receiptPrefix: e.target.value }))} /></div>
+            </CardContent>
+          </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="text-sm">VAT Settings</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <Label>Enable VAT</Label>
-              <Switch checked={config.vatEnabled} onCheckedChange={v => setConfig(c => ({ ...c, vatEnabled: v }))} />
-            </div>
-            <div><Label>Default VAT Rate (%)</Label><Input type="number" value={config.defaultRate} onChange={e => setConfig(c => ({ ...c, defaultRate: Number(e.target.value) }))} /></div>
-          </CardContent>
-        </Card>
-      </div>
+          <Card>
+            <CardHeader><CardTitle className="text-sm">VAT Settings</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label>Enable VAT</Label>
+                <Switch checked={config.vatEnabled} onCheckedChange={v => setConfig(c => ({ ...c, vatEnabled: v }))} />
+              </div>
+              <div><Label>Default VAT Rate (%)</Label><Input type="number" value={config.defaultRate} onChange={e => setConfig(c => ({ ...c, defaultRate: Number(e.target.value) }))} /></div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h4 className="font-medium text-foreground">VAT Rate Schedule</h4>
-          <Button onClick={openAdd} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Rate</Button>
+          {stationId
+            ? <Button onClick={openAdd} size="sm"><Plus className="h-4 w-4 mr-1" /> Add Rate</Button>
+            : <span className="text-xs text-muted-foreground">Select a station to add rates</span>
+          }
         </div>
         <DataTable data={rates} columns={columns} searchKeys={["name", "appliesTo"]} searchPlaceholder="Search rates..." onView={openView} onEdit={openEdit} onDelete={handleDelete} />
       </div>

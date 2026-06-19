@@ -8,6 +8,7 @@ export type Role = "SuperAdmin" | "Admin" | "Manager" | "Accountant" | "Attendan
 
 export interface SessionUser {
   id: string;
+  accountId?: string;
   name: string;
   email: string;
   roles: Role[];

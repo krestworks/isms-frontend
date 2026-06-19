@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
-import { hrApi, ApiEmployee, ApiPerformanceTask } from "@/lib/hrApi";
+import { hrApi, ApiEmployee, ApiPerformanceTask, ApiDepartment } from "@/lib/hrApi";
 
 const CATEGORIES = ["General", "Sales", "Service", "Operations", "Training"];
 const STATUSES   = ["pending", "in_progress", "done", "overdue"];
@@ -30,23 +30,27 @@ const emptyForm = {
 };
 
 export default function PerformanceTab() {
-  const [employees, setEmployees] = useState<ApiEmployee[]>([]);
-  const [data, setData]           = useState<ApiPerformanceTask[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing]     = useState<ApiPerformanceTask | null>(null);
-  const [viewing, setViewing]     = useState<ApiPerformanceTask | null>(null);
-  const [form, setForm]           = useState(emptyForm);
+  const [employees,  setEmployees]  = useState<ApiEmployee[]>([]);
+  const [departments, setDepts]     = useState<ApiDepartment[]>([]);
+  const [deptFilter, setDeptFilter] = useState("");
+  const [data, setData]             = useState<ApiPerformanceTask[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [modalOpen, setModalOpen]   = useState(false);
+  const [editing, setEditing]       = useState<ApiPerformanceTask | null>(null);
+  const [viewing, setViewing]       = useState<ApiPerformanceTask | null>(null);
+  const [form, setForm]             = useState(emptyForm);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [tasksRes, empsRes] = await Promise.all([
+      const [tasksRes, empsRes, deptsRes] = await Promise.all([
         hrApi.performance.list({ limit: 500 } as any),
-        hrApi.employees.list({ limit: 200 } as any),
+        hrApi.employees.list({ limit: 200, status: "Active" } as any),
+        hrApi.departments.list(),
       ]);
       setData(tasksRes.data ?? []);
       setEmployees(empsRes.data ?? []);
+      setDepts(deptsRes.data ?? []);
     } catch { /* non-critical */ }
     finally { setLoading(false); }
   }, []);
@@ -154,10 +158,24 @@ export default function PerformanceTab() {
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Task" : "New Performance Task"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Assign"}>
         <div className="space-y-4">
+          <div><Label>Filter by Department</Label>
+            <Select value={deptFilter || "_all_"} onValueChange={v => setDeptFilter(v === "_all_" ? "" : v)}>
+              <SelectTrigger><SelectValue placeholder="All departments" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_all_">All departments</SelectItem>
+                {departments.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div><Label>Employee *</Label>
-            <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
+            <Select value={form.employeeId || "_none_"} onValueChange={v => set("employeeId", v === "_none_" ? "" : v)}>
               <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}</SelectItem>)}</SelectContent>
+              <SelectContent>
+                <SelectItem value="_none_">— Select —</SelectItem>
+                {employees.filter(e => !deptFilter || e.departmentId === deptFilter || e.department?.id === deptFilter).map(e => (
+                  <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}{e.department ? ` (${e.department.name})` : ""}</SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           <div><Label>Task Title *</Label><Input value={form.title} onChange={e => set("title", e.target.value)} /></div>

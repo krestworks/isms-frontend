@@ -8,6 +8,7 @@ import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { canAccessRoute } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
+import { useBranding } from "@/data/brandingStore";
 import {
   Sidebar,
   SidebarContent,
@@ -58,6 +59,7 @@ const employeeItems = [
 
 export function AppSidebar() {
   const { user } = useSession();
+  const branding = useBranding();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed  = state === "collapsed";
   const location   = useLocation();
@@ -112,13 +114,21 @@ export function AppSidebar() {
       <SidebarHeader className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center shrink-0">
-              <Fuel className="h-5 w-5 text-primary-foreground" />
+            <div className="h-9 w-9 rounded-lg gradient-primary flex items-center justify-center shrink-0 overflow-hidden">
+              {branding?.logo ? (
+                <img src={branding.logo} alt={branding.name} className="h-full w-full object-cover" />
+              ) : (
+                <Fuel className="h-5 w-5 text-primary-foreground" />
+              )}
             </div>
             {!collapsed && (
               <div className="flex flex-col">
-                <span className="font-bold text-sm text-sidebar-accent-foreground tracking-tight">ISMS</span>
-                <span className="text-[10px] text-sidebar-foreground">Station Management</span>
+                <span className="font-bold text-sm text-sidebar-accent-foreground tracking-tight">
+                  {branding?.name ?? "ISMS"}
+                </span>
+                <span className="text-[10px] text-sidebar-foreground">
+                  {branding?.tagline ?? "Station Management"}
+                </span>
               </div>
             )}
           </div>

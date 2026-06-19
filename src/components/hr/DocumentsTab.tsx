@@ -16,7 +16,7 @@ import { hrApi, ApiDocument, ApiEmployee } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
 
 export const DOC_TYPES = [
-  "ID Card", "Passport", "KRA PIN Cert.", "NHIF/SHIF Card", "NSSF Card",
+  "ID Card", "Passport", "KRA PIN Cert.", "SHA Card", "NSSF Card",
   "Academic Cert.", "Contract", "Driving Licence", "Medical Cert.",
   "Police Clearance", "Disciplinary Evidence", "Hearing Notice", "Appeal Letter", "Other",
 ];

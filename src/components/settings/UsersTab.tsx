@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Link2, Copy, Check, Users2, UserPlus, Search, Send } from "lucide-react";
+import { Plus, RefreshCw, Link2, Copy, Check, Users2, UserPlus, Search, Send, MailPlus } from "lucide-react";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
@@ -46,6 +46,7 @@ export function UsersTab() {
   // Invite link dialog
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [copied,     setCopied]     = useState(false);
+  const [resending,  setResending]  = useState(false);
 
   // Add-dialog tabs
   const [addOpen, setAddOpen] = useState(false);
@@ -116,6 +117,22 @@ export function UsersTab() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  };
+
+  // ── Resend invite ────────────────────────────────────────────────────────────
+
+  const handleResendInvite = async () => {
+    if (!modal?.user) return;
+    setResending(true);
+    try {
+      const res = await usersApi.resendInvite(modal.user.id);
+      toast.success(res.message || "Invite resent");
+      if (res.dev_invite_link) {
+        setModal(null);
+        setInviteLink(res.dev_invite_link);
+      }
+    } catch (e: any) { toast.error(e?.message || "Failed to resend invite"); }
+    finally { setResending(false); }
   };
 
   // ── Save manual user ────────────────────────────────────────────────────────
@@ -284,6 +301,23 @@ export function UsersTab() {
           onSubmit={handleSave} isView={isView}
           submitLabel={saving ? "Saving..." : "Save Changes"}>
           <div className="space-y-3">
+            {/* Resend invite banner — only for Pending users in edit mode */}
+            {!isView && modal.user?.status === "Pending" && (
+              <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 px-3 py-2.5">
+                <div>
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-200">Account not yet activated</p>
+                  <p className="text-xs text-amber-700 dark:text-amber-300">User has not accepted their invite.</p>
+                </div>
+                <Button
+                  size="sm" variant="outline"
+                  className="shrink-0 border-amber-400 text-amber-800 hover:bg-amber-100 dark:text-amber-200 dark:hover:bg-amber-900/40"
+                  onClick={handleResendInvite}
+                  disabled={resending}>
+                  <MailPlus className="h-3.5 w-3.5 mr-1.5" />
+                  {resending ? "Sending…" : "Resend Invite"}
+                </Button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div><Label>Full Name</Label><Input value={form.name} onChange={e => set("name", e.target.value)} readOnly={isView} /></div>
               <div><Label>Email</Label><Input type="email" value={form.email} readOnly /></div>

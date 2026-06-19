@@ -13,6 +13,7 @@ import PerformanceTab from "@/components/hr/PerformanceTab";
 import DocumentsTab from "@/components/hr/DocumentsTab";
 import HRReportsTab from "@/components/hr/HRReportsTab";
 import AuditLogTab from "@/components/hr/AuditLogTab";
+import RecruitmentTab from "@/components/hr/RecruitmentTab";
 
 export default function HRPage() {
   return (
@@ -29,6 +30,7 @@ export default function HRPage() {
           <TabsTrigger value="disciplinary">Disciplinary</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
           <TabsTrigger value="documents">Documents</TabsTrigger>
+          <TabsTrigger value="recruitment">Recruitment</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
         </TabsList>
@@ -42,6 +44,7 @@ export default function HRPage() {
         <TabsContent value="disciplinary"><DisciplinaryTab /></TabsContent>
         <TabsContent value="performance"><PerformanceTab /></TabsContent>
         <TabsContent value="documents"><DocumentsTab /></TabsContent>
+        <TabsContent value="recruitment"><RecruitmentTab /></TabsContent>
         <TabsContent value="reports"><HRReportsTab /></TabsContent>
         <TabsContent value="audit"><AuditLogTab /></TabsContent>
       </Tabs>

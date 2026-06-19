@@ -2,10 +2,11 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { authService } from "@/lib/authService";
 import { sessionStore } from "@/data/sessionStore";
 import { stationsCache } from "@/data/stationsCache";
+import { brandingStore } from "@/data/brandingStore";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import type { Role } from "@/data/sessionStore";
 import type { SessionUser } from "@/data/sessionStore";
-import { ApiError, setAccessToken } from "@/lib/api";
+import { ApiError, setAccessToken, setActiveStationId } from "@/lib/api";
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -22,14 +23,20 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 // After setting a user, enforce that non-admins are locked to their home station.
 // If homeLocation is unset but only one station exists, lock to that station.
 function enforceLocationScope(user: SessionUser, stations: ApiStationFull[] = []) {
-  if (user.permissions.includes("stations.view")) return; // admin/manager — no lock
+  if (user.permissions.includes("stations.view")) {
+    // Admin-level user — default to global view; no station filter
+    setActiveStationId(null);
+    return;
+  }
   if (user.homeLocation) {
-    // homeLocation is stored as a station ID — resolve to the display name for the location store
+    // homeLocation is a station ID — lock to it and inject into API calls
     const station = stations.find(s => s.id === user.homeLocation);
     sessionStore.switchLocation(station?.name ?? user.homeLocation);
+    setActiveStationId(user.homeLocation);
   } else if (stations.length === 1) {
-    // Single-station deployment and user has no explicit homeLocation: lock them to it
+    // Single-station deployment: lock non-admin to the only station
     sessionStore.switchLocation(stations[0].name);
+    setActiveStationId(stations[0].id);
   }
 }
 
@@ -45,6 +52,16 @@ async function loadStations(): Promise<ApiStationFull[]> {
   }
 }
 
+// Fetch account branding into the store (best-effort — SuperAdmin has no account).
+async function loadBranding() {
+  try {
+    const data = await authService.getMyAccount();
+    brandingStore.set(data);
+  } catch {
+    // SuperAdmin or network error — leave existing cached branding
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -55,8 +72,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try { await authService.logout(); } catch { /* best-effort */ }
     }
     setAccessToken(null);
+    setActiveStationId(null);
     sessionStore.reset();
     stationsCache.clear();
+    brandingStore.reset();
     setIsAuthenticated(false);
   }, []);
 
@@ -76,6 +95,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             sessionStore.setUser(user);
             const stations = await loadStations();
             enforceLocationScope(user, stations);
+            await loadBranding();
             setIsAuthenticated(true);
           }
         }
@@ -102,6 +122,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStore.setUser(res.data.user);
       const stations = await loadStations();
       enforceLocationScope(res.data.user, stations);
+      await loadBranding();
       setIsAuthenticated(true);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Login failed. Please try again.";
