@@ -19,6 +19,7 @@ export const ROUTE_TO_MODULE: Record<string, string> = {
   "/hr": "HR",
   "/employee-portal": "EmployeePortal",
   "/locations": "Locations",
+  "/accounts": "Accounts",
 };
 
 // Minimum permission code required to access each module
@@ -36,6 +37,7 @@ const MODULE_PERMISSION: Record<string, string> = {
   Settings:      "settings.view",
   HR:            "hr.staff.view",
   Locations:     "stations.view",
+  Accounts:      "accounts.view",
 };
 
 // Alternate (OR) permission that also grants access — used for modules

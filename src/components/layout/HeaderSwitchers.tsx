@@ -6,17 +6,23 @@ import { sessionStore, useSession } from "@/data/sessionStore";
 import { useStations } from "@/data/stationsCache";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { canSwitchLocation } from "@/lib/permissions";
+import { setActiveStationId } from "@/lib/api";
+import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
-  const stations = useStations();
+  const stations   = useStations();
   const { switchRole } = useAuth();
+  const navigate  = useNavigate();
   const canSwitch = canSwitchLocation();
 
   // Admins see "All Locations" + every real station. Non-admins see only their home station.
+  // homeLocation is stored as an ID — resolve it to a name for display.
+  const homeStationName = stations.find(s => s.id === user.homeLocation)?.name ?? user.homeLocation ?? null;
   const visibleLocations = canSwitch
     ? ["All Locations", ...stations.map(s => s.name)]
-    : user.homeLocation ? [user.homeLocation] : [];
+    : homeStationName ? [homeStationName] : [];
 
   return (
     <div className="flex items-center gap-2">
@@ -38,7 +44,21 @@ export function HeaderSwitchers() {
           {user.roles.map(r => (
             <DropdownMenuItem
               key={r}
-              onClick={() => { if (r !== user.activeRole) switchRole(r).catch(() => {}); }}
+              onClick={() => {
+                if (r === user.activeRole) return;
+                const prevRole = user.activeRole;
+                switchRole(r)
+                  .then(() => {
+                    // Navigate to the right landing page for the new role
+                    if (r === "Employee") {
+                      navigate("/employee-portal");
+                    } else if (prevRole === "Employee") {
+                      // Leaving Employee role — go to dashboard (avoids staying on /employee-portal which would block)
+                      navigate("/");
+                    }
+                  })
+                  .catch((e: any) => toast.error(e?.message || "Role switch failed — you may not be assigned that role"));
+              }}
             >
               <Check className={`h-3.5 w-3.5 mr-2 ${user.activeRole === r ? "opacity-100" : "opacity-0"}`} />
               {r}
@@ -63,10 +83,18 @@ export function HeaderSwitchers() {
           <DropdownMenuLabel className="text-xs">Switch location</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {visibleLocations.map(l => (
-            <DropdownMenuItem key={l} onClick={() => sessionStore.switchLocation(l)}>
+            <DropdownMenuItem key={l} onClick={() => {
+              sessionStore.switchLocation(l);
+              if (l === "All Locations") {
+                setActiveStationId(null);
+              } else {
+                const station = stations.find(s => s.name === l);
+                setActiveStationId(station?.id ?? null);
+              }
+            }}>
               <Check className={`h-3.5 w-3.5 mr-2 ${activeLocation === l ? "opacity-100" : "opacity-0"}`} />
               {l}
-              {l === user.homeLocation && <Badge variant="outline" className="ml-auto text-[9px]">Home</Badge>}
+              {l === homeStationName && <Badge variant="outline" className="ml-auto text-[9px]">Home</Badge>}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>

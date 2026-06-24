@@ -2,9 +2,14 @@
 const BASE_URL = import.meta.env.VITE_API_URL || "https://isms-backend-production.up.railway.app/api/v1";
 
 let accessToken: string | null = null;
+let activeStationId: string | null = null;
 
 export function setAccessToken(token: string | null) {
   accessToken = token;
+}
+
+export function setActiveStationId(id: string | null) {
+  activeStationId = id;
 }
 
 export function getAccessToken() {
@@ -23,6 +28,9 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   if (!skipAuth && accessToken) {
     headers["Authorization"] = `Bearer ${accessToken}`;
+  }
+  if (!skipAuth && activeStationId) {
+    headers["x-station-id"] = activeStationId;
   }
 
   const res = await fetch(`${BASE_URL}${path}`, { ...init, headers, credentials: "include" });

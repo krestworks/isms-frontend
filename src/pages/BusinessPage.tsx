@@ -37,7 +37,6 @@ export default function BusinessPage() {
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
 
   const load = useCallback(async () => {
-    if (!stationId) return;
     setLoading(true);
     try {
       const res = await bizApi.businesses.list(stationId);
@@ -46,7 +45,7 @@ export default function BusinessPage() {
     finally { setLoading(false); }
   }, [stationId]);
 
-  useEffect(() => { if (stationId) load(); }, [load, stationId]);
+  useEffect(() => { load(); }, [load]);
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -58,6 +57,7 @@ export default function BusinessPage() {
   const handleCreate = async () => {
     if (!form.name) return toast.error("Business name is required");
     if (!enabling)  return;
+    if (!stationId) return toast.error("Select a specific station to enable a business");
     setSaving(true);
     try {
       await bizApi.businesses.create({ ...form, type: enabling }, stationId);
@@ -86,7 +86,7 @@ export default function BusinessPage() {
   const enabledMap = new Map(businesses.map(b => [b.type, b]));
 
   return (
-    <ModulePageShell title="Business" description="Manage sub-businesses at this station" icon={Store}>
+    <ModulePageShell title="Business" description={stationId ? "Manage sub-businesses at this station" : "Viewing all businesses across all locations"} icon={Store}>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <p className="text-sm text-muted-foreground">
@@ -164,9 +164,13 @@ export default function BusinessPage() {
                       <p className="text-xs text-muted-foreground mt-2">Not enabled at this station</p>
                     </div>
                     {canManage ? (
-                      <Button size="sm" className="w-full mt-auto" onClick={() => openEnable(meta.type)}>
-                        <Plus className="h-3.5 w-3.5 mr-1.5" />Enable
-                      </Button>
+                      stationId ? (
+                        <Button size="sm" className="w-full mt-auto" onClick={() => openEnable(meta.type)}>
+                          <Plus className="h-3.5 w-3.5 mr-1.5" />Enable
+                        </Button>
+                      ) : (
+                        <p className="text-xs text-muted-foreground text-center mt-auto pt-1">Select a station to enable</p>
+                      )
                     ) : (
                       <p className="text-xs text-muted-foreground text-center mt-auto pt-1">Contact admin to enable</p>
                     )}

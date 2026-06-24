@@ -22,7 +22,10 @@ import HRPage from "./pages/HRPage";
 import EmployeePortalPage from "./pages/EmployeePortalPage";
 import LocationsPage from "./pages/LocationsPage";
 import InventoryPage from "./pages/InventoryPage";
+import AccountsPage from "./pages/AccountsPage";
 import LoginPage from "./pages/LoginPage";
+import ActivatePage from "./pages/ActivatePage";
+import CareersPage from "./pages/CareersPage";
 import NotFound from "./pages/NotFound";
 import { RouteGuard } from "./components/layout/RouteGuard";
 
@@ -59,7 +62,10 @@ const App = () => (
         <AuthProvider>
           <Routes>
             {/* Public */}
-            <Route path="/login" element={<LoginPage />} />
+            <Route path="/login"              element={<LoginPage />} />
+            <Route path="/activate"           element={<ActivatePage />} />
+            <Route path="/careers/:accountId"          element={<CareersPage />} />
+            <Route path="/careers/:accountId/:jobId"   element={<CareersPage />} />
 
             {/* Protected */}
             <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
@@ -77,8 +83,10 @@ const App = () => (
               <Route path="/settings"        element={guard(<SettingsPage />)} />
               <Route path="/hr"              element={guard(<HRPage />)} />
               <Route path="/employee-portal" element={<EmployeePortalPage />} />
+              <Route path="/employee-portal/:section" element={<EmployeePortalPage />} />
               <Route path="/locations"       element={guard(<LocationsPage />)} />
               <Route path="/inventory"       element={guard(<InventoryPage />)} />
+              <Route path="/accounts"        element={guard(<AccountsPage />)} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

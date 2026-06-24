@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, RefreshCw, Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,13 +9,40 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
+import { BrandedDocHeader } from "@/components/shared/BrandedDocHeader";
 import { waterApi, ApiWaterInvoice, ApiWaterInvoiceItem } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { exportToCsv } from "@/lib/exportCsv";
+import { brandingStore } from "@/data/brandingStore";
+import { sessionStore } from "@/data/sessionStore";
 
 const today = () => new Date().toISOString().split("T")[0];
 const emptyItem = (): ApiWaterInvoiceItem => ({ description: "", litres: 0, rate: 0, amount: 0 });
+
+function buildBrandHeader(docTitle: string, docRef: string, docDate: string): string {
+  const b = brandingStore.get();
+  const loc = sessionStore.activeLocation();
+  const branch = loc !== "All Locations" ? loc : "";
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #333;padding-bottom:14px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:12px">
+        ${b?.logo ? `<img src="${b.logo}" style="height:56px;width:56px;object-fit:contain;border-radius:6px">` : ""}
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#111">${b?.name ?? "ISMS"}</div>
+          ${b?.tagline ? `<div style="font-size:11px;color:#666;margin-top:2px">${b.tagline}</div>` : ""}
+          ${b?.address ? `<div style="font-size:11px;color:#666">${b.address}</div>` : ""}
+          ${b?.contactPhone || b?.contactEmail ? `<div style="font-size:11px;color:#666">${[b?.contactPhone, b?.contactEmail].filter(Boolean).join(" · ")}</div>` : ""}
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:20px;font-weight:700;letter-spacing:1px;color:#111">${docTitle}</div>
+        ${branch ? `<div style="font-size:12px;color:#555;margin-top:4px">${branch}</div>` : ""}
+        <div style="font-size:11px;color:#777;margin-top:2px">${docDate}</div>
+        <div style="font-size:11px;color:#999">Ref: ${docRef}</div>
+      </div>
+    </div>`.replace(/\s{2,}/g, " ").trim();
+}
 
 const emptyForm = {
   date: today(), dueDate: "", client: "", type: "TAX INVOICE",
@@ -40,6 +67,19 @@ export function WaterInvoicesTab() {
   const [viewing, setViewing]   = useState<ApiWaterInvoice | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const viewRef = useRef<HTMLDivElement>(null);
+
+  const handlePrint = () => {
+    if (!viewRef.current || !viewing) return;
+    const win = window.open("", "_blank");
+    if (!win) return;
+    const header = buildBrandHeader(viewing.type, viewing.invoiceNo, viewing.date.split("T")[0]);
+    win.document.write(`<html><head><title>${viewing.invoiceNo}</title>
+      <style>body{font-family:sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{padding:6px 10px;border:1px solid #ddd}th{background:#f5f5f5}</style>
+    </head><body>${header}${viewRef.current.innerHTML}</body></html>`);
+    win.document.close();
+    win.print();
+  };
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -209,20 +249,17 @@ export function WaterInvoicesTab() {
       </ModalForm>
 
       {/* View modal */}
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type ?? "Invoice"} isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type ?? "Invoice"} isView
+        footerExtra={<Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>}>
         {viewing && (
           <div className="border border-border rounded-lg p-6 space-y-4 bg-background">
-            <div className="flex justify-between items-start">
-              <div>
-                <h3 className="text-lg font-bold">ISMS Station</h3>
-                <p className="text-xs text-muted-foreground">Water Production Unit</p>
-              </div>
-              <div className="text-right">
-                <p className="font-mono font-bold text-sm">{viewing.invoiceNo}</p>
-                <p className="text-xs text-muted-foreground">{viewing.type}</p>
-                <StatusBadge status={viewing.status} />
-              </div>
-            </div>
+            <div ref={viewRef} className="space-y-4">
+            <BrandedDocHeader
+              docTitle={viewing.type}
+              docRef={viewing.invoiceNo}
+              docDate={viewing.date.split("T")[0]}
+            />
+            <div className="flex justify-end -mt-4"><StatusBadge status={viewing.status} /></div>
             <Separator />
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -257,6 +294,7 @@ export function WaterInvoicesTab() {
                 <div className="flex justify-between font-bold"><span>Total</span><span className="font-mono">Ksh {viewing.totalAmount.toLocaleString()}</span></div>
               </div>
             </div>
+            </div>{/* /viewRef */}
           </div>
         )}
       </ModalForm>

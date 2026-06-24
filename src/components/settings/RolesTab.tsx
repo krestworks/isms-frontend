@@ -9,12 +9,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { rolesApi, allPermissionsApi, ApiRole } from "@/lib/usersApi";
+import { useSession } from "@/data/sessionStore";
 
 type FormMode = "add" | "edit" | "view";
 
 const blank: Omit<ApiRole, "id" | "usersCount"> = { name: "", description: "", permissions: [], status: "active" };
 
 export function RolesTab() {
+  const { user } = useSession();
+  const isSuperAdmin = user.activeRole === "SuperAdmin";
+
   const [data,    setData]    = useState<ApiRole[]>([]);
   const [allPerms, setAllPerms] = useState<{ code: string; description?: string | null; category: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,7 +77,10 @@ export function RolesTab() {
       : [...form.permissions, code]);
   };
 
-  const permGroups = allPerms.reduce((acc, p) => {
+  const visibleRoles = isSuperAdmin ? data : data.filter(r => r.name !== "SuperAdmin");
+  const visiblePerms = isSuperAdmin ? allPerms : allPerms.filter(p => !p.code.startsWith("accounts."));
+
+  const permGroups = visiblePerms.reduce((acc, p) => {
     (acc[p.category] = acc[p.category] || []).push(p);
     return acc;
   }, {} as Record<string, typeof allPerms>);
@@ -98,7 +105,7 @@ export function RolesTab() {
       </div>
 
       <DataTable
-        data={data} columns={columns}
+        data={visibleRoles} columns={columns}
         searchKeys={["name", "description"]} searchPlaceholder="Search roles..."
         onView={openView} onEdit={openEdit} onDelete={handleDelete}
       />
@@ -117,7 +124,7 @@ export function RolesTab() {
                 <Label>Permissions</Label>
                 {!isView && (
                   <div className="flex gap-2 text-xs">
-                    <button type="button" className="text-primary hover:underline" onClick={() => set("permissions", allPerms.map(p => p.code))}>All</button>
+                    <button type="button" className="text-primary hover:underline" onClick={() => set("permissions", visiblePerms.map(p => p.code))}>All</button>
                     <button type="button" className="text-muted-foreground hover:underline" onClick={() => set("permissions", [])}>None</button>
                   </div>
                 )}
@@ -138,7 +145,7 @@ export function RolesTab() {
                 ))}
                 {allPerms.length === 0 && <p className="text-xs text-muted-foreground">Loading permissions…</p>}
               </div>
-              <p className="text-xs text-muted-foreground mt-1">{form.permissions.length} of {allPerms.length} selected</p>
+              <p className="text-xs text-muted-foreground mt-1">{form.permissions.length} of {visiblePerms.length} selected</p>
             </div>
           </div>
         </ModalForm>

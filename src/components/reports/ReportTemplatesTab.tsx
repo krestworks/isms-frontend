@@ -14,7 +14,7 @@ import { reportsApi, ApiReportTemplate } from "@/lib/reportsApi";
 
 type FormMode = "add" | "edit" | "view";
 
-const MODULES = ["All","Fuel","LPG","Water","Automotive","Car Wash"];
+const MODULES = ["All","Fuel","LPG","Water","Automotive","Car Wash","Business","Inventory","Finance Revenue","Finance Expenses","HR"];
 
 const blank: Omit<ApiReportTemplate, "id" | "stationId" | "createdAt"> = {
   name: "", module: "All", frequency: "daily", sections: "", status: "active", lastUsed: "",

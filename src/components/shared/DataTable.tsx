@@ -39,11 +39,13 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
   filters?: FilterOption[];
   pageSize?: number;
+  loading?: boolean;
   onRowClick?: (item: T) => void;
   onView?: (item: T) => void;
   onEdit?: (item: T) => void;
   onDelete?: (item: T) => void;
   actions?: (item: T) => React.ReactNode;
+  rowActions?: (item: T) => React.ReactNode;
   extraActions?: ExtraAction<T>[];
 }
 
@@ -54,14 +56,16 @@ export function DataTable<T extends Record<string, any>>({
   searchPlaceholder = "Search...",
   filters = [],
   pageSize = 10,
+  loading = false,
   onRowClick,
   onView,
   onEdit,
   onDelete,
   actions: actionsProp,
+  rowActions,
   extraActions = [],
 }: DataTableProps<T>) {
-  const hasActions = !!(actionsProp || onView || onEdit || onDelete || extraActions.length);
+  const hasActions = !!(actionsProp || rowActions || onView || onEdit || onDelete || extraActions.length);
   const renderActions = (item: T) => (
     <div className="flex items-center gap-1">
       {onView && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(item)}><Eye className="h-3.5 w-3.5" /></Button>}
@@ -76,6 +80,7 @@ export function DataTable<T extends Record<string, any>>({
       })}
       {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>}
       {actionsProp?.(item)}
+      {rowActions?.(item)}
     </div>
   );
   const [search, setSearch] = useState("");
@@ -182,7 +187,13 @@ export function DataTable<T extends Record<string, any>>({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {paged.length === 0 ? (
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={columns.length + (hasActions ? 1 : 0)} className="text-center py-12 text-muted-foreground text-sm">
+                  Loading…
+                </TableCell>
+              </TableRow>
+            ) : paged.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={columns.length + (hasActions ? 1 : 0)} className="text-center py-12 text-muted-foreground">
                   No records found

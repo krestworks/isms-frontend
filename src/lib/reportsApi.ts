@@ -52,6 +52,127 @@ export interface ApiScheduledReport {
   status: string;
 }
 
+export const MODULE_FIELDS: Record<string, { key: string; label: string }[]> = {
+  Fuel: [
+    { key: "date",          label: "Date" },
+    { key: "fuelType",      label: "Fuel Type" },
+    { key: "litres",        label: "Litres" },
+    { key: "pricePerLitre", label: "Price / L" },
+    { key: "amount",        label: "Amount" },
+    { key: "discount",      label: "Discount" },
+    { key: "netAmount",     label: "Net Amount" },
+    { key: "attendant",     label: "Attendant" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "paymentStatus", label: "Payment Status" },
+    { key: "customer",      label: "Customer" },
+    { key: "receiptNo",     label: "Receipt No" },
+    { key: "pumpNumber",    label: "Pump No" },
+  ],
+  LPG: [
+    { key: "date",          label: "Date" },
+    { key: "receiptNo",     label: "Receipt No" },
+    { key: "customer",      label: "Customer" },
+    { key: "cylinderSize",  label: "Cylinder Size" },
+    { key: "quantity",      label: "Quantity" },
+    { key: "unitPrice",     label: "Unit Price" },
+    { key: "discount",      label: "Discount" },
+    { key: "totalAmount",   label: "Total Amount" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "paymentStatus", label: "Payment Status" },
+    { key: "attendant",     label: "Attendant" },
+    { key: "exchangeType",  label: "Exchange Type" },
+  ],
+  Water: [
+    { key: "date",           label: "Date" },
+    { key: "shift",          label: "Shift" },
+    { key: "litresProduced", label: "Litres Produced" },
+    { key: "litresWasted",   label: "Litres Wasted" },
+    { key: "netOutput",      label: "Net Output" },
+    { key: "operator",       label: "Operator" },
+    { key: "status",         label: "Status" },
+  ],
+  Automotive: [
+    { key: "date",          label: "Date" },
+    { key: "serviceNo",     label: "Service No" },
+    { key: "vehicleReg",    label: "Vehicle Reg" },
+    { key: "vehicleMake",   label: "Vehicle Make" },
+    { key: "customerName",  label: "Customer Name" },
+    { key: "customerPhone", label: "Customer Phone" },
+    { key: "serviceType",   label: "Service Type" },
+    { key: "technician",    label: "Technician" },
+    { key: "estimatedCost", label: "Est. Cost" },
+    { key: "actualCost",    label: "Actual Cost" },
+    { key: "status",        label: "Status" },
+  ],
+  "Car Wash": [
+    { key: "date",          label: "Date" },
+    { key: "receiptNo",     label: "Receipt No" },
+    { key: "vehicleReg",    label: "Vehicle Reg" },
+    { key: "washPackage",   label: "Wash Package" },
+    { key: "attendant",     label: "Attendant" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "amount",        label: "Amount" },
+    { key: "status",        label: "Status" },
+  ],
+  Business: [
+    { key: "date",          label: "Date" },
+    { key: "saleRef",       label: "Sale Ref" },
+    { key: "subtotal",      label: "Subtotal" },
+    { key: "discount",      label: "Discount" },
+    { key: "taxAmount",     label: "Tax Amount" },
+    { key: "totalAmount",   label: "Total Amount" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "amountPaid",    label: "Amount Paid" },
+    { key: "cashier",       label: "Cashier" },
+    { key: "status",        label: "Status" },
+  ],
+  Inventory: [
+    { key: "date",        label: "Date" },
+    { key: "productName", label: "Product" },
+    { key: "type",        label: "Movement Type" },
+    { key: "qty",         label: "Quantity" },
+    { key: "before",      label: "Stock Before" },
+    { key: "after",       label: "Stock After" },
+    { key: "reference",   label: "Reference" },
+    { key: "notes",       label: "Notes" },
+  ],
+  "Finance Revenue": [
+    { key: "date",          label: "Date" },
+    { key: "module",        label: "Module" },
+    { key: "category",      label: "Category" },
+    { key: "description",   label: "Description" },
+    { key: "amount",        label: "Amount" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "reference",     label: "Reference" },
+    { key: "status",        label: "Status" },
+  ],
+  "Finance Expenses": [
+    { key: "date",          label: "Date" },
+    { key: "module",        label: "Module" },
+    { key: "category",      label: "Category" },
+    { key: "vendor",        label: "Vendor" },
+    { key: "description",   label: "Description" },
+    { key: "amount",        label: "Amount" },
+    { key: "paymentMethod", label: "Payment Method" },
+    { key: "approvedBy",    label: "Approved By" },
+    { key: "status",        label: "Status" },
+  ],
+  HR: [
+    { key: "employeeNumber", label: "Employee No" },
+    { key: "employmentType", label: "Employment Type" },
+    { key: "contractType",   label: "Contract Type" },
+    { key: "startDate",      label: "Start Date" },
+    { key: "endDate",        label: "End Date" },
+    { key: "nationalId",     label: "National ID" },
+    { key: "gender",         label: "Gender" },
+    { key: "salaryGrade",    label: "Salary Grade" },
+    { key: "basicSalary",    label: "Basic Salary" },
+    { key: "status",         label: "Status" },
+  ],
+};
+
+export const MODULES = Object.keys(MODULE_FIELDS);
+
 export const reportsApi = {
   templates: {
     list: (stationId?: string | null) =>
@@ -85,4 +206,10 @@ export const reportsApi = {
     delete: (id: string) =>
       api.delete<R<{ id: string }>>(`/reports/scheduled/${id}`),
   },
+
+  build: (
+    body: { module: string; fields: string[]; dateFrom?: string; dateTo?: string },
+    stationId?: string | null,
+  ) =>
+    api.post<R<{ columns: string[]; rows: Record<string, unknown>[] }>>("/reports/build", body, sh(stationId)),
 };

@@ -15,12 +15,13 @@ interface ModalFormProps {
   submitLabel?: string;
   submitVariant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
   isView?: boolean;
+  footerExtra?: React.ReactNode;
   children: React.ReactNode;
 }
 
 export function ModalForm({
   open, onClose, title, description, onSubmit,
-  submitLabel = "Save", submitVariant = "default", isView, children,
+  submitLabel = "Save", submitVariant = "default", isView, footerExtra, children,
 }: ModalFormProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -34,15 +35,18 @@ export function ModalForm({
           {children}
         </div>
 
-        <div className="flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 px-6 py-4 border-t shrink-0">
-          {!isView ? (
-            <>
-              <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-              <Button type="button" variant={submitVariant} onClick={onSubmit}>{submitLabel}</Button>
-            </>
-          ) : (
-            <Button type="button" variant="outline" onClick={onClose}>Close</Button>
-          )}
+        <div className="flex items-center justify-between px-6 py-4 border-t shrink-0">
+          <div>{footerExtra}</div>
+          <div className="flex gap-2">
+            {!isView ? (
+              <>
+                <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+                <Button type="button" variant={submitVariant} onClick={onSubmit}>{submitLabel}</Button>
+              </>
+            ) : (
+              <Button type="button" variant="outline" onClick={onClose}>Close</Button>
+            )}
+          </div>
         </div>
       </DialogContent>
     </Dialog>

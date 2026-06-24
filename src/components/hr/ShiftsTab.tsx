@@ -61,7 +61,7 @@ export default function ShiftsTab() {
       ]);
       setPatterns(pRes.data ?? []);
       setAssignments(aRes.data ?? []);
-      setEmployees(((eRes.data ?? []) as ApiEmployee[]).filter(e => e.status === "active"));
+      setEmployees(((eRes.data ?? []) as ApiEmployee[]).filter(e => e.status === "Active"));
     } catch (e: any) {
       toast.error(e?.message || "Failed to load shift data");
     } finally {

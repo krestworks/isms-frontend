@@ -1,121 +1,111 @@
-import { useState } from "react";
-import { Plus, ArrowDown, ArrowUp, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowDown, ArrowUp, RotateCcw, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
-import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { inventoryApi, ApiStockMovement } from "@/lib/inventoryApi";
+import { useActiveStation } from "@/lib/useActiveStation";
 
-interface Movement {
-  id: string;
-  date: string;
-  product: string;
-  type: string; // in | out | adjustment
-  qty: number;
-  reason: string;
-  reference: string;
-  by: string;
-}
+const TYPE_CONFIG: Record<string, { label: string; cls: string; icon: typeof ArrowDown }> = {
+  receipt:      { label: "Receipt",      cls: "bg-green-100 text-green-800",  icon: ArrowDown },
+  issue:        { label: "Issue",        cls: "bg-red-100 text-red-800",      icon: ArrowUp },
+  adjustment:   { label: "Adjustment",   cls: "bg-amber-100 text-amber-800",  icon: RotateCcw },
+  transfer_in:  { label: "Transfer In",  cls: "bg-blue-100 text-blue-800",    icon: ArrowDown },
+  transfer_out: { label: "Transfer Out", cls: "bg-purple-100 text-purple-800",icon: ArrowUp },
+  return:       { label: "Return",       cls: "bg-teal-100 text-teal-800",    icon: ArrowDown },
+  damage:       { label: "Damage",       cls: "bg-rose-100 text-rose-800",    icon: ArrowUp },
+  grn:          { label: "GRN",          cls: "bg-green-100 text-green-800",  icon: ArrowDown },
+  sale:         { label: "Sale",         cls: "bg-red-100 text-red-800",      icon: ArrowUp },
+};
 
-const initial: Movement[] = [
-  { id: "MV-001", date: "2026-04-28", product: "Maize Flour 2kg", type: "in", qty: 50, reason: "Purchase from supplier", reference: "PO-2034", by: "Susan Otieno" },
-  { id: "MV-002", date: "2026-04-28", product: "Cooking Oil 1L", type: "out", qty: 8, reason: "POS sale", reference: "INV-1209", by: "Kevin Njoroge" },
-  { id: "MV-003", date: "2026-04-29", product: "Soda 500ml", type: "out", qty: 24, reason: "POS sale", reference: "INV-1210", by: "Kevin Njoroge" },
-  { id: "MV-004", date: "2026-04-29", product: "Amoxicillin 250mg", type: "adjustment", qty: -2, reason: "Expired stock removal", reference: "ADJ-005", by: "Kevin Njoroge" },
-];
-
-const PRODUCTS = ["Maize Flour 2kg", "Cooking Oil 1L", "Soda 500ml", "Paracetamol 500mg (10s)", "Amoxicillin 250mg"];
-const emptyForm = { date: "", product: PRODUCTS[0], type: "in", qty: 0, reason: "", reference: "", by: "" };
+const IN_TYPES  = new Set(["receipt", "transfer_in", "return", "grn"]);
+const OUT_TYPES = new Set(["issue", "transfer_out", "damage", "sale"]);
 
 export default function StockMovementsTab() {
-  const [data, setData] = useState(initial);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<typeof emptyForm>(emptyForm);
+  const { stationId } = useActiveStation();
+  const [data, setData]       = useState<ApiStockMovement[]>([]);
+  const [total, setTotal]     = useState(0);
+  const [page, setPage]       = useState(1);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (p = 1) => {
+    setLoading(true);
+    try {
+      const res = await inventoryApi.movements.list(stationId, { page: p, limit: 50 });
+      setData(res.data ?? []);
+      setTotal(res.meta?.total ?? 0);
+    } catch (e: any) { toast.error(e?.message || "Failed to load movements"); }
+    finally { setLoading(false); }
+  }, [stationId]);
+
+  useEffect(() => { load(1); }, [load]);
 
   const stats = {
     total: data.length,
-    inMov: data.filter(d => d.type === "in").length,
-    outMov: data.filter(d => d.type === "out").length,
-    adj: data.filter(d => d.type === "adjustment").length,
+    in:    data.filter(m => IN_TYPES.has(m.movementType)).length,
+    out:   data.filter(m => OUT_TYPES.has(m.movementType)).length,
+    adj:   data.filter(m => m.movementType === "adjustment").length,
   };
 
-  const columns: Column<Movement>[] = [
-    { key: "id", label: "Ref" },
-    { key: "date", label: "Date", sortable: true },
-    { key: "product", label: "Product" },
-    { key: "type", label: "Type", render: m => {
-      const map = { in: { Icon: ArrowDown, cls: "text-green-700 bg-green-100" }, out: { Icon: ArrowUp, cls: "text-red-700 bg-red-100" }, adjustment: { Icon: RotateCcw, cls: "text-amber-700 bg-amber-100" } } as const;
-      const { Icon, cls } = map[m.type as keyof typeof map];
-      return <span className={`px-2 py-0.5 rounded text-xs inline-flex items-center gap-1 ${cls}`}><Icon className="h-3 w-3" />{m.type}</span>;
-    } },
-    { key: "qty", label: "Qty", render: m => <span className={m.qty < 0 ? "text-destructive font-medium" : "font-medium"}>{m.qty > 0 ? "+" : ""}{m.qty}</span> },
-    { key: "reason", label: "Reason" },
-    { key: "reference", label: "Doc" },
-    { key: "by", label: "By" },
+  const columns: Column<ApiStockMovement>[] = [
+    { key: "createdAt", label: "Date", render: m => new Date(m.createdAt).toLocaleString(), sortable: true },
+    { key: "itemName",  label: "Item" },
+    { key: "movementType", label: "Type", render: m => {
+      const cfg = TYPE_CONFIG[m.movementType] ?? { label: m.movementType, cls: "bg-gray-100 text-gray-800", icon: RotateCcw };
+      const Icon = cfg.icon;
+      return (
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${cfg.cls}`}>
+          <Icon className="h-3 w-3" />{cfg.label}
+        </span>
+      );
+    }},
+    { key: "qty", label: "Qty", render: m => {
+      const isOut = OUT_TYPES.has(m.movementType);
+      return <span className={`font-semibold ${isOut ? "text-destructive" : "text-green-700"}`}>
+        {isOut ? "−" : "+"}{Math.abs(m.qty)}
+      </span>;
+    }},
+    { key: "balanceBefore", label: "Prev Bal", render: m => m.balanceBefore ?? "—" },
+    { key: "balanceAfter",  label: "New Bal",  render: m => m.balanceAfter ?? "—" },
+    { key: "reference", label: "Reference", render: m => m.reference ?? <span className="text-muted-foreground text-xs">—</span> },
+    { key: "notes",     label: "Notes",    render: m => m.notes ? <span className="text-xs text-muted-foreground line-clamp-1">{m.notes}</span> : <span className="text-muted-foreground text-xs">—</span> },
   ];
 
   const filters: FilterOption[] = [
-    { key: "type", label: "Type", options: ["in", "out", "adjustment"].map(t => ({ label: t, value: t })) },
+    { key: "movementType", label: "Type", options: Object.entries(TYPE_CONFIG).map(([k, v]) => ({ label: v.label, value: k })) },
   ];
-
-  const openNew = () => { setForm({ ...emptyForm, date: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const handleSave = () => {
-    setData(d => [...d, { id: `MV-${String(d.length + 1).padStart(3, "0")}`, ...form }]);
-    setModalOpen(false);
-  };
-  const handleDelete = (m: Movement) => setData(d => d.filter(x => x.id !== m.id));
-  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Stock Movements</h3>
-          <p className="text-sm text-muted-foreground">Track all inflows, outflows & adjustments</p>
+          <p className="text-sm text-muted-foreground">All inflows, outflows and adjustments — read-only audit log</p>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Record Movement</Button>
+        <Button variant="outline" size="sm" onClick={() => load(1)}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Movements", value: stats.total },
-          { label: "Stock In", value: stats.inMov, color: "text-green-600" },
-          { label: "Stock Out", value: stats.outMov, color: "text-red-600" },
-          { label: "Adjustments", value: stats.adj, color: "text-amber-600" },
+          { label: "Shown",       value: data.length, sub: total > data.length ? `of ${total} total` : undefined },
+          { label: "Stock In",    value: stats.in,    color: "text-green-600" },
+          { label: "Stock Out",   value: stats.out,   color: "text-destructive" },
+          { label: "Adjustments", value: stats.adj,   color: "text-amber-600" },
         ].map(s => (
-          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p></CardContent></Card>
+          <Card key={s.label}><CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">{s.label}</p>
+            <p className={`text-2xl font-bold ${s.color ?? ""}`}>{s.value}</p>
+            {s.sub && <p className="text-xs text-muted-foreground">{s.sub}</p>}
+          </CardContent></Card>
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["product", "reference", "id"]} searchPlaceholder="Search movements..." filters={filters} onDelete={handleDelete} />
-
-      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Stock Movement" onSubmit={handleSave} submitLabel="Record">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
-            <div><Label>Type</Label>
-              <Select value={form.type} onValueChange={v => set("type", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["in", "out", "adjustment"].map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2"><Label>Product</Label>
-              <Select value={form.product} onValueChange={v => set("product", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{PRODUCTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Quantity</Label><Input type="number" value={form.qty} onChange={e => set("qty", Number(e.target.value))} /></div>
-            <div><Label>Reference</Label><Input value={form.reference} onChange={e => set("reference", e.target.value)} placeholder="PO/INV/ADJ no." /></div>
-            <div className="col-span-2"><Label>Reason</Label><Textarea value={form.reason} onChange={e => set("reason", e.target.value)} /></div>
-            <div className="col-span-2"><Label>Recorded By</Label><Input value={form.by} onChange={e => set("by", e.target.value)} /></div>
-          </div>
-        </div>
-      </ModalForm>
+      <DataTable
+        data={data} columns={columns} loading={loading} filters={filters}
+        searchKeys={["itemName", "reference"]} searchPlaceholder="Search by item or reference..."
+      />
     </div>
   );
 }

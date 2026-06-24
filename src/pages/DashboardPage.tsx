@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, Users, MapPin, Gauge, AlertTriangle, LogIn, LogOut, CalendarDays, UserCircle } from "lucide-react";
+import { Fuel, Flame, Droplets, Wrench, Car, DollarSign, Users, MapPin, Gauge, AlertTriangle, LogIn, LogOut, CalendarDays, UserCircle, Building2, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { ModuleCard } from "@/components/dashboard/ModuleCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
@@ -13,7 +13,8 @@ import { usePermissions } from "@/lib/permissions";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import { hrApi, ApiAttendance, ApiLeaveBalance } from "@/lib/hrApi";
 import { fuelApi, ApiFuelSummary } from "@/lib/fuelApi";
-import { Link } from "react-router-dom";
+import { accountsApi, ApiAccount } from "@/lib/accountsApi";
+import { Link, Navigate } from "react-router-dom";
 import { toast } from "sonner";
 
 const modules = [
@@ -39,12 +40,14 @@ export default function DashboardPage() {
 
   const activeLoc = sessionStore.activeLocation();
   const isAllScope = activeLoc === "All Locations";
-  const isEmployee = !!user.employeeId; // user has an employee code — may have self-service data
+  const isSuperAdmin = user.activeRole === "SuperAdmin";
+  const isEmployee = !!user.isEmployee; // true only when user has an actual Employee HR record
 
   const [stations, setStations]           = useState<ApiStationFull[]>([]);
   const [activeStation, setActiveStation] = useState<ApiStationFull | null>(null);
   const [fuelSummary, setFuelSummary]     = useState<ApiFuelSummary | null>(null);
   const [employeeCount, setEmployeeCount] = useState<number | null>(null);
+  const [accounts, setAccounts]           = useState<ApiAccount[]>([]);
 
   // Employee quick-view state
   const today = new Date().toISOString().split("T")[0];
@@ -88,6 +91,11 @@ export default function DashboardPage() {
   };
 
   const load = useCallback(async () => {
+    if (isSuperAdmin) {
+      accountsApi.list({ limit: 50 }).then(r => setAccounts(r.data ?? [])).catch(() => {});
+      return;
+    }
+
     const stRes = await stationsApi.list().catch(() => ({ data: [] as ApiStationFull[] }));
     const all   = stRes.data ?? [];
     setStations(all);
@@ -102,7 +110,7 @@ export default function DashboardPage() {
         ? hrApi.employees.list({ status: "active", limit: 1 }).then(r => setEmployeeCount(r.meta?.total ?? 0)).catch(() => {})
         : Promise.resolve(),
     ]);
-  }, [activeLoc, canViewFuel, canViewHR]);
+  }, [activeLoc, canViewFuel, canViewHR, isSuperAdmin]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { if (isEmployee) loadEmployee(); }, [isEmployee, loadEmployee]);
@@ -129,6 +137,87 @@ export default function DashboardPage() {
       change: 0, icon: MapPin,
     }] : []),
   ];
+
+  // ── Employee redirect ────────────────────────────────────────────────────────
+  if (user.activeRole === "Employee") {
+    return <Navigate to="/employee-portal" replace />;
+  }
+
+  // ── SuperAdmin dashboard ────────────────────────────────────────────────────
+  if (isSuperAdmin) {
+    const active    = accounts.filter(a => a.status === "Active").length;
+    const pending   = accounts.filter(a => a.status === "Pending").length;
+    const suspended = accounts.filter(a => a.status === "Suspended").length;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">Platform Dashboard</h1>
+            <p className="text-sm text-muted-foreground">Overview of all business accounts on this platform</p>
+          </div>
+          <Badge variant="outline" className="text-xs"><Building2 className="h-3 w-3 mr-1" /> SuperAdmin</Badge>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {[
+            { label: "Total Accounts",     value: accounts.length, icon: Building2,    color: "" },
+            { label: "Active",             value: active,          icon: CheckCircle2, color: "text-green-600" },
+            { label: "Pending Activation", value: pending,         icon: Clock,        color: "text-yellow-600" },
+            { label: "Suspended",          value: suspended,       icon: XCircle,      color: "text-red-600" },
+          ].map(s => (
+            <Card key={s.label}>
+              <CardContent className="p-5 flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <s.icon className={`h-5 w-5 ${s.color || "text-muted-foreground"}`} />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Business Accounts</CardTitle>
+              <Link to="/accounts" className="text-xs text-primary hover:underline">Manage all →</Link>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {accounts.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">No accounts yet. <Link to="/accounts" className="text-primary hover:underline">Create the first one →</Link></p>
+            ) : (
+              <div className="divide-y divide-border">
+                {accounts.slice(0, 8).map(a => (
+                  <div key={a.id} className="flex items-center justify-between py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <Building2 className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{a.name}</p>
+                        {a.contactEmail && <p className="text-xs text-muted-foreground truncate">{a.contactEmail}</p>}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className={`ml-3 shrink-0 text-xs ${
+                      a.status === "Active"    ? "text-green-600 border-green-500/30" :
+                      a.status === "Pending"   ? "text-yellow-600 border-yellow-500/30" :
+                      a.status === "Suspended" ? "text-red-600 border-red-500/30" : ""
+                    }`}>{a.status}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+  // ── End SuperAdmin dashboard ────────────────────────────────────────────────
 
   return (
     <div className="space-y-6">

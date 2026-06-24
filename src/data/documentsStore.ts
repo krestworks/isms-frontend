@@ -18,7 +18,7 @@ export interface EmployeeDocument {
   caseId?: string; // optional link to disciplinary case
 }
 
-export const DOC_TYPES = ["ID Card", "Passport", "KRA PIN Cert.", "NHIF/SHIF Card", "NSSF Card", "Academic Cert.", "Contract", "Driving Licence", "Medical Cert.", "Police Clearance", "Disciplinary Evidence", "Hearing Notice", "Appeal Letter", "Other"];
+export const DOC_TYPES = ["ID Card", "Passport", "KRA PIN Cert.", "SHA Card", "NSSF Card", "Academic Cert.", "Contract", "Driving Licence", "Medical Cert.", "Police Clearance", "Disciplinary Evidence", "Hearing Notice", "Appeal Letter", "Other"];
 
 const initial: EmployeeDocument[] = [
   { id: "DOC-001", employeeId: "EMP-001", employeeName: "James Mwangi", type: "ID Card", fileName: "james_id.pdf", fileSize: 245678, uploadedOn: "2025-01-16", expiresOn: "2030-01-15", status: "valid", notes: "" },
