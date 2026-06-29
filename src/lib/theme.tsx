@@ -11,10 +11,8 @@ const ThemeContext = createContext<ThemeContextValue>({ theme: "dark", toggle: (
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
-    const stored = localStorage.getItem("isms-theme") as Theme | null;
-    if (stored) return stored;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
+  return (localStorage.getItem("isms-theme") as Theme | null) ?? "light";
+});
 
   useEffect(() => {
     const root = document.documentElement;
