@@ -239,7 +239,7 @@ export default function DisciplinaryTab() {
             <div><Label>Employee *</Label>
               <Select value={form.employeeId} onValueChange={v => set("employeeId", v)} disabled={!!editing}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Category</Label>

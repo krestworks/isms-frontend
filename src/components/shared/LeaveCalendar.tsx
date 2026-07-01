@@ -1,10 +1,10 @@
-import { useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { ApiLeaveRequest, ApiPublicHoliday } from "@/lib/hrApi";
+import { useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { ApiLeaveRequest, ApiPublicHoliday, hrApi } from "@/lib/hrApi";
 
 interface Props {
-  leaves: ApiLeaveRequest[];
-  mode: "employee" | "hr";
+  leaves?:   ApiLeaveRequest[];
+  mode?:     "employee" | "hr";
   holidays?: ApiPublicHoliday[];
 }
 
@@ -19,17 +19,42 @@ const STATUS_BAR: Record<string, string> = {
   Cancelled: "bg-gray-100 text-gray-400",
 };
 
-export function LeaveCalendar({ leaves, mode, holidays = [] }: Props) {
+export function LeaveCalendar({ leaves: propLeaves, mode = "hr", holidays: propHolidays }: Props) {
   const now = new Date();
   const [year,  setYear]  = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
+  const [leaves,   setLeaves]   = useState<ApiLeaveRequest[]>(propLeaves ?? []);
+  const [holidays, setHolidays] = useState<ApiPublicHoliday[]>(propHolidays ?? []);
+  const [loading, setLoading]   = useState(propLeaves === undefined);
+
+  // Self-load when called without leaves prop
+  useEffect(() => {
+    if (propLeaves !== undefined) { setLeaves(propLeaves); return; }
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      try {
+        const [lRes, hRes] = await Promise.all([
+          hrApi.leaves.list({ limit: 500 } as any),
+          (propHolidays ?? []).length === 0 ? hrApi.holidays.list() : Promise.resolve({ data: propHolidays ?? [] }),
+        ]);
+        if (!cancelled) {
+          setLeaves(lRes.data ?? []);
+          if ((propHolidays ?? []).length === 0) setHolidays(hRes.data ?? []);
+        }
+      } catch { /* non-critical */ }
+      finally { if (!cancelled) setLoading(false); }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [propLeaves]);
 
   const prev = () => { if (month === 0) { setMonth(11); setYear(y => y - 1); } else setMonth(m => m - 1); };
   const next = () => { if (month === 11) { setMonth(0); setYear(y => y + 1); } else setMonth(m => m + 1); };
 
-  const daysInMonth  = new Date(year, month + 1, 0).getDate();
-  const firstDow     = new Date(year, month, 1).getDay();       // 0=Sun
-  const startOffset  = (firstDow + 6) % 7;                     // Mon=0 … Sun=6
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow    = new Date(year, month, 1).getDay();
+  const startOffset = (firstDow + 6) % 7;  // Mon=0 … Sun=6
 
   const cells: (number | null)[] = [
     ...Array(startOffset).fill(null),
@@ -46,9 +71,7 @@ export function LeaveCalendar({ leaves, mode, holidays = [] }: Props) {
     const d = `${year}-${String(month + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
     return holidays.find(h => {
       const hDate = new Date(h.date);
-      if (h.isRecurring) {
-        return (hDate.getMonth() + 1) === (month + 1) && hDate.getDate() === day;
-      }
+      if (h.isRecurring) return (hDate.getMonth() + 1) === (month + 1) && hDate.getDate() === day;
       return h.date.slice(0, 10) === d;
     });
   };
@@ -64,6 +87,14 @@ export function LeaveCalendar({ leaves, mode, holidays = [] }: Props) {
 
   const dayStr = (day: number) =>
     `${year}-${String(month + 1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border bg-card p-12 flex items-center justify-center gap-2 text-muted-foreground text-sm">
+        <RefreshCw className="h-4 w-4 animate-spin" /> Loading calendar…
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-xl border bg-card overflow-hidden">
@@ -96,48 +127,39 @@ export function LeaveCalendar({ leaves, mode, holidays = [] }: Props) {
               const isToday   = day !== null && dayStr(day) === todayStr;
               const events    = day ? eventsForDay(day) : [];
               const holiday   = day ? holidayForDay(day) : undefined;
-
               return (
                 <div
                   key={di}
                   title={holiday ? holiday.name : undefined}
                   className={`min-h-[90px] p-1.5 flex flex-col gap-0.5 ${
-                    !day      ? "bg-muted/15"    :
-                    holiday   ? "bg-rose-50/70"  :
-                    isWeekend ? "bg-muted/5"     : ""
+                    !day      ? "bg-muted/15"   :
+                    holiday   ? "bg-rose-50/70" :
+                    isWeekend ? "bg-muted/5"    : ""
                   }`}
                 >
                   {day && (
                     <>
                       <div className="flex items-start justify-between gap-0.5">
                         <span className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0 ${
-                          isToday
-                            ? "bg-primary text-primary-foreground font-bold"
-                            : "text-foreground"
-                        }`}>
-                          {day}
-                        </span>
+                          isToday ? "bg-primary text-primary-foreground font-bold" : "text-foreground"
+                        }`}>{day}</span>
                         {holiday && (
                           <span className="text-[9px] leading-tight text-rose-600 font-medium text-right line-clamp-2 mt-0.5">
                             {holiday.name}
                           </span>
                         )}
                       </div>
-
                       {events.slice(0, 3).map(ev => (
                         <div
                           key={ev.id}
                           title={mode === "hr"
-                            ? `${ev.employee?.user.name} — ${ev.leaveType?.name} (${ev.status})`
+                            ? `${ev.employee?.user?.name ?? "Employee"} — ${ev.leaveType?.name} (${ev.status})`
                             : `${ev.leaveType?.name} (${ev.status})`}
                           className={`text-[10px] leading-tight px-1 py-[2px] rounded-sm truncate cursor-default ${STATUS_BAR[ev.status] ?? STATUS_BAR.Cancelled}`}
                         >
-                          {mode === "hr"
-                            ? (ev.employee?.user.name ?? "Employee")
-                            : (ev.leaveType?.name ?? "Leave")}
+                          {mode === "hr" ? (ev.employee?.user?.name ?? "Employee") : (ev.leaveType?.name ?? "Leave")}
                         </div>
                       ))}
-
                       {events.length > 3 && (
                         <span className="text-[10px] text-muted-foreground px-1">+{events.length - 3}</span>
                       )}
@@ -169,6 +191,7 @@ export function LeaveCalendar({ leaves, mode, holidays = [] }: Props) {
             <span className="text-muted-foreground">Public Holiday</span>
           </div>
         )}
+        <span className="ml-auto text-muted-foreground">{leaves.length} leave record(s)</span>
       </div>
     </div>
   );

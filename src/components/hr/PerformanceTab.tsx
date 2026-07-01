@@ -70,7 +70,7 @@ export default function PerformanceTab() {
 
   const columns: Column<ApiPerformanceTask>[] = [
     { key: "id", label: "Task ID" },
-    { key: "employeeId", label: "Employee", render: t => t.employee?.user.name ?? t.employeeId },
+    { key: "employeeId", label: "Employee", render: t => t.employee?.user?.name ?? t.employeeId },
     { key: "title", label: "Task", render: t => <span className="line-clamp-1">{t.title}</span> },
     { key: "category", label: "Category", render: t => <Badge variant="secondary">{t.category}</Badge> },
     { key: "dueDate", label: "Due", sortable: true, render: t => t.dueDate ?? "—" },
@@ -173,7 +173,7 @@ export default function PerformanceTab() {
               <SelectContent>
                 <SelectItem value="_none_">— Select —</SelectItem>
                 {employees.filter(e => !deptFilter || e.departmentId === deptFilter || e.department?.id === deptFilter).map(e => (
-                  <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}{e.department ? ` (${e.department.name})` : ""}</SelectItem>
+                  <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} — {e.employeeNumber}{e.department ? ` (${e.department.name})` : ""}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -213,7 +213,7 @@ export default function PerformanceTab() {
               <Badge variant="outline">{viewing.id}</Badge>
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor[viewing.status] ?? ""}`}>{viewing.status}</span>
             </div>
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user.name ?? viewing.employeeId}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employeeId}</div>
             <div><span className="text-muted-foreground">Task:</span> {viewing.title}</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
             <div><span className="text-muted-foreground">Priority:</span> {viewing.priority}</div>

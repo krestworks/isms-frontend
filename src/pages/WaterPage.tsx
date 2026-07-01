@@ -9,29 +9,43 @@ import { DistributionTab } from "@/components/water/DistributionTab";
 import { WaterInvoicesTab } from "@/components/water/WaterInvoicesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { usePermissions } from "@/lib/permissions";
 
 export default function WaterPage() {
+  const can = usePermissions();
+
+  const showProduction  = can("water.production.view");
+  const showEquipment   = can("water.equipment.view");
+  const showSales       = can("water.sales.record") || can("water.production.view");
+  const showOrders      = can("water.orders.create");
+  const showDistrib     = can("water.distributions.approve") || can("water.distributions.deliver");
+  const showInvoices    = can("water.invoices.issue");
+  const showStaff       = can("hr.staff.view");
+  const showShifts      = can("hr.shifts.view");
+
+  const defaultTab = showProduction ? "production" : showSales ? "sales" : "production";
+
   return (
     <ModulePageShell title="Water Production" description="Production tracking, equipment, distribution & invoicing" icon={Droplets}>
-      <Tabs defaultValue="production" className="space-y-4">
+      <Tabs defaultValue={defaultTab} className="space-y-4">
         <TabsList className="bg-muted/50 p-1 h-auto flex-wrap">
-          <TabsTrigger value="production" className="text-xs">Production</TabsTrigger>
-          <TabsTrigger value="equipment" className="text-xs">Equipment</TabsTrigger>
-          <TabsTrigger value="sales" className="text-xs">Sales</TabsTrigger>
-          <TabsTrigger value="orders" className="text-xs">Orders</TabsTrigger>
-          <TabsTrigger value="distribution" className="text-xs">Distribution</TabsTrigger>
-          <TabsTrigger value="invoices" className="text-xs">Invoices</TabsTrigger>
-          <TabsTrigger value="staff" className="text-xs">Staff</TabsTrigger>
-          <TabsTrigger value="shifts" className="text-xs">Shifts</TabsTrigger>
+          {showProduction && <TabsTrigger value="production"   className="text-xs">Production</TabsTrigger>}
+          {showEquipment  && <TabsTrigger value="equipment"    className="text-xs">Equipment</TabsTrigger>}
+          {showSales      && <TabsTrigger value="sales"        className="text-xs">Sales</TabsTrigger>}
+          {showOrders     && <TabsTrigger value="orders"       className="text-xs">Orders</TabsTrigger>}
+          {showDistrib    && <TabsTrigger value="distribution" className="text-xs">Distribution</TabsTrigger>}
+          {showInvoices   && <TabsTrigger value="invoices"     className="text-xs">Invoices</TabsTrigger>}
+          {showStaff      && <TabsTrigger value="staff"        className="text-xs">Staff</TabsTrigger>}
+          {showShifts     && <TabsTrigger value="shifts"       className="text-xs">Shifts</TabsTrigger>}
         </TabsList>
-        <TabsContent value="production"><ProductionTab /></TabsContent>
-        <TabsContent value="equipment"><EquipmentTab /></TabsContent>
-        <TabsContent value="sales"><WaterSalesTab /></TabsContent>
-        <TabsContent value="orders"><WaterOrdersTab /></TabsContent>
-        <TabsContent value="distribution"><DistributionTab /></TabsContent>
-        <TabsContent value="invoices"><WaterInvoicesTab /></TabsContent>
-        <TabsContent value="staff"><ModuleStaffTab department="Water" /></TabsContent>
-        <TabsContent value="shifts"><ShiftScheduleTab department="Water" /></TabsContent>
+        {showProduction && <TabsContent value="production"><ProductionTab /></TabsContent>}
+        {showEquipment  && <TabsContent value="equipment"><EquipmentTab /></TabsContent>}
+        {showSales      && <TabsContent value="sales"><WaterSalesTab /></TabsContent>}
+        {showOrders     && <TabsContent value="orders"><WaterOrdersTab /></TabsContent>}
+        {showDistrib    && <TabsContent value="distribution"><DistributionTab /></TabsContent>}
+        {showInvoices   && <TabsContent value="invoices"><WaterInvoicesTab /></TabsContent>}
+        {showStaff      && <TabsContent value="staff"><ModuleStaffTab department="Water" /></TabsContent>}
+        {showShifts     && <TabsContent value="shifts"><ShiftScheduleTab department="Water" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

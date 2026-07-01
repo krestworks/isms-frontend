@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Plus, UserX, ChevronsUpDown, Check } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, UserX, RotateCcw, Trash2, ChevronsUpDown, Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +74,7 @@ const emptyForm = {
   mobileProvider: "", mobileNumber: "",
   emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelation: "",
   salaryGrade: "", basicSalary: "",
+  workModules: [] as string[],
 };
 
 type FormState = typeof emptyForm;
@@ -95,6 +96,9 @@ function persistForm(form: FormState) {
 export default function StaffOnboardingTab() {
   const [data, setData] = useState<ApiEmployee[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [filterStatus, setFilterStatus] = useState("__all__");
   const [loading, setLoading] = useState(true);
   const [stations, setStations] = useState<ApiStation[]>([]);
   const [depts, setDepts] = useState<ApiDepartment[]>([]);
@@ -104,6 +108,8 @@ export default function StaffOnboardingTab() {
   const [viewing, setViewing] = useState<ApiEmployee | null>(null);
   const [terminateTarget, setTerminateTarget] = useState<ApiEmployee | null>(null);
   const [terminateNote, setTerminateNote] = useState("");
+  const [reactivateTarget, setReactivateTarget] = useState<ApiEmployee | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApiEmployee | null>(null);
   const [form, setForm] = useState<FormState>(loadPersistedForm);
   const [branches, setBranches] = useState<{ code: string; name: string }[]>([]);
   const [branchesLoading, setBranchesLoading] = useState(false);
@@ -115,15 +121,21 @@ export default function StaffOnboardingTab() {
   const canEdit = can("hr.staff.edit");
   const canTerminate = can("hr.staff.terminate");
 
-  const load = async () => {
+  const PAGE_LIMIT = 50;
+
+  const load = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const r = await hrApi.employees.list({ limit: 100 });
-      setData(r.data);
-      setTotal(r.meta.total);
+      const params: Record<string, unknown> = { page: p, limit: PAGE_LIMIT };
+      if (filterStatus && filterStatus !== "__all__") params.status = filterStatus;
+      const r = await hrApi.employees.list(params as any);
+      setData(r.data ?? []);
+      setTotal(r.meta?.total ?? 0);
+      setPage(r.meta?.page ?? 1);
+      setTotalPages(r.meta?.pages ?? 1);
     } catch (e: any) { toast.error(e?.message || "Failed to load employees"); }
     finally { setLoading(false); }
-  };
+  }, [filterStatus]);
 
   const loadSetupData = async () => {
     const [s, d, jt] = await Promise.allSettled([
@@ -136,7 +148,8 @@ export default function StaffOnboardingTab() {
     if (jt.status === "fulfilled") setJobTitles(jt.value.data);
   };
 
-  useEffect(() => { load(); loadSetupData(); }, []);
+  useEffect(() => { load(1); }, [load]);
+  useEffect(() => { loadSetupData(); }, []);
 
   const set = (field: keyof FormState, value: string) => {
     setForm(f => {
@@ -172,7 +185,7 @@ export default function StaffOnboardingTab() {
     const pm   = emp.paymentMethod || bd?.paymentMethod || "Cash";
     const bankCode = bank?.code || bd?.bankCode || "";
     const nf: FormState = {
-      name: emp.user.name || "", email: emp.user.email || "", phone: emp.user.phone || "",
+      name: emp.user?.name || "", email: emp.user?.email || "", phone: emp.user?.phone || "",
       stationId: emp.stationId, departmentId: emp.department?.id || emp.departmentId || "", jobTitleId: emp.jobTitle?.id || emp.jobTitleId || "",
       employmentType: emp.employmentType, contractType: emp.contractType || "Permanent",
       startDate: emp.startDate?.split("T")[0] || "", endDate: emp.endDate?.split("T")[0] || "",
@@ -188,6 +201,7 @@ export default function StaffOnboardingTab() {
       emergencyContactName: ec?.name || "", emergencyContactPhone: ec?.phone || "",
       emergencyContactRelation: ec?.relation || "",
       salaryGrade: emp.salaryGrade || "", basicSalary: emp.basicSalary ? String(emp.basicSalary) : "",
+      workModules: emp.workModules ?? [],
     };
     setForm(nf);
     if (bankCode) loadBranches(bankCode);
@@ -227,6 +241,7 @@ export default function StaffOnboardingTab() {
           bankDetails,
           salaryGrade: form.salaryGrade || null,
           basicSalary: form.basicSalary ? parseFloat(form.basicSalary) : null,
+          workModules: form.workModules?.length ? form.workModules : null,
         });
         toast.success("Employee updated");
       } else {
@@ -251,6 +266,7 @@ export default function StaffOnboardingTab() {
           bankDetails: bankDetails || undefined,
           salaryGrade: form.salaryGrade || undefined,
           basicSalary: form.basicSalary ? parseFloat(form.basicSalary) : undefined,
+          workModules: form.workModules?.length ? form.workModules : undefined,
         } as any);
         toast.success("Employee onboarded successfully");
       }
@@ -271,8 +287,28 @@ export default function StaffOnboardingTab() {
       toast.success(`${formatName(terminateTarget)} has been terminated`);
       setTerminateTarget(null);
       setTerminateNote("");
-      load();
+      load(page);
     } catch (e: any) { toast.error(e.message || "Failed to terminate"); }
+  };
+
+  const handleReactivate = async () => {
+    if (!reactivateTarget) return;
+    try {
+      await hrApi.employees.reactivate(reactivateTarget.id);
+      toast.success(`${formatName(reactivateTarget)} has been reactivated`);
+      setReactivateTarget(null);
+      load(page);
+    } catch (e: any) { toast.error(e.message || "Failed to reactivate"); }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await hrApi.employees.remove(deleteTarget.id);
+      toast.success(`${formatName(deleteTarget)} permanently deleted`);
+      setDeleteTarget(null);
+      load(page);
+    } catch (e: any) { toast.error(e.message || "Failed to delete"); }
   };
 
   const columns: Column<ApiEmployee>[] = [
@@ -286,13 +322,13 @@ export default function StaffOnboardingTab() {
   ];
 
   const filters: FilterOption[] = [
-    { key: "status", label: "Status", options: [{ label: "Active", value: "Active" }, { label: "Terminated", value: "Terminated" }, { label: "On Leave", value: "OnLeave" }] },
     { key: "employmentType", label: "Type", options: EMPLOYMENT_TYPES.map(t => ({ label: t, value: t })) },
   ];
 
   const stats = {
-    total, active: data.filter(d => d.status === "Active").length,
-    onLeave: data.filter(d => d.status === "OnLeave").length,
+    total,
+    active:     data.filter(d => d.status === "Active").length,
+    onLeave:    data.filter(d => d.status === "OnLeave").length,
     terminated: data.filter(d => d.status === "Terminated").length,
   };
 
@@ -304,22 +340,25 @@ export default function StaffOnboardingTab() {
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Staff Onboarding</h3>
-          <p className="text-sm text-muted-foreground">Central employee registry</p>
+          <p className="text-sm text-muted-foreground">Central employee registry · {total} employees</p>
         </div>
         {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Add Employee</Button>}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Staff", value: stats.total, color: "" },
-          { label: "Active", value: stats.active, color: "text-green-600" },
-          { label: "On Leave", value: stats.onLeave, color: "text-amber-600" },
-          { label: "Terminated", value: stats.terminated, color: "text-destructive" },
+          { label: "Total Staff", value: stats.total, color: "", filter: "__all__" },
+          { label: "Active", value: stats.active, color: "text-green-600", filter: "Active" },
+          { label: "On Leave", value: stats.onLeave, color: "text-amber-600", filter: "OnLeave" },
+          { label: "Terminated", value: stats.terminated, color: "text-destructive", filter: "Terminated" },
         ].map(s => (
-          <Card key={s.label}><CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">{s.label}</p>
-            <p className={`text-2xl font-bold ${s.color}`}>{loading ? "…" : s.value}</p>
-          </CardContent></Card>
+          <Card key={s.label} className={`cursor-pointer transition-shadow hover:shadow-md ${filterStatus === s.filter ? "ring-2 ring-primary" : ""}`}
+            onClick={() => { setFilterStatus(s.filter); setPage(1); }}>
+            <CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">{s.label}</p>
+              <p className={`text-2xl font-bold ${s.color}`}>{loading ? "…" : s.value}</p>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
@@ -329,16 +368,44 @@ export default function StaffOnboardingTab() {
         searchKeys={["employeeNumber"]}
         searchPlaceholder="Search by employee number…"
         filters={filters}
+        pageSize={25}
         onView={e => setViewing(e)}
-        onEdit={canEdit ? openEdit : undefined}
+        onEdit={canEdit ? (e => e.status !== "Terminated" ? openEdit(e) : undefined) : undefined}
         actions={canTerminate ? (e) => (
-          e.status !== "Terminated"
-            ? <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => { setTerminateTarget(e); setTerminateNote(""); }}>
+          <div className="flex gap-1">
+            {e.status !== "Terminated" && (
+              <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => { setTerminateTarget(e); setTerminateNote(""); }}>
                 <UserX className="h-3.5 w-3.5 mr-1" /> Terminate
               </Button>
-            : null
+            )}
+            {e.status === "Terminated" && (
+              <>
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-green-700" onClick={() => setReactivateTarget(e)}>
+                  <RotateCcw className="h-3.5 w-3.5 mr-1" /> Reactivate
+                </Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive" onClick={() => setDeleteTarget(e)}>
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                </Button>
+              </>
+            )}
+          </div>
         ) : undefined}
       />
+
+      {/* Server-side pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-2">
+          <span>{total} employees · Page {page} of {totalPages}</span>
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page <= 1} onClick={() => load(page - 1)}>
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 w-7 p-0" disabled={page >= totalPages} onClick={() => load(page + 1)}>
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Create / Edit modal */}
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
@@ -414,6 +481,28 @@ export default function StaffOnboardingTab() {
             <div><Label>End Date (contract)</Label><Input type="date" value={form.endDate} onChange={e => set("endDate", e.target.value)} /></div>
             <div><Label>Salary Grade</Label><Input value={form.salaryGrade} onChange={e => set("salaryGrade", e.target.value)} placeholder="e.g. G5" /></div>
             <div><Label>Basic Salary (KES)</Label><Input type="number" value={form.basicSalary} onChange={e => set("basicSalary", e.target.value)} /></div>
+          </div>
+
+          <p className="text-sm font-semibold text-muted-foreground pt-2">Module Assignment</p>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-2 block">Select which modules this employee works in (independent of HR department)</Label>
+            <div className="flex flex-wrap gap-2">
+              {["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Inventory", "Finance", "HR", "POS"].map(mod => {
+                const active = form.workModules?.includes(mod);
+                return (
+                  <button key={mod} type="button"
+                    onClick={() => {
+                      const next = active
+                        ? (form.workModules ?? []).filter((m: string) => m !== mod)
+                        : [...(form.workModules ?? []), mod];
+                      set("workModules", next);
+                    }}
+                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/30 text-muted-foreground hover:border-primary/50"}`}>
+                    {mod}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           <p className="text-sm font-semibold text-muted-foreground pt-2">Personal Details</p>
@@ -594,8 +683,8 @@ export default function StaffOnboardingTab() {
             </div>
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="text-muted-foreground">Name:</span> {formatName(viewing)}</div>
-              <div><span className="text-muted-foreground">Email:</span> {viewing.user.email}</div>
-              <div><span className="text-muted-foreground">Phone:</span> {viewing.user.phone || "—"}</div>
+              <div><span className="text-muted-foreground">Email:</span> {viewing.user?.email || "—"}</div>
+              <div><span className="text-muted-foreground">Phone:</span> {viewing.user?.phone || "—"}</div>
               <div><span className="text-muted-foreground">Station:</span> {stationName(viewing.stationId)}</div>
               <div><span className="text-muted-foreground">Department:</span> {viewing.department?.name || "—"}</div>
               <div><span className="text-muted-foreground">Job Title:</span> {viewing.jobTitle?.title || "—"}</div>
@@ -609,6 +698,14 @@ export default function StaffOnboardingTab() {
               <div><span className="text-muted-foreground">Payment:</span> {viewing.paymentMethod || "—"}</div>
               <div><span className="text-muted-foreground">Basic Salary:</span> {viewing.basicSalary ? `KES ${Number(viewing.basicSalary).toLocaleString()}` : "—"}</div>
               <div><span className="text-muted-foreground">Grade:</span> {viewing.salaryGrade || "—"}</div>
+              {viewing.workModules && viewing.workModules.length > 0 && (
+                <div className="col-span-2">
+                  <span className="text-muted-foreground">Modules: </span>
+                  {viewing.workModules.map((m: string) => (
+                    <span key={m} className="inline-block mr-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">{m}</span>
+                  ))}
+                </div>
+              )}
               {viewing.bankDetails && viewing.paymentMethod === "MobileMoney" && (
                 <div className="col-span-2">
                   <span className="text-muted-foreground">Mobile Money:</span>{" "}
@@ -641,7 +738,7 @@ export default function StaffOnboardingTab() {
       {/* Terminate confirmation */}
       <ModalForm open={!!terminateTarget} onClose={() => setTerminateTarget(null)}
         title={`Terminate — ${terminateTarget ? formatName(terminateTarget) : ""}`}
-        description="This action deactivates the employee's account. It cannot be undone from the UI."
+        description="This action deactivates the employee's account."
         onSubmit={handleTerminate} submitLabel="Confirm Termination"
         submitVariant="destructive">
         <div className="space-y-3">
@@ -649,6 +746,30 @@ export default function StaffOnboardingTab() {
           <div><Label>Termination Reason / Note</Label>
             <Textarea value={terminateNote} onChange={e => setTerminateNote(e.target.value)} placeholder="Reason for termination..." />
           </div>
+        </div>
+      </ModalForm>
+
+      {/* Reactivate confirmation */}
+      <ModalForm open={!!reactivateTarget} onClose={() => setReactivateTarget(null)}
+        title={`Reactivate — ${reactivateTarget ? formatName(reactivateTarget) : ""}`}
+        description="This will restore the employee's account to Active status."
+        onSubmit={handleReactivate} submitLabel="Confirm Reactivation">
+        <p className="text-sm text-muted-foreground">
+          Employee <strong>{reactivateTarget ? formatName(reactivateTarget) : ""}</strong> ({reactivateTarget?.employeeNumber}) will be set back to Active and their user login will be re-enabled.
+        </p>
+      </ModalForm>
+
+      {/* Delete confirmation */}
+      <ModalForm open={!!deleteTarget} onClose={() => setDeleteTarget(null)}
+        title={`Delete — ${deleteTarget ? formatName(deleteTarget) : ""}`}
+        description="Permanently remove this terminated employee's record. This cannot be undone."
+        onSubmit={handleDelete} submitLabel="Permanently Delete"
+        submitVariant="destructive">
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground">
+            You are about to permanently delete all records for <strong>{deleteTarget ? formatName(deleteTarget) : ""}</strong> ({deleteTarget?.employeeNumber}).
+          </p>
+          <p className="text-xs text-destructive font-medium">This action is irreversible. All payroll, attendance, and leave records linked to this employee will also be deleted.</p>
         </div>
       </ModalForm>
     </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,48 +9,68 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { lpgApi, ApiLpgSale } from "@/lib/lpgApi";
+import { lpgApi, ApiLpgSale, ApiLpgCylinder } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import { exportToCsv } from "@/lib/exportCsv";
 
-const SIZES = ["6kg", "13kg", "22.5kg", "25kg", "50kg"];
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const EXCHANGE_TYPES = ["Exchange", "New", "Refill"];
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
-  date: today(), customer: "", cylinderSize: "13kg", quantity: 1, unitPrice: 0,
+  date: today(), customer: "", cylinderSize: "", quantity: 1, unitPrice: 0,
   discount: 0, totalAmount: 0, paymentMethod: "Cash", paymentStatus: "paid",
   attendant: "", exchangeType: "Exchange",
 };
 
+interface SizeOption { size: string; available: number; price: number; }
+
 export function LpgSalesTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canRecord = can("lpg.sales.record");
   const canVoid   = can("lpg.sales.void");
 
-  const [sales, setSales]       = useState<ApiLpgSale[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [fromDate, setFromDate] = useState(today());
-  const [toDate, setToDate]     = useState(today());
+  const [sales, setSales]         = useState<ApiLpgSale[]>([]);
+  const [cylinders, setCylinders] = useState<ApiLpgCylinder[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [fromDate, setFromDate]   = useState(today());
+  const [toDate, setToDate]       = useState(today());
   const [modalOpen, setModalOpen] = useState(false);
-  const [viewing, setViewing]   = useState<ApiLpgSale | null>(null);
-  const [form, setForm]         = useState(emptyForm);
-  const [saving, setSaving]     = useState(false);
+  const [viewing, setViewing]     = useState<ApiLpgSale | null>(null);
+  const [form, setForm]           = useState(emptyForm);
+  const [saving, setSaving]       = useState(false);
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await lpgApi.sales.list({ from: fromDate, to: toDate }, stationId);
-      setSales(res.data ?? []);
+      const [salesRes, cylRes] = await Promise.all([
+        lpgApi.sales.list({ from: fromDate, to: toDate }, stationId),
+        lpgApi.cylinders.list({ status: "full" }, stationId),
+      ]);
+      setSales(salesRes.data ?? []);
+      setCylinders(cylRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
     finally { setLoading(false); }
   }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
+
+  // Group cylinders by size: count available + average selling price
+  const sizeOptions: SizeOption[] = Object.values(
+    cylinders.reduce<Record<string, SizeOption>>((acc, c) => {
+      if (!acc[c.size]) acc[c.size] = { size: c.size, available: 0, price: 0 };
+      acc[c.size].available += 1;
+      acc[c.size].price = c.sellingPrice; // last one wins — they should match per size
+      return acc;
+    }, {})
+  ).sort((a, b) => parseFloat(a.size) - parseFloat(b.size));
+
+  const noStock = sizeOptions.length === 0;
 
   const updateForm = (k: string, v: any) => {
     setForm(f => {
@@ -60,10 +80,35 @@ export function LpgSalesTab() {
     });
   };
 
-  const openNew = () => { setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const handleSizeChange = (size: string) => {
+    const opt = sizeOptions.find(s => s.size === size);
+    setForm(f => {
+      const next = { ...f, cylinderSize: size, unitPrice: opt?.price ?? f.unitPrice };
+      next.totalAmount = next.quantity * next.unitPrice - next.discount;
+      return next;
+    });
+  };
+
+  const openNew = () => {
+    const defaultSize = sizeOptions[0];
+    setForm({
+      ...emptyForm,
+      date: today(),
+      attendant: user.name || "",
+      cylinderSize: defaultSize?.size ?? "",
+      unitPrice: defaultSize?.price ?? 0,
+    });
+    setModalOpen(true);
+  };
+
+  const selectedSizeOpt = sizeOptions.find(s => s.size === form.cylinderSize);
+  const insufficientStock = !!selectedSizeOpt && form.quantity > selectedSizeOpt.available;
 
   const handleSave = async () => {
-    if (!form.date || !form.cylinderSize || !form.unitPrice) return toast.error("Date, size, and price are required");
+    if (!form.cylinderSize) return toast.error("Select a cylinder size");
+    if (!form.unitPrice)    return toast.error("Unit price is required");
+    if (insufficientStock)
+      return toast.error(`Only ${selectedSizeOpt!.available} ${form.cylinderSize} cylinder(s) in stock`);
     setSaving(true);
     try {
       await lpgApi.sales.create({
@@ -107,9 +152,9 @@ export function LpgSalesTab() {
   ];
 
   const filters: FilterOption[] = [
-    { key: "cylinderSize", label: "Size",     options: SIZES.map(s => ({ label: s, value: s })) },
-    { key: "exchangeType", label: "Type",     options: EXCHANGE_TYPES.map(t => ({ label: t, value: t })) },
-    { key: "paymentStatus",label: "Status",   options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Voided", value: "voided" }] },
+    { key: "cylinderSize", label: "Size",   options: sizeOptions.map(s => ({ label: s.size, value: s.size })) },
+    { key: "exchangeType", label: "Type",   options: EXCHANGE_TYPES.map(t => ({ label: t, value: t })) },
+    { key: "paymentStatus",label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Voided", value: "voided" }] },
   ];
 
   return (
@@ -121,9 +166,20 @@ export function LpgSalesTab() {
             <Download className="h-4 w-4 mr-1.5" />Export
           </Button>
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
-          {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+          {canRecord && (
+            <Button size="sm" onClick={openNew} disabled={noStock} title={noStock ? "No full cylinders in stock" : ""}>
+              <Plus className="h-4 w-4 mr-1.5" />Record Sale
+            </Button>
+          )}
         </div>
       </div>
+
+      {noStock && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          No full cylinders in stock. Add cylinders in the Cylinders tab before recording sales.
+        </div>
+      )}
 
       <div className="flex gap-3 items-end flex-wrap">
         <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
@@ -152,26 +208,47 @@ export function LpgSalesTab() {
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record LPG Sale"
-        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}
+        submitDisabled={insufficientStock}>
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
-          <div><Label>Cylinder Size</Label>
-            <Select value={form.cylinderSize} onValueChange={v => set("cylinderSize", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{SIZES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+          <div>
+            <Label>Cylinder Size *</Label>
+            <Select value={form.cylinderSize} onValueChange={handleSizeChange}>
+              <SelectTrigger><SelectValue placeholder="Select size" /></SelectTrigger>
+              <SelectContent>
+                {sizeOptions.map(s => (
+                  <SelectItem key={s.size} value={s.size}>
+                    {s.size} — {s.available} in stock · Ksh {s.price.toLocaleString()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
+            {selectedSizeOpt && (
+              <p className={`text-xs mt-1 ${insufficientStock ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                {insufficientStock
+                  ? `⚠ Only ${selectedSizeOpt.available} in stock`
+                  : `${selectedSizeOpt.available} full cylinder(s) available`}
+              </p>
+            )}
           </div>
-          <div><Label>Quantity</Label><Input type="number" value={form.quantity || ""} onChange={e => set("quantity", +e.target.value)} /></div>
-          <div><Label>Unit Price (Ksh) *</Label><Input type="number" value={form.unitPrice || ""} onChange={e => set("unitPrice", +e.target.value)} /></div>
+          <div><Label>Quantity</Label><Input type="number" min={1} value={form.quantity || ""} onChange={e => set("quantity", +e.target.value)} /></div>
+          <div>
+            <Label>Unit Price (Ksh) *</Label>
+            <Input type="number" step="0.01" value={form.unitPrice || ""} onChange={e => set("unitPrice", +e.target.value)} />
+            {form.unitPrice > 0 && <p className="text-xs text-muted-foreground mt-1">Auto-filled from cylinder pricing</p>}
+          </div>
           <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
           <div><Label>Total (Ksh)</Label><Input value={`Ksh ${form.totalAmount.toLocaleString()}`} disabled className="font-mono" /></div>
-          <div><Label>Exchange Type</Label>
+          <div>
+            <Label>Exchange Type</Label>
             <Select value={form.exchangeType} onValueChange={v => set("exchangeType", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{EXCHANGE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div><Label>Payment Method</Label>
+          <div>
+            <Label>Payment Method</Label>
             <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>

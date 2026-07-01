@@ -1,7 +1,9 @@
 // Permission helpers — gate routes, sidebar items, and dashboard sections
 // by the effective permission codes loaded from the backend for the active role.
 
+import { useEffect, useState } from "react";
 import { sessionStore, useSession } from "@/data/sessionStore";
+import { stationsApi } from "@/lib/stationsApi";
 
 export const ROUTE_TO_MODULE: Record<string, string> = {
   "/": "Dashboard",
@@ -86,6 +88,52 @@ export function canAccessRoute(path: string): boolean {
 /** Only users with stations.view can see the location switcher. */
 export function canSwitchLocation(): boolean {
   return hasPermission("stations.view");
+}
+
+// ── StationModule filter hook ──────────────────────────────────────────────────
+// Caches enabled modules per stationId (module-level, persists until page reload).
+// Admins bypass all module restrictions.
+
+const _moduleCache: Record<string, Set<string>> = {};
+
+/**
+ * Returns a function `isModuleEnabled(moduleKey)` — true if the module is
+ * enabled at the user's home station. Admins always get true. Falls back to
+ * true (fail-open) while loading or on error.
+ */
+export function useStationModuleFilter(): (moduleKey: string) => boolean {
+  const { user } = useSession();
+  const [, refresh] = useState(0);
+
+  const isAdmin = user.activeRole === "Admin" || user.activeRole === "SuperAdmin";
+  const stationId = user.homeLocation;
+
+  useEffect(() => {
+    if (isAdmin || !stationId) return;
+    if (_moduleCache[stationId]) return; // already cached
+
+    stationsApi.modules.list(stationId)
+      .then(res => {
+        const enabled = new Set(
+          (res.data ?? []).filter(m => m.isEnabled).map(m => m.module)
+        );
+        _moduleCache[stationId] = enabled;
+        refresh(n => n + 1);
+      })
+      .catch(() => {
+        // On error, let everything through so users aren't locked out
+        _moduleCache[stationId] = new Set(["hr", "fuel", "lpg", "water", "carwash", "auto", "pos", "finance", "compliance"]);
+        refresh(n => n + 1);
+      });
+  }, [isAdmin, stationId]);
+
+  return (moduleKey: string) => {
+    if (isAdmin) return true;
+    if (!stationId) return true; // global admin view — show all
+    const cached = _moduleCache[stationId];
+    if (!cached) return true; // not yet loaded — fail-open
+    return cached.has(moduleKey);
+  };
 }
 
 export function isLocationVisible(locationName?: string): boolean {

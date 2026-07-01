@@ -44,9 +44,14 @@ export function ModuleStaffTab({ department }: Props) {
       } as any);
 
       const all = res.data ?? [];
-      // Filter to employees whose department name matches the module department
+      // Filter: prefer explicit workModules assignment; fall back to department name match
       const filtered = department
-        ? all.filter(e => e.department?.name?.toLowerCase() === department.toLowerCase())
+        ? all.filter(e => {
+            if (e.workModules && e.workModules.length > 0) {
+              return e.workModules.some((m: string) => m.toLowerCase() === department.toLowerCase());
+            }
+            return e.department?.name?.toLowerCase() === department.toLowerCase();
+          })
         : all;
 
       setEmployees(filtered);
@@ -100,8 +105,8 @@ export function ModuleStaffTab({ department }: Props) {
       ) : employees.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground text-sm">
-            No staff in the {department} department. Onboard employees in{" "}
-            <Link to="/hr" className="underline">HR Management</Link>.
+            No staff assigned to the {department} module. Assign employees to this module in{" "}
+            <Link to="/hr" className="underline">HR → Staff Onboarding</Link> (Module Assignment section).
           </CardContent>
         </Card>
       ) : (

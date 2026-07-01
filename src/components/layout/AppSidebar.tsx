@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
-import { canAccessRoute } from "@/lib/permissions";
+import { canAccessRoute, useStationModuleFilter } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
 import { useBranding } from "@/data/brandingStore";
 import {
@@ -22,6 +22,19 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
+
+// Map URL → module key (for StationModule enabled/disabled check)
+const ROUTE_MODULE_KEY: Record<string, string> = {
+  "/fuel":       "fuel",
+  "/lpg":        "lpg",
+  "/water":      "water",
+  "/automotive": "auto",
+  "/carwash":    "carwash",
+  "/business":   "pos",
+  "/inventory":  "pos",
+  "/finance":    "finance",
+  "/hr":         "hr",
+};
 
 const operations = [
   { title: "Fuel Management",  url: "/fuel",       icon: Fuel },
@@ -60,6 +73,7 @@ const employeeItems = [
 export function AppSidebar() {
   const { user } = useSession();
   const branding = useBranding();
+  const isModuleEnabled = useStationModuleFilter();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed  = state === "collapsed";
   const location   = useLocation();
@@ -97,7 +111,10 @@ export function AppSidebar() {
   );
 
   const renderGroup = (label: string, items: typeof operations) => {
-    const visible = items.filter(i => canAccessRoute(i.url));
+    const visible = items.filter(i =>
+      canAccessRoute(i.url) &&
+      isModuleEnabled(ROUTE_MODULE_KEY[i.url] ?? "")
+    );
     if (visible.length === 0) return null;
     return (
       <SidebarGroup>

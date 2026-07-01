@@ -61,6 +61,7 @@ export interface ApiWaterInvoice {
 export interface ApiWaterSummary {
   todayRevenue: number; todayLitresSold: number; todayProduced: number;
   totalEquipment: number; maintenanceEquipment: number;
+  availableWater: number;
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────

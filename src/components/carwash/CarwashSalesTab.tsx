@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,50 +9,75 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { carwashApi, ApiCarwashSale } from "@/lib/carwashApi";
+import { carwashApi, ApiCarwashSale, ApiCarwashPackage } from "@/lib/carwashApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import { exportToCsv } from "@/lib/exportCsv";
 
-const PACKAGES = ["Basic Rinse", "Full Wash", "Premium Detail", "Interior Clean"];
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice"];
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
-  date: today(), vehicleReg: "", washPackage: "Full Wash",
+  date: today(), vehicleReg: "", washPackage: "",
   attendant: "", paymentMethod: "Cash", amount: 0, status: "paid",
 };
 
 export function CarwashSalesTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canManage = can("carwash.sales.record");
 
-  const [records, setRecords]   = useState<ApiCarwashSale[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [fromDate, setFromDate] = useState(today());
-  const [toDate, setToDate]     = useState(today());
+  const [records, setRecords]     = useState<ApiCarwashSale[]>([]);
+  const [packages, setPackages]   = useState<ApiCarwashPackage[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [fromDate, setFromDate]   = useState(today());
+  const [toDate, setToDate]       = useState(today());
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing]   = useState<ApiCarwashSale | null>(null);
-  const [viewing, setViewing]   = useState<ApiCarwashSale | null>(null);
-  const [form, setForm]         = useState(emptyForm);
-  const [saving, setSaving]     = useState(false);
+  const [editing, setEditing]     = useState<ApiCarwashSale | null>(null);
+  const [viewing, setViewing]     = useState<ApiCarwashSale | null>(null);
+  const [form, setForm]           = useState(emptyForm);
+  const [saving, setSaving]       = useState(false);
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await carwashApi.sales.list({ from: fromDate, to: toDate }, stationId);
-      setRecords(res.data ?? []);
+      const [salesRes, pkgRes] = await Promise.all([
+        carwashApi.sales.list({ from: fromDate, to: toDate }, stationId),
+        carwashApi.packages.list({ status: "active" }, stationId),
+      ]);
+      setRecords(salesRes.data ?? []);
+      setPackages(pkgRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
     finally { setLoading(false); }
   }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
+  const noPackages = packages.length === 0;
+
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
-  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const handlePackageChange = (name: string) => {
+    const pkg = packages.find(p => p.name === name);
+    setForm(f => ({ ...f, washPackage: name, amount: pkg?.price ?? f.amount }));
+  };
+
+  const openNew = () => {
+    const defaultPkg = packages[0];
+    setEditing(null);
+    setForm({
+      ...emptyForm,
+      date: today(),
+      attendant: user.name || "",
+      washPackage: defaultPkg?.name ?? "",
+      amount: defaultPkg?.price ?? 0,
+    });
+    setModalOpen(true);
+  };
+
   const openEdit = (s: ApiCarwashSale) => {
     setEditing(s);
     setForm({
@@ -64,6 +89,7 @@ export function CarwashSalesTab() {
 
   const handleSave = async () => {
     if (!form.vehicleReg || !form.washPackage) return toast.error("Vehicle reg and package are required");
+    if (!form.amount) return toast.error("Amount is required");
     setSaving(true);
     try {
       const payload = { ...form, attendant: form.attendant || undefined };
@@ -107,7 +133,7 @@ export function CarwashSalesTab() {
   const filters: FilterOption[] = [
     { key: "status",        label: "Status",  options: [{ label: "Paid", value: "paid" }, { label: "Unpaid", value: "unpaid" }] },
     { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
-    { key: "washPackage",   label: "Package", options: PACKAGES.map(p => ({ label: p, value: p })) },
+    { key: "washPackage",   label: "Package", options: packages.map(p => ({ label: p.name, value: p.name })) },
   ];
 
   return (
@@ -119,9 +145,20 @@ export function CarwashSalesTab() {
             <Download className="h-4 w-4 mr-1.5" />Export
           </Button>
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
-          {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+          {canManage && (
+            <Button size="sm" onClick={openNew} disabled={noPackages} title={noPackages ? "Set up packages first" : ""}>
+              <Plus className="h-4 w-4 mr-1.5" />Record Sale
+            </Button>
+          )}
         </div>
       </div>
+
+      {noPackages && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          No active wash packages configured. Go to Packages to create packages before recording sales.
+        </div>
+      )}
 
       <div className="flex gap-3 items-end flex-wrap">
         <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
@@ -156,21 +193,34 @@ export function CarwashSalesTab() {
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
           <div><Label>Vehicle Reg *</Label><Input value={form.vehicleReg} onChange={e => set("vehicleReg", e.target.value)} placeholder="KBZ 123A" /></div>
-          <div><Label>Package *</Label>
-            <Select value={form.washPackage} onValueChange={v => set("washPackage", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{PACKAGES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
+          <div>
+            <Label>Package *</Label>
+            <Select value={form.washPackage} onValueChange={handlePackageChange}>
+              <SelectTrigger><SelectValue placeholder="Select package" /></SelectTrigger>
+              <SelectContent>
+                {packages.map(p => (
+                  <SelectItem key={p.id} value={p.name}>
+                    {p.name} — Ksh {p.price.toLocaleString()} ({p.duration} min)
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </div>
           <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
-          <div><Label>Payment Method</Label>
+          <div>
+            <Label>Payment Method</Label>
             <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div><Label>Amount (Ksh)</Label><Input type="number" value={form.amount || ""} onChange={e => set("amount", +e.target.value)} /></div>
-          <div><Label>Status</Label>
+          <div>
+            <Label>Amount (Ksh)</Label>
+            <Input type="number" value={form.amount || ""} onChange={e => set("amount", +e.target.value)} />
+            {form.washPackage && <p className="text-xs text-muted-foreground mt-1">Auto-filled from package price</p>}
+          </div>
+          <div>
+            <Label>Status</Label>
             <Select value={form.status} onValueChange={v => set("status", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="paid">Paid</SelectItem><SelectItem value="unpaid">Unpaid</SelectItem></SelectContent>

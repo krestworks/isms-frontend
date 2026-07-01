@@ -7,6 +7,7 @@ import SuppliersTab from "@/components/inventory/SuppliersTab";
 import PurchaseOrdersTab from "@/components/inventory/PurchaseOrdersTab";
 import GoodsReceiptsTab from "@/components/inventory/GoodsReceiptsTab";
 import StockMovementsTab from "@/components/inventory/StockMovementsTab";
+import InventorySalesTab from "@/components/inventory/InventorySalesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 
@@ -25,6 +26,7 @@ export default function InventoryPage() {
           <TabsTrigger value="po">Purchase Orders</TabsTrigger>
           <TabsTrigger value="grn">Goods Receipts</TabsTrigger>
           <TabsTrigger value="movements">Stock Movements</TabsTrigger>
+          <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="staff">Staff</TabsTrigger>
           <TabsTrigger value="shifts">Shifts</TabsTrigger>
         </TabsList>
@@ -34,6 +36,7 @@ export default function InventoryPage() {
         <TabsContent value="po"><PurchaseOrdersTab /></TabsContent>
         <TabsContent value="grn"><GoodsReceiptsTab /></TabsContent>
         <TabsContent value="movements"><StockMovementsTab /></TabsContent>
+        <TabsContent value="sales"><InventorySalesTab /></TabsContent>
         <TabsContent value="staff"><ModuleStaffTab department="Inventory" /></TabsContent>
         <TabsContent value="shifts"><ShiftScheduleTab department="Inventory" /></TabsContent>
       </Tabs>

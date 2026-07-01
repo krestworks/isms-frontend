@@ -38,6 +38,7 @@ export default function PayrollSettingsTab() {
   const [saving,   setSaving]   = useState(false);
 
   const [country,       setCountry]       = useState("KE");
+  const [employerKraPin, setEmployerKraPin] = useState("");
   const [payDay,        setPayDay]        = useState("28");
   const [payFrequency,  setPayFrequency]  = useState("monthly");
   const [currency,      setCurrency]      = useState("KES");
@@ -56,7 +57,8 @@ export default function PayrollSettingsTab() {
     try {
       const res = await hrApi.payrollSettings.get();
       const d = res.data ?? {};
-      if (d.country)      setCountry(d.country);
+      if (d.country)         setCountry(d.country);
+      if (d.employerKraPin)  setEmployerKraPin(d.employerKraPin);
       if (d.payDay)       setPayDay(String(d.payDay));
       if (d.payFrequency) setPayFrequency(d.payFrequency);
       if (d.currency)     setCurrency(d.currency);
@@ -88,7 +90,8 @@ export default function PayrollSettingsTab() {
     setSaving(true);
     try {
       await hrApi.payrollSettings.save({
-        country, payDay: Number(payDay), payFrequency, currency, autoProcess,
+        country, employerKraPin: employerKraPin || undefined,
+        payDay: Number(payDay), payFrequency, currency, autoProcess,
         stdHoursDay: Number(stdHoursDay), stdDaysWeek: Number(stdDaysWeek),
         overtimeRate: Number(overtimeRate), weekendRate: Number(weekendRate), holidayRate: Number(holidayRate),
         allowances, deductions,
@@ -120,6 +123,16 @@ export default function PayrollSettingsTab() {
             <CardDescription>Pay frequency & processing</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div>
+              <Label>Employer KRA PIN</Label>
+              <Input
+                value={employerKraPin}
+                onChange={e => setEmployerKraPin(e.target.value.toUpperCase())}
+                placeholder="P051234567T"
+                className="font-mono"
+              />
+              <p className="text-xs text-muted-foreground mt-1">Printed on all payslips and statutory reports (SHA, NSSF, PAYE, P9).</p>
+            </div>
             <div>
               <Label>Country / Payroll Jurisdiction</Label>
               <Select value={country} onValueChange={v => {

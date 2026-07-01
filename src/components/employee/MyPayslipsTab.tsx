@@ -30,9 +30,10 @@ function buildPayslipText(p: ApiPayroll): string {
     centered("PAY STATEMENT"),
     "═".repeat(width),
     "",
-    `Pay Period: ${fmtPeriod(p.month)}`,
-    `Payslip ID: ${p.id.slice(-8).toUpperCase()}`,
-    `Date Paid:  ${p.payDate || "Pending"}`,
+    `Pay Period:  ${fmtPeriod(p.month)}`,
+    `Payslip ID:  ${p.id.slice(-8).toUpperCase()}`,
+    `Date Paid:   ${p.payDate || "Pending"}`,
+    ...(p.employee?.kraPin ? [`KRA PIN:     ${p.employee.kraPin}`] : []),
     "",
     "─── EARNINGS ───────────────────────",
     `Basic Salary:        ${fmt(p.basicSalary)}`,
@@ -141,6 +142,10 @@ export default function MyPayslipsTab() {
               <Badge variant="outline" className="text-sm">{fmtPeriod(viewing.month)}</Badge>
               <StatusBadge status={viewing.status} />
             </div>
+
+            {viewing.employee?.kraPin && (
+              <div className="text-xs text-muted-foreground font-mono">KRA PIN: {viewing.employee.kraPin}</div>
+            )}
 
             <div className="rounded-lg border p-4 space-y-2">
               <h4 className="font-semibold text-sm text-muted-foreground">EARNINGS</h4>

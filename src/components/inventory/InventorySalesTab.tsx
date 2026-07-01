@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Plus, RefreshCw, Download, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,117 +8,209 @@ import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { toast } from "sonner";
+import { bizApi, ApiBizSale, ApiBizProduct, ApiBizBusiness } from "@/lib/bizApi";
+import { useActiveStation } from "@/lib/useActiveStation";
+import { useSession } from "@/data/sessionStore";
+import { exportToCsv } from "@/lib/exportCsv";
 
-interface Sale {
-  id: string;
-  date: string;
-  product: string;
-  qty: number;
-  unitPrice: number;
-  total: number;
-  paymentMethod: string;
-  customer: string;
-  cashier: string;
-  subBusiness: string;
-}
+const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Credit"];
+const today = () => new Date().toISOString().split("T")[0];
 
-const initial: Sale[] = [
-  { id: "INV-1209", date: "2026-04-28", product: "Cooking Oil 1L", qty: 8, unitPrice: 380, total: 3040, paymentMethod: "M-Pesa", customer: "Walk-in", cashier: "Kevin Njoroge", subBusiness: "Jirani Mini Mart — CBD" },
-  { id: "INV-1210", date: "2026-04-29", product: "Soda 500ml", qty: 24, unitPrice: 80, total: 1920, paymentMethod: "Cash", customer: "Walk-in", cashier: "Kevin Njoroge", subBusiness: "Jirani Mini Mart — CBD" },
-  { id: "INV-1211", date: "2026-04-29", product: "Paracetamol 500mg", qty: 5, unitPrice: 50, total: 250, paymentMethod: "Cash", customer: "Walk-in", cashier: "Kevin Njoroge", subBusiness: "Westlands Pharmacy" },
-];
-
-const PRODUCTS = ["Maize Flour 2kg", "Cooking Oil 1L", "Soda 500ml", "Paracetamol 500mg", "Amoxicillin 250mg"];
-const SUB_BIZ = ["Jirani Mini Mart — CBD", "Westlands Pharmacy", "Mombasa Rd Cafe"];
-const emptyForm = { date: "", product: PRODUCTS[0], qty: 1, unitPrice: 0, paymentMethod: "Cash", customer: "Walk-in", cashier: "", subBusiness: SUB_BIZ[0] };
+const emptyForm = {
+  productId: "", productName: "", qty: 1, unitPrice: 0,
+  paymentMethod: "Cash", customer: "", cashier: "",
+};
 
 export default function InventorySalesTab() {
-  const [data, setData] = useState(initial);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [form, setForm] = useState<typeof emptyForm>(emptyForm);
+  const { stationId } = useActiveStation();
+  const { user } = useSession();
 
-  const stats = {
-    total: data.length,
-    revenue: data.reduce((s, d) => s + d.total, 0),
-    units: data.reduce((s, d) => s + d.qty, 0),
+  const [businesses, setBusinesses] = useState<ApiBizBusiness[]>([]);
+  const [selectedBiz, setSelectedBiz] = useState<ApiBizBusiness | null>(null);
+  const [products, setProducts] = useState<ApiBizProduct[]>([]);
+  const [sales, setSales] = useState<ApiBizSale[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+
+  // Load businesses for this station
+  useEffect(() => {
+    if (!stationId) return;
+    bizApi.businesses.list(stationId)
+      .then(r => setBusinesses(r.data ?? []))
+      .catch(() => toast.error("Failed to load sub-businesses"));
+  }, [stationId]);
+
+  // Load sales + products for a selected business
+  const loadBizData = useCallback(async (biz: ApiBizBusiness) => {
+    setLoading(true);
+    try {
+      const [salesRes, prodsRes] = await Promise.all([
+        bizApi.sales.list(biz.id),
+        bizApi.products.list(biz.id, { status: "active" }),
+      ]);
+      setSales(salesRes.data ?? []);
+      setProducts(prodsRes.data ?? []);
+    } catch { toast.error("Failed to load business data"); }
+    finally { setLoading(false); }
+  }, []);
+
+  const onSelectBiz = (id: string) => {
+    const biz = businesses.find(b => b.id === id) ?? null;
+    setSelectedBiz(biz);
+    setSales([]);
+    setProducts([]);
+    if (biz) loadBizData(biz);
   };
 
-  const columns: Column<Sale>[] = [
-    { key: "id", label: "Receipt" },
-    { key: "date", label: "Date", sortable: true },
-    { key: "product", label: "Product" },
-    { key: "qty", label: "Qty" },
-    { key: "unitPrice", label: "Unit Price", render: s => `Ksh ${s.unitPrice}` },
-    { key: "total", label: "Total", render: s => <span className="font-semibold">Ksh {s.total.toLocaleString()}</span> },
+  const openNew = () => {
+    setForm({ ...emptyForm, cashier: user.name || "" });
+    setModalOpen(true);
+  };
+
+  const handleProductSelect = (productId: string) => {
+    const p = products.find(x => x.id === productId);
+    setForm(f => ({ ...f, productId, productName: p?.name ?? "", unitPrice: p?.price ?? 0 }));
+  };
+
+  const handleSave = async () => {
+    if (!selectedBiz) return toast.error("No sub-business selected");
+    if (!form.productId || !form.qty || !form.unitPrice)
+      return toast.error("Product, quantity and price are required");
+    const totalAmount = form.qty * form.unitPrice;
+    const taxAmount = Math.round(totalAmount * selectedBiz.taxRate / 100 * 100) / 100;
+    setSaving(true);
+    try {
+      await bizApi.sales.create({
+        businessId: selectedBiz.id,
+        items: [{ productId: form.productId, name: form.productName, qty: form.qty, unitPrice: form.unitPrice, discount: 0, totalPrice: totalAmount }],
+        subtotal: totalAmount, discount: 0,
+        taxRate: selectedBiz.taxRate, taxAmount,
+        totalAmount: totalAmount + taxAmount,
+        paymentMethod: form.paymentMethod,
+        amountPaid: totalAmount + taxAmount, change: 0,
+        cashier: form.cashier || undefined,
+        status: "paid",
+      });
+      toast.success("Sale recorded");
+      setModalOpen(false);
+      loadBizData(selectedBiz);
+    } catch (e: any) { toast.error(e?.message || "Failed to record sale"); }
+    finally { setSaving(false); }
+  };
+
+  const activeSales = sales.filter(s => s.status !== "void" && s.status !== "refunded");
+  const stats = {
+    total: activeSales.length,
+    revenue: activeSales.reduce((a, s) => a + s.totalAmount, 0),
+  };
+
+  const columns: Column<ApiBizSale>[] = [
+    { key: "saleRef", label: "Receipt", render: s => <span className="font-mono text-xs">{s.saleRef}</span>, sortable: true },
+    { key: "date", label: "Date", render: s => s.date.split("T")[0], sortable: true },
+    { key: "items", label: "Items", render: s => (s.items ?? []).map(i => `${i.name} ×${i.qty}`).join(", ") || "—" },
+    { key: "totalAmount", label: "Total", render: s => <span className="font-mono font-semibold">Ksh {s.totalAmount.toLocaleString()}</span>, sortable: true },
     { key: "paymentMethod", label: "Payment", render: s => <Badge variant="outline">{s.paymentMethod}</Badge> },
-    { key: "subBusiness", label: "Outlet" },
-    { key: "cashier", label: "Cashier" },
+    { key: "cashier", label: "Cashier", render: s => s.cashier || "—" },
+    { key: "status", label: "Status", render: s => <Badge variant={s.status === "paid" ? "default" : "secondary"}>{s.status}</Badge> },
   ];
 
   const filters: FilterOption[] = [
-    { key: "subBusiness", label: "Outlet", options: SUB_BIZ.map(s => ({ label: s, value: s })) },
-    { key: "paymentMethod", label: "Payment", options: ["Cash", "M-Pesa", "Card", "Credit"].map(p => ({ label: p, value: p })) },
+    { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
-
-  const openNew = () => { setForm({ ...emptyForm, date: new Date().toISOString().split("T")[0] }); setModalOpen(true); };
-  const handleSave = () => {
-    const total = form.qty * form.unitPrice;
-    setData(d => [...d, { id: `INV-${1212 + d.length - initial.length}`, ...form, total }]);
-    setModalOpen(false);
-  };
-  const handleDelete = (s: Sale) => setData(d => d.filter(x => x.id !== s.id));
-  const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-semibold">Sales</h3>
-          <p className="text-sm text-muted-foreground">POS-style sales across all sub-businesses</p>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm text-muted-foreground">POS-style sales across sub-businesses</p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => exportToCsv(`inventory-sales-${today()}.csv`, sales)} disabled={!selectedBiz}>
+            <Download className="h-4 w-4 mr-1.5" />Export
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => selectedBiz && loadBizData(selectedBiz)} disabled={!selectedBiz}>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
+          <Button size="sm" onClick={openNew} disabled={!selectedBiz}>
+            <Plus className="h-4 w-4 mr-1.5" />Record Sale
+          </Button>
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Record Sale</Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: "Total Sales", value: stats.total },
-          { label: "Revenue", value: `Ksh ${stats.revenue.toLocaleString()}`, color: "text-primary" },
-          { label: "Units Sold", value: stats.units, color: "text-amber-600" },
-        ].map(s => (
-          <Card key={s.label}><CardContent className="p-4"><p className="text-sm text-muted-foreground">{s.label}</p><p className={`text-2xl font-bold ${s.color || ""}`}>{s.value}</p></CardContent></Card>
-        ))}
+      {/* Sub-business selector */}
+      <div className="flex gap-3 items-end flex-wrap">
+        <div className="w-72">
+          <Label className="text-xs">Sub-Business</Label>
+          <Select value={selectedBiz?.id ?? ""} onValueChange={onSelectBiz}>
+            <SelectTrigger><SelectValue placeholder="Select sub-business..." /></SelectTrigger>
+            <SelectContent>
+              {businesses.map(b => <SelectItem key={b.id} value={b.id}>{b.name} ({b.type})</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["product", "id", "customer"]} searchPlaceholder="Search sales..." filters={filters} onDelete={handleDelete} />
-
-      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Sale" onSubmit={handleSave} submitLabel="Record">
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div><Label>Date</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
-            <div><Label>Outlet</Label>
-              <Select value={form.subBusiness} onValueChange={v => set("subBusiness", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{SUB_BIZ.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2"><Label>Product</Label>
-              <Select value={form.product} onValueChange={v => set("product", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{PRODUCTS.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Quantity</Label><Input type="number" min={1} value={form.qty} onChange={e => set("qty", Number(e.target.value))} /></div>
-            <div><Label>Unit Price (Ksh)</Label><Input type="number" value={form.unitPrice} onChange={e => set("unitPrice", Number(e.target.value))} /></div>
-            <div><Label>Payment Method</Label>
-              <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{["Cash", "M-Pesa", "Card", "Credit"].map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} /></div>
-            <div className="col-span-2"><Label>Cashier</Label><Input value={form.cashier} onChange={e => set("cashier", e.target.value)} /></div>
-            <div className="col-span-2 p-3 rounded bg-muted text-sm">Total: <span className="font-bold text-lg">Ksh {(form.qty * form.unitPrice).toLocaleString()}</span></div>
+      {selectedBiz ? (
+        <>
+          <div className="grid grid-cols-2 gap-3">
+            <Card><CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">Transactions</p>
+              <p className="text-2xl font-bold">{stats.total}</p>
+            </CardContent></Card>
+            <Card><CardContent className="p-4">
+              <p className="text-sm text-muted-foreground">Revenue</p>
+              <p className="text-2xl font-bold text-primary">Ksh {stats.revenue.toLocaleString()}</p>
+            </CardContent></Card>
           </div>
+
+          <DataTable
+            data={sales} columns={columns}
+            searchKeys={["saleRef", "cashier"]}
+            searchPlaceholder="Search sales..."
+            filters={filters}
+          />
+        </>
+      ) : (
+        <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+          <Store className="h-10 w-10 mb-3 opacity-30" />
+          <p className="text-sm font-medium">Select a sub-business above to view its sales</p>
+          {businesses.length === 0 && <p className="text-xs mt-1 opacity-70">No sub-businesses found for this station</p>}
+        </div>
+      )}
+
+      <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Sale"
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="col-span-2">
+            <Label>Product *</Label>
+            <Select value={form.productId} onValueChange={handleProductSelect}>
+              <SelectTrigger><SelectValue placeholder="Select product..." /></SelectTrigger>
+              <SelectContent>
+                {products.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} — Ksh {p.price} ({p.stockQty} {p.unit} in stock)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div><Label>Quantity *</Label><Input type="number" min={1} value={form.qty || ""} onChange={e => setForm(f => ({ ...f, qty: +e.target.value }))} /></div>
+          <div><Label>Unit Price (Ksh)</Label><Input type="number" step="0.01" value={form.unitPrice || ""} onChange={e => setForm(f => ({ ...f, unitPrice: +e.target.value }))} /></div>
+          <div className="col-span-2 rounded bg-muted p-3 text-sm">
+            Total: <span className="font-bold text-lg">Ksh {(form.qty * form.unitPrice).toLocaleString()}</span>
+            {selectedBiz && selectedBiz.taxRate > 0 && (
+              <span className="text-muted-foreground ml-2">(+{selectedBiz.taxRate}% tax)</span>
+            )}
+          </div>
+          <div><Label>Payment Method</Label>
+            <Select value={form.paymentMethod} onValueChange={v => setForm(f => ({ ...f, paymentMethod: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{PAY_METHODS.map(m => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div><Label>Customer</Label><Input value={form.customer} onChange={e => setForm(f => ({ ...f, customer: e.target.value }))} placeholder="Walk-in" /></div>
+          <div className="col-span-2"><Label>Cashier</Label><Input value={form.cashier} onChange={e => setForm(f => ({ ...f, cashier: e.target.value }))} /></div>
         </div>
       </ModalForm>
     </div>

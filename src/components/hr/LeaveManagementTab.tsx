@@ -364,7 +364,7 @@ function RequestsTab({
               <Label>Employee</Label>
               <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name}</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? "—"}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}
@@ -408,38 +408,31 @@ function EntitlementsTab({
 }: {
   canManage: boolean; employees: ApiEmployee[]; leaveTypes: ApiLeaveType[];
 }) {
-  const [balances, setBalances]   = useState<(ApiLeaveBalance & { employee?: ApiEmployee })[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [empFilter, setEmpFilter] = useState("");
+  const [balances, setBalances]   = useState<ApiLeaveBalance[]>([]);
+  const [loading, setLoading]     = useState(false);
+  const [empFilter, setEmpFilter] = useState("__all__");
   const [year, setYear]           = useState(new Date().getFullYear());
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustForm, setAdjustForm] = useState({ employeeId: "", leaveTypeId: "", year: new Date().getFullYear(), total: "", note: "" });
   const [adjusting, setAdjusting] = useState(false);
+  const [initializing, setInitializing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      if (empFilter) {
+      if (empFilter && empFilter !== "__all__") {
         const res = await hrApi.leaves.balances({ employeeId: empFilter, year });
-        const emp = employees.find(e => e.id === empFilter);
-        setBalances((res.data ?? []).map(b => ({ ...b, employee: emp })));
+        setBalances(res.data ?? []);
       } else {
-        // Load all employees' balances (one by one or a few at a time)
-        const sample = employees.slice(0, 50);
-        const all: any[] = [];
-        for (const emp of sample) {
-          try {
-            const r = await hrApi.leaves.balances({ employeeId: emp.id, year });
-            (r.data ?? []).forEach(b => all.push({ ...b, employee: emp }));
-          } catch { /* skip */ }
-        }
-        setBalances(all);
+        // Single call — backend returns all employees' balances when no employeeId given (manager only)
+        const res = await hrApi.leaves.balances({ year });
+        setBalances(res.data ?? []);
       }
     } catch { toast.error("Failed to load entitlements"); }
     finally { setLoading(false); }
-  }, [empFilter, year, employees]);
+  }, [empFilter, year]);
 
-  useEffect(() => { if (employees.length > 0) load(); }, [load, employees]);
+  useEffect(() => { load(); }, [load]);
 
   const doAdjust = async () => {
     if (!adjustForm.employeeId || !adjustForm.leaveTypeId || !adjustForm.total) return toast.error("All fields required");
@@ -459,16 +452,52 @@ function EntitlementsTab({
     finally { setAdjusting(false); }
   };
 
+  // Initialize entitlements: create balance records for every employee × leave type
+  // that doesn't already have a record, using the leave type's daysAllowed as the total.
+  const initializeAll = async () => {
+    if (!leaveTypes.length) return toast.error("No leave types configured");
+    const isFiltered = empFilter && empFilter !== "__all__";
+    const targetEmployees = isFiltered
+      ? employees.filter(e => e.id === empFilter)
+      : employees;
+    if (!targetEmployees.length) return toast.error("No employees to initialize");
+    setInitializing(true);
+    let created = 0;
+    // Build set of existing balance keys so we don't overwrite manual adjustments
+    const existingKeys = new Set(
+      isFiltered
+        ? balances.map(b => `${empFilter}:${b.leaveType.id}:${year}`)
+        : balances.map(b => `${b.employee?.id ?? ""}:${b.leaveType.id}:${year}`)
+    );
+    try {
+      for (const emp of targetEmployees) {
+        for (const lt of leaveTypes) {
+          if (!existingKeys.has(`${emp.id}:${lt.id}:${year}`)) {
+            try {
+              await hrApi.leaves.adjustBalance({
+                employeeId: emp.id, leaveTypeId: lt.id, year, total: lt.daysAllowed,
+              });
+              created++;
+            } catch { /* skip duplicates / errors */ }
+          }
+        }
+      }
+      toast.success(`Initialized ${created} entitlement record${created !== 1 ? "s" : ""}`);
+      load();
+    } catch { toast.error("Initialization failed"); }
+    finally { setInitializing(false); }
+  };
+
   const setAdj = (k: string, v: any) => setAdjustForm(f => ({ ...f, [k]: v }));
 
-  const columns: Column<ApiLeaveBalance & { employee?: ApiEmployee }>[] = [
-    { key: "employee",    label: "Employee",  render: b => b.employee?.user?.name || "—" },
+  const columns: Column<ApiLeaveBalance>[] = [
+    { key: "employee",    label: "Employee",   render: b => b.employee?.user?.name || "—" },
     { key: "leaveType",   label: "Leave Type", render: b => <Badge variant="secondary">{b.leaveType?.name}</Badge> },
     { key: "year",        label: "Year" },
     { key: "total",       label: "Entitlement", render: b => <span className="font-medium">{b.total}d</span> },
-    { key: "used",        label: "Used",       render: b => <span className="text-red-600">{b.used}d</span> },
-    { key: "pending",     label: "Pending",    render: b => <span className="text-amber-600">{b.pending}d</span> },
-    { key: "available",   label: "Available",  render: b => <span className="font-bold text-green-700">{b.available}d</span> },
+    { key: "used",        label: "Used",        render: b => <span className="text-red-600">{b.used}d</span> },
+    { key: "pending",     label: "Pending",     render: b => <span className="text-amber-600">{b.pending}d</span> },
+    { key: "available",   label: "Available",   render: b => <span className="font-bold text-green-700">{b.available}d</span> },
   ];
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
@@ -485,10 +514,16 @@ function EntitlementsTab({
           <Select value={empFilter} onValueChange={setEmpFilter}>
             <SelectTrigger className="w-52"><SelectValue placeholder="All employees" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All employees</SelectItem>
-              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name}</SelectItem>)}
+              <SelectItem value="__all__">All employees</SelectItem>
+              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber}</SelectItem>)}
             </SelectContent>
           </Select>
+          {canManage && (
+            <Button variant="outline" onClick={initializeAll} disabled={initializing || loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${initializing ? "animate-spin" : ""}`} />
+              Initialize from Leave Types
+            </Button>
+          )}
           {canManage && <Button onClick={() => setAdjustOpen(true)}><Plus className="h-4 w-4 mr-2" /> Adjust Entitlement</Button>}
           <Button variant="ghost" size="icon" onClick={load} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -496,7 +531,16 @@ function EntitlementsTab({
         </div>
       </div>
 
-      <DataTable data={balances} columns={columns} searchKeys={["year"]} searchPlaceholder="Filter…" />
+      {!loading && balances.length === 0 && (
+        <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+          No entitlement records found for {year}.
+          {canManage && employees.length > 0 && leaveTypes.length > 0 && (
+            <p className="mt-2">Click <strong>Initialize from Leave Types</strong> to auto-create records from configured leave types.</p>
+          )}
+        </div>
+      )}
+
+      <DataTable data={balances} columns={columns} searchKeys={["year"]} searchPlaceholder="Search employee or type…" />
 
       <ModalForm open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Adjust Leave Entitlement"
         description="Set or override an employee's leave balance for the year"
@@ -505,7 +549,7 @@ function EntitlementsTab({
           <div><Label>Employee</Label>
             <Select value={adjustForm.employeeId} onValueChange={v => setAdj("employeeId", v)}>
               <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? "—"}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div><Label>Leave Type</Label>
