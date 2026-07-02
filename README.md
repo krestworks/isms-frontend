@@ -1,4 +1,4 @@
-Authentication Module — Complete
+##Authentication Module — Complete
 Backend (backend/)
 File	Purpose
 prisma/schema.prisma	User + AuditLog models (SQLite via Prisma 5)
