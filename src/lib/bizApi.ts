@@ -19,6 +19,7 @@ export type BizType = "mart" | "pharmacy" | "restaurant" | "Tyre Centre";
 export interface ApiBizBusiness {
   id: string; stationId: string; type: BizType; name: string;
   taxRate: number; currency: string;
+  kraPin?: string | null;
   receiptHeader?: string | null; receiptFooter?: string | null;
   status: string; createdAt: string; updatedAt: string;
 }

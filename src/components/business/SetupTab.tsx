@@ -31,6 +31,7 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
     name: business.name,
     taxRate: business.taxRate,
     currency: business.currency,
+    kraPin: business.kraPin ?? "",
     receiptHeader: business.receiptHeader ?? "",
     receiptFooter: business.receiptFooter ?? "",
     status: business.status,
@@ -130,6 +131,7 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
             </div>
           </div>
           <Separator />
+          <div><Label>Business KRA PIN</Label><Input value={config.kraPin} onChange={e => setC("kraPin", e.target.value)} placeholder="e.g. A001234567X" /></div>
           <div><Label>Receipt Header</Label><Textarea value={config.receiptHeader} onChange={e => setC("receiptHeader", e.target.value)} placeholder="Text shown at the top of every receipt" /></div>
           <div><Label>Receipt Footer</Label><Textarea value={config.receiptFooter} onChange={e => setC("receiptFooter", e.target.value)} placeholder="Text shown at the bottom — e.g. 'Thank you for your business'" /></div>
           <Button onClick={handleSaveConfig} disabled={savingConfig}>

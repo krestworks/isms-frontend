@@ -136,7 +136,8 @@ export default function PayrollTab() {
   const refLoadedRef = useRef(false);
 
   // ── Run Payroll tab ──────────────────────────────────────────────────────────
-  type RunStep = "configure" | "preview" | "done";
+  type RunStep = "configure" | "adjustments" | "preview" | "done";
+  interface EmpOverride { houseAllow: number; transportAllow: number; bonus: number; extraDeduction: number; note: string; }
   const [runStep, setRunStep] = useState<RunStep>("configure");
   const [runScope, setRunScope] = useState<"all" | "location" | "department" | "specific">("all");
   const [runMonth, setRunMonth] = useState(new Date().toISOString().slice(0, 7));
@@ -151,10 +152,23 @@ export default function PayrollTab() {
   const [previewPage,    setPreviewPage]    = useState(1);
   const [runLoading,     setRunLoading]     = useState(false);
   const [runResult,      setRunResult]      = useState<{ created: number; skipped: number; failed: number } | null>(null);
+  const [empOverrides,   setEmpOverrides]   = useState<Record<string, EmpOverride>>({});
+  const [savedDraftMonths, setSavedDraftMonths] = useState<string[]>(() => {
+    try {
+      return Object.keys(localStorage).filter(k => k.startsWith("isms_pr_draft_")).map(k => k.replace("isms_pr_draft_", ""));
+    } catch { return []; }
+  });
 
   const PREVIEW_PAGE_SIZE = 50;
   const previewPages = Math.max(1, Math.ceil(previewRows.length / PREVIEW_PAGE_SIZE));
   const previewSlice = previewRows.slice((previewPage - 1) * PREVIEW_PAGE_SIZE, previewPage * PREVIEW_PAGE_SIZE);
+
+  const setEmpOverride = (empId: string, field: keyof EmpOverride, value: number | string) => {
+    setEmpOverrides(prev => ({
+      ...prev,
+      [empId]: { houseAllow: 0, transportAllow: 0, bonus: 0, extraDeduction: 0, note: "", ...prev[empId], [field]: value },
+    }));
+  };
 
   // ── Payslip email + settings ──────────────────────────────────────────────────
   const [sendingPayslip,   setSendingPayslip]   = useState(false);
@@ -356,13 +370,14 @@ export default function PayrollTab() {
   .biz-sub { font-size: 10px; color: #555; margin-top: 2px; }
   .doc-title { font-size: 20px; font-weight: 700; letter-spacing: 1px; color: #111; text-align: right; }
   .doc-sub { font-size: 10px; color: #666; text-align: right; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
   th, td { border: 1px solid #ddd; padding: 5px 8px; font-size: 10.5px; }
   th { background: #f0f0f0; font-weight: 600; text-align: left; }
   .right { text-align: right; }
-  .gross { background: #f5f5f5; font-weight: 600; }
-  .deduct-tot { background: #fff0f0; font-weight: 600; color: #c00; }
-  .net { background: #e8f0fe; font-weight: 700; font-size: 13px; padding: 10px; }
+  .section-hdr td { background: #2563eb; color: #fff; font-weight: 700; font-size: 11px; padding: 6px 8px; border-color: #1d4ed8; }
+  .subtotal td { background: #f0f4ff; font-weight: 700; border-top: 2px solid #aaa; }
+  .deduct-tot td { background: #fff0f0; font-weight: 700; color: #b91c1c; border-top: 2px solid #aaa; }
+  .net td { background: #1e3a5f; color: #fff; font-weight: 700; font-size: 14px; text-align: center; padding: 10px; border-color: #1e3a5f; }
   .footer { display: flex; justify-content: space-between; border-top: 1px solid #ddd; padding-top: 8px; margin-top: 8px; font-size: 10px; color: #777; }
 </style></head><body>
 <div class="hdr">
@@ -388,15 +403,23 @@ export default function PayrollTab() {
   <tr><th>Employee KRA PIN</th><td>${empKraPin}</td><th>Pay Date</th><td>${viewing.payDate ?? "—"}</td></tr>
 </table>
 <table>
-  <tr><th>Earnings</th><th class="right">Amount (KES)</th><th>Deductions</th><th class="right">Amount (KES)</th></tr>
-  <tr><td>Basic Salary</td><td class="right">${fmtK(viewing.basicSalary)}</td><td>SHA (Social Health)</td><td class="right">${fmtK(viewing.nhif)}</td></tr>
-  <tr><td>House Allowance</td><td class="right">${fmtK(viewing.houseAllowance)}</td><td>NSSF</td><td class="right">${fmtK(viewing.nssf)}</td></tr>
-  <tr><td>Transport Allowance</td><td class="right">${fmtK(viewing.transportAllowance)}</td><td>PAYE Tax</td><td class="right">${fmtK(viewing.paye)}</td></tr>
-  <tr><td>Overtime Pay</td><td class="right">${fmtK(viewing.overtimePay)}</td><td>Other Deductions</td><td class="right">${fmtK(viewing.otherDeductions)}</td></tr>
-  <tr class="gross"><td>GROSS PAY</td><td class="right">${fmtK(viewing.grossPay)}</td><td class="deduct-tot">TOTAL DEDUCTIONS</td><td class="right deduct-tot">${fmtK(viewing.totalDeductions)}</td></tr>
+  <tr class="section-hdr"><td>EARNINGS</td><td class="right">Amount (KES)</td></tr>
+  <tr><td>Basic Salary</td><td class="right">${fmtK(viewing.basicSalary)}</td></tr>
+  ${viewing.houseAllowance > 0 ? `<tr><td>House Allowance</td><td class="right">${fmtK(viewing.houseAllowance)}</td></tr>` : ""}
+  ${viewing.transportAllowance > 0 ? `<tr><td>Transport Allowance</td><td class="right">${fmtK(viewing.transportAllowance)}</td></tr>` : ""}
+  ${viewing.overtimePay > 0 ? `<tr><td>Overtime Pay</td><td class="right">${fmtK(viewing.overtimePay)}</td></tr>` : ""}
+  <tr class="subtotal"><td>GROSS PAY</td><td class="right">${fmtK(viewing.grossPay)}</td></tr>
 </table>
 <table>
-  <tr class="net"><td colspan="3" style="text-align:center;font-size:14px">NET PAY: ${fmtK(viewing.netPay)}</td></tr>
+  <tr class="section-hdr"><td>DEDUCTIONS</td><td class="right">Amount (KES)</td></tr>
+  ${viewing.nhif > 0 ? `<tr><td>SHA (Social Health Authority)</td><td class="right">${fmtK(viewing.nhif)}</td></tr>` : ""}
+  ${viewing.nssf > 0 ? `<tr><td>NSSF</td><td class="right">${fmtK(viewing.nssf)}</td></tr>` : ""}
+  ${viewing.paye > 0 ? `<tr><td>PAYE Tax</td><td class="right">${fmtK(viewing.paye)}</td></tr>` : ""}
+  ${viewing.otherDeductions > 0 ? `<tr><td>Other Deductions</td><td class="right">${fmtK(viewing.otherDeductions)}</td></tr>` : ""}
+  <tr class="deduct-tot"><td>TOTAL DEDUCTIONS</td><td class="right">${fmtK(viewing.totalDeductions)}</td></tr>
+</table>
+<table>
+  <tr class="net"><td colspan="2">NET PAY: ${fmtK(viewing.netPay)}</td></tr>
 </table>
 <div class="footer">
   <span>Status: ${viewing.status.toUpperCase()}</span>
@@ -448,21 +471,76 @@ export default function PayrollTab() {
       setPreviewRows((res.data as ApiPayrollRunRow[]) ?? []);
       setPreviewMeta(res.meta ?? null);
       setPreviewPage(1);
-      setRunStep("preview");
+      setEmpOverrides({});
+      setRunStep("adjustments"); // go to configure/adjust step first
     } catch (e: any) { toast.error(e?.message || "Preview failed"); }
     finally { setRunLoading(false); }
   };
 
-  const handleProcess = async () => {
+  const handleGoToPreview = () => {
+    setPreviewPage(1);
+    setRunStep("preview");
+  };
+
+  const handleSubmitAdjusted = async () => {
+    const rows = previewRows.filter(r => !r.noSalary);
+    if (!rows.length) { toast.error("No employees to process"); return; }
     setRunLoading(true);
     try {
-      const res = await hrApi.payroll.run(buildRunPayload(false));
-      const result = res.data as { created: number; skipped: number; failed: number };
-      setRunResult(result);
+      const results = await Promise.allSettled(
+        rows.map(r => {
+          const ov = empOverrides[r.employeeId];
+          const houseAllowance    = ov?.houseAllow || 0;
+          const transportAllowance = ov?.transportAllow || 0;
+          const overtimePay       = ov?.bonus || 0;
+          const otherDeductions   = ov?.extraDeduction || 0;
+          return hrApi.payroll.create({
+            employeeId: r.employeeId, month: r.month,
+            basicSalary: r.basicSalary, houseAllowance, transportAllowance, overtimePay,
+            nhif: r.nhif, nssf: r.nssf, paye: r.paye, otherDeductions,
+            status: "pending",
+          } as any);
+        })
+      );
+      const created = results.filter(x => x.status === "fulfilled").length;
+      const failed  = results.filter(x => x.status === "rejected").length;
+      setRunResult({ created, skipped: 0, failed });
       setRunStep("done");
       loadRecords(1);
-    } catch (e: any) { toast.error(e?.message || "Processing failed"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to process payroll"); }
     finally { setRunLoading(false); }
+  };
+
+  const handleSaveDraft = () => {
+    try {
+      const key = `isms_pr_draft_${runMonth}`;
+      localStorage.setItem(key, JSON.stringify({ runMonth, runScope, runStationIds, runDeptIds, runEmpIds, runAttendance, runLeave, previewRows, empOverrides }));
+      setSavedDraftMonths(prev => prev.includes(runMonth) ? prev : [...prev, runMonth]);
+      toast.success(`Draft saved for ${runMonth}`);
+    } catch { toast.error("Failed to save draft"); }
+  };
+
+  const handleLoadDraft = (month: string) => {
+    try {
+      const saved = localStorage.getItem(`isms_pr_draft_${month}`);
+      if (!saved) { toast.error("Draft not found"); return; }
+      const d = JSON.parse(saved);
+      setRunMonth(d.runMonth); setRunScope(d.runScope);
+      setRunStationIds(d.runStationIds || []); setRunDeptIds(d.runDeptIds || []);
+      setRunEmpIds(d.runEmpIds || []); setRunAttendance(d.runAttendance); setRunLeave(d.runLeave);
+      setPreviewRows(d.previewRows || []); setPreviewMeta(null);
+      setEmpOverrides(d.empOverrides || {}); setPreviewPage(1);
+      setRunStep("adjustments");
+      toast.success(`Draft loaded for ${month}`);
+    } catch { toast.error("Failed to load draft"); }
+  };
+
+  const handleDeleteDraft = (month: string) => {
+    try {
+      localStorage.removeItem(`isms_pr_draft_${month}`);
+      setSavedDraftMonths(prev => prev.filter(m => m !== month));
+      toast.success(`Draft deleted`);
+    } catch { /**/ }
   };
 
   const resetRun = () => {
@@ -470,6 +548,7 @@ export default function PayrollTab() {
     setPreviewRows([]);
     setPreviewMeta(null);
     setRunResult(null);
+    setEmpOverrides({});
   };
 
   // ── Reports helpers ───────────────────────────────────────────────────────────
@@ -904,9 +983,13 @@ export default function PayrollTab() {
         {/* ── Run Payroll Tab ───────────────────────────────────────────────────── */}
         <TabsContent value="run" className="space-y-4">
 
-          {/* Step: Configure */}
+          {/* Step: Configure / Select */}
           {runStep === "configure" && (
             <div className="space-y-4 max-w-2xl">
+              <div>
+                <h3 className="text-sm font-semibold">Step 1 — Select Payroll Scope</h3>
+                <p className="text-xs text-muted-foreground">Choose the period, coverage, and auto-pull options, then click Next to configure per-employee adjustments.</p>
+              </div>
               <Card>
                 <CardHeader className="pb-3"><CardTitle className="text-sm">Payroll Scope</CardTitle></CardHeader>
                 <CardContent className="space-y-3">
@@ -1013,22 +1096,164 @@ export default function PayrollTab() {
                 </CardContent>
               </Card>
 
-              <Button onClick={handlePreview} disabled={runLoading} size="sm">
-                {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Loading…</> : <><Calculator className="h-3.5 w-3.5 mr-1.5" /> Preview Payroll Calculations</>}
-              </Button>
+              {/* Saved drafts */}
+              {savedDraftMonths.length > 0 && (
+                <div className="border rounded-lg p-3 bg-muted/30">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">Saved Drafts</p>
+                  <div className="flex flex-wrap gap-2">
+                    {savedDraftMonths.map(m => (
+                      <div key={m} className="flex items-center gap-1 border rounded px-2 py-1 bg-background text-xs">
+                        <span>{m}</span>
+                        <button onClick={() => handleLoadDraft(m)} className="text-primary hover:underline">Load</button>
+                        <button onClick={() => handleDeleteDraft(m)} className="text-destructive hover:underline ml-1">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <Button onClick={handlePreview} disabled={runLoading} size="sm">
+                  {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Loading…</> : <><Calculator className="h-3.5 w-3.5 mr-1.5" /> Next: Configure Payroll</>}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Step: Adjustments / Configure per-employee */}
+          {runStep === "adjustments" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Step 2 — Configure &amp; Adjust</h3>
+                  <p className="text-xs text-muted-foreground">Adjust allowances, bonuses, and extra deductions per employee. System-calculated statutory deductions are shown for reference.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="h-8" onClick={resetRun}>Cancel</Button>
+                  <Button variant="outline" size="sm" className="h-8" onClick={handleSaveDraft}>Save Draft</Button>
+                  <Button size="sm" className="h-8" onClick={handleGoToPreview}>Preview →</Button>
+                </div>
+              </div>
+
+              {/* Summary cards */}
+              <div className="flex gap-3 flex-wrap">
+                <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Employees</p>
+                  <p className="text-xl font-bold">{previewRows.filter(r => !r.noSalary).length}</p>
+                </CardContent></Card>
+                <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">No Salary</p>
+                  <p className="text-xl font-bold text-amber-600">{previewRows.filter(r => r.noSalary).length}</p>
+                </CardContent></Card>
+                <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Est. Gross</p>
+                  <p className="text-sm font-bold">{fmt(previewRows.reduce((s, r) => s + r.grossPay, 0))}</p>
+                </CardContent></Card>
+              </div>
+
+              {/* Per-employee adjustment table */}
+              <div className="border rounded-lg overflow-x-auto">
+                <table className="w-full text-xs min-w-[900px]">
+                  <thead>
+                    <tr className="bg-muted/30 border-b">
+                      <th className="px-3 py-2 text-left">Employee</th>
+                      <th className="px-3 py-2 text-left">Dept</th>
+                      <th className="px-2 py-2 text-right">Basic (Ksh)</th>
+                      <th className="px-2 py-2 text-right">House Allow</th>
+                      <th className="px-2 py-2 text-right">Transport</th>
+                      <th className="px-2 py-2 text-right">Bonus/OT</th>
+                      <th className="px-2 py-2 text-right">Extra Deduct</th>
+                      <th className="px-2 py-2 text-right text-muted-foreground">SHA</th>
+                      <th className="px-2 py-2 text-right text-muted-foreground">NSSF</th>
+                      <th className="px-2 py-2 text-right text-muted-foreground">PAYE</th>
+                      <th className="px-2 py-2 text-right font-semibold">Est. Net</th>
+                      <th className="px-2 py-2 text-left">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.map(r => {
+                      const ov = empOverrides[r.employeeId] || { houseAllow: 0, transportAllow: 0, bonus: 0, extraDeduction: 0, note: "" };
+                      const adjGross = r.basicSalary + (ov.houseAllow || 0) + (ov.transportAllow || 0) + (ov.bonus || 0);
+                      const adjNet   = Math.max(0, adjGross - r.nhif - r.nssf - r.paye - (ov.extraDeduction || 0));
+                      return (
+                        <tr key={r.employeeId} className={`border-b ${r.noSalary ? "opacity-40" : "hover:bg-muted/20"}`}>
+                          <td className="px-3 py-1.5">
+                            <div className="font-medium truncate max-w-[140px]">{r.name}</div>
+                            <div className="text-muted-foreground">{r.employeeNumber}</div>
+                          </td>
+                          <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[80px]">{r.department}</td>
+                          <td className="px-2 py-1.5 text-right">{fmt(r.basicSalary)}</td>
+                          <td className="px-2 py-1.5">
+                            <Input type="number" min={0} value={ov.houseAllow || ""}
+                              onChange={e => setEmpOverride(r.employeeId, "houseAllow", +e.target.value)}
+                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input type="number" min={0} value={ov.transportAllow || ""}
+                              onChange={e => setEmpOverride(r.employeeId, "transportAllow", +e.target.value)}
+                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input type="number" min={0} value={ov.bonus || ""}
+                              onChange={e => setEmpOverride(r.employeeId, "bonus", +e.target.value)}
+                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Input type="number" min={0} value={ov.extraDeduction || ""}
+                              onChange={e => setEmpOverride(r.employeeId, "extraDeduction", +e.target.value)}
+                              className="h-6 w-20 text-xs text-right text-destructive" placeholder="0" disabled={r.noSalary} />
+                          </td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.nhif)}</td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.nssf)}</td>
+                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.paye)}</td>
+                          <td className="px-2 py-1.5 text-right font-semibold text-primary">{r.noSalary ? "—" : fmt(adjNet)}</td>
+                          <td className="px-2 py-1.5">
+                            <Input value={ov.note || ""}
+                              onChange={e => setEmpOverride(r.employeeId, "note", e.target.value)}
+                              className="h-6 w-28 text-xs" placeholder="optional note" disabled={r.noSalary} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {previewRows.length === 0 && (
+                  <div className="py-8 text-center text-muted-foreground text-sm">No employees matched the selection</div>
+                )}
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t">
+                <Button variant="outline" size="sm" onClick={resetRun}>Cancel</Button>
+                <Button variant="outline" size="sm" onClick={handleSaveDraft}>Save Draft</Button>
+                <Button size="sm" onClick={handleGoToPreview}>Preview All Calculations →</Button>
+              </div>
             </div>
           )}
 
           {/* Step: Preview */}
-          {runStep === "preview" && previewMeta && (
+          {runStep === "preview" && (
             <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold">Step 3 — Review &amp; Submit</h3>
+                  <p className="text-xs text-muted-foreground">Review all computed amounts below. Submit to create payroll records, or go back to adjust.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" className="h-8" onClick={resetRun}>Cancel</Button>
+                  <Button variant="outline" size="sm" className="h-8" onClick={() => setRunStep("adjustments")}>← Back to Adjust</Button>
+                  <Button variant="outline" size="sm" className="h-8" onClick={handleSaveDraft}>Save Draft</Button>
+                  <Button size="sm" className="h-8" onClick={handleSubmitAdjusted} disabled={runLoading}>
+                    {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Submitting…</> : `Submit Payroll (${previewRows.filter(r => !r.noSalary).length})`}
+                  </Button>
+                </div>
+              </div>
               {/* Summary */}
               <div className="flex flex-wrap gap-3">
                 {[
-                  { label: "Total Employees", value: previewMeta.total, color: "" },
-                  { label: "Will Create",     value: previewMeta.toCreate,  color: "text-green-600" },
-                  { label: "Already Exists (skip)", value: previewMeta.toSkip, color: "text-muted-foreground" },
-                  { label: "No Salary Set",   value: previewMeta.noSalary,  color: "text-amber-600" },
+                  { label: "Total Employees", value: previewRows.length, color: "" },
+                  { label: "Will Create",     value: previewRows.filter(r => !r.noSalary && !r.willSkip).length, color: "text-green-600" },
+                  { label: "Skip (existing)", value: previewRows.filter(r => r.willSkip).length, color: "text-muted-foreground" },
+                  { label: "No Salary",       value: previewRows.filter(r => r.noSalary).length, color: "text-amber-600" },
                 ].map(s => (
                   <Card key={s.label} className="flex-1 min-w-[120px]">
                     <CardContent className="p-3">
@@ -1051,31 +1276,43 @@ export default function PayrollTab() {
                       <th className="px-2 py-2 text-right font-medium">SHA</th>
                       <th className="px-2 py-2 text-right font-medium">NSSF</th>
                       <th className="px-2 py-2 text-right font-medium">PAYE</th>
+                      <th className="px-2 py-2 text-right font-medium">Extra Ded.</th>
                       <th className="px-2 py-2 text-right font-bold">Net Pay</th>
                       <th className="px-2 py-2 text-center font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {previewSlice.map(r => (
-                      <tr key={r.employeeId} className={`border-t ${r.willSkip ? "opacity-40" : r.noSalary ? "bg-amber-50" : ""}`}>
-                        <td className="px-2 py-1.5">
-                          <div className="font-medium">{r.name}</div>
-                          <div className="text-muted-foreground">{r.employeeNumber}</div>
-                        </td>
-                        <td className="px-2 py-1.5 text-muted-foreground">{r.department}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(r.grossPay)}</td>
-                        {(runAttendance || runLeave) && <td className="px-2 py-1.5 text-right text-destructive">{r.absenceDeduction > 0 ? `-${fmtNum(r.absenceDeduction)}` : "—"}</td>}
-                        <td className="px-2 py-1.5 text-right">{fmtNum(r.nhif)}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(r.nssf)}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(r.paye)}</td>
-                        <td className="px-2 py-1.5 text-right font-bold">{fmtNum(r.netPay)}</td>
-                        <td className="px-2 py-1.5 text-center">
-                          {r.willSkip  ? <span className="text-muted-foreground">existing</span>
-                            : r.noSalary ? <span className="text-amber-600">no salary</span>
-                            : <span className="text-green-600">ready</span>}
-                        </td>
-                      </tr>
-                    ))}
+                    {previewSlice.map(r => {
+                      const ov = empOverrides[r.employeeId];
+                      const adjGross = r.basicSalary + (ov?.houseAllow || 0) + (ov?.transportAllow || 0) + (ov?.bonus || 0);
+                      const adjNet   = Math.max(0, adjGross - r.nhif - r.nssf - r.paye - (ov?.extraDeduction || 0));
+                      const hasAdj   = !!(ov?.houseAllow || ov?.transportAllow || ov?.bonus || ov?.extraDeduction);
+                      return (
+                        <tr key={r.employeeId} className={`border-t ${r.willSkip ? "opacity-40" : r.noSalary ? "bg-amber-50" : ""}`}>
+                          <td className="px-2 py-1.5">
+                            <div className="font-medium">{r.name}</div>
+                            <div className="text-muted-foreground">{r.employeeNumber}</div>
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground">{r.department}</td>
+                          <td className="px-2 py-1.5 text-right">
+                            {hasAdj ? <span className="text-primary font-medium">{fmtNum(adjGross)}</span> : fmtNum(r.grossPay)}
+                          </td>
+                          {(runAttendance || runLeave) && <td className="px-2 py-1.5 text-right text-destructive">{r.absenceDeduction > 0 ? `-${fmtNum(r.absenceDeduction)}` : "—"}</td>}
+                          <td className="px-2 py-1.5 text-right">{fmtNum(r.nhif)}</td>
+                          <td className="px-2 py-1.5 text-right">{fmtNum(r.nssf)}</td>
+                          <td className="px-2 py-1.5 text-right">{fmtNum(r.paye)}</td>
+                          {ov?.extraDeduction ? <td className="px-2 py-1.5 text-right text-destructive">{fmtNum(ov.extraDeduction)}</td> : <td className="px-2 py-1.5 text-right">—</td>}
+                          <td className="px-2 py-1.5 text-right font-bold text-primary">
+                            {hasAdj ? fmtNum(adjNet) : fmtNum(r.netPay)}
+                          </td>
+                          <td className="px-2 py-1.5 text-center">
+                            {r.willSkip  ? <span className="text-muted-foreground">existing</span>
+                              : r.noSalary ? <span className="text-amber-600">no salary</span>
+                              : <span className="text-green-600">ready</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   {previewSlice.length > 0 && (
                     <tfoot className="bg-muted/30 font-semibold border-t-2">
@@ -1086,7 +1323,12 @@ export default function PayrollTab() {
                         <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.nhif, 0))}</td>
                         <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.nssf, 0))}</td>
                         <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.paye, 0))}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.netPay, 0))}</td>
+                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + (empOverrides[r.employeeId]?.extraDeduction || 0), 0))}</td>
+                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => {
+                          const ov = empOverrides[r.employeeId];
+                          const g = r.basicSalary + (ov?.houseAllow||0) + (ov?.transportAllow||0) + (ov?.bonus||0);
+                          return s + Math.max(0, g - r.nhif - r.nssf - r.paye - (ov?.extraDeduction||0));
+                        }, 0))}</td>
                         <td />
                       </tr>
                     </tfoot>
@@ -1107,15 +1349,16 @@ export default function PayrollTab() {
 
               {/* Action buttons */}
               <div className="flex gap-2 pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={resetRun}>Back to Configure</Button>
-                {previewMeta.toCreate > 0 && (
-                  <Button size="sm" onClick={handleProcess} disabled={runLoading}>
-                    {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Processing…</> : `Confirm & Save ${previewMeta.toCreate} Record(s)`}
-                  </Button>
+                <Button variant="outline" size="sm" onClick={resetRun}>Cancel</Button>
+                <Button variant="outline" size="sm" onClick={() => setRunStep("adjustments")}>← Back to Adjust</Button>
+                <Button variant="outline" size="sm" onClick={handleSaveDraft}>Save Draft</Button>
+                <div className="flex-1" />
+                {previewRows.filter(r => !r.noSalary && !r.willSkip).length === 0 && (
+                  <p className="text-sm text-muted-foreground self-center">Nothing new to create for this period.</p>
                 )}
-                {previewMeta.toCreate === 0 && (
-                  <p className="text-sm text-muted-foreground self-center">Nothing to create — all records already exist for this period.</p>
-                )}
+                <Button size="sm" onClick={handleSubmitAdjusted} disabled={runLoading || previewRows.filter(r => !r.noSalary).length === 0}>
+                  {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Submitting…</> : `Submit & Create Payroll Records`}
+                </Button>
               </div>
             </div>
           )}

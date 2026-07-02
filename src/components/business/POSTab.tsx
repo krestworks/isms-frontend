@@ -207,13 +207,15 @@ export function POSTab({ business }: Props) {
     setCustomerPhone(""); setExpandedItem(null);
   };
 
-  // ── Totals ─────────────────────────────────────────────────────────────────
+  // ── Totals (prices are tax-inclusive; extract VAT from total) ──────────────
 
-  const subtotal  = cart.reduce((s, i) => s + i.totalPrice, 0);
-  const taxAmount = Math.round((subtotal - orderDiscount) * business.taxRate / 100 * 100) / 100;
-  const total     = Math.max(0, subtotal - orderDiscount + taxAmount);
-  const paid      = parseFloat(amountPaid) || 0;
-  const change    = Math.max(0, paid - total);
+  const subtotal   = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const baseAmount = Math.max(0, subtotal - orderDiscount);
+  // VAT is embedded in the selling price — extract it for display only
+  const taxAmount  = Math.round(baseAmount * business.taxRate / (100 + business.taxRate) * 100) / 100;
+  const total      = baseAmount; // tax already included — do NOT add on top
+  const paid       = parseFloat(amountPaid) || 0;
+  const change     = Math.max(0, paid - total);
 
   // ── Filtered products ──────────────────────────────────────────────────────
 
@@ -286,7 +288,12 @@ export function POSTab({ business }: Props) {
 
   const handleCashCheckout = async () => {
     if (!cart.length) { toast.error("Cart is empty"); return; }
-    if (paid > 0 && paid < total) {
+    if (payMethod === "Cash") {
+      if (!amountPaid || paid < total) {
+        toast.error(`Enter amount received — must be at least Ksh ${fmt(total)}`);
+        return;
+      }
+    } else if (paid > 0 && paid < total) {
       toast.error(`Amount paid (${fmt(paid)}) is less than total (${fmt(total)})`); return;
     }
     try {
@@ -347,30 +354,82 @@ export function POSTab({ business }: Props) {
     if (!lastSale) return;
     const b = brandingStore.get();
     const branch = activeLocation !== "All Locations" ? activeLocation : "";
-    const logoHtml = b?.logo ? `<img src="${b.logo}" style="height:40px;width:40px;object-fit:contain;border-radius:4px;margin-right:8px">` : "";
-    const header = `
-      <div style="display:flex;align-items:center;justify-content:space-between;border-bottom:1px dashed #555;padding-bottom:8px;margin-bottom:8px">
+    const logoHtml = b?.logo ? `<img src="${b.logo}" style="height:36px;width:36px;object-fit:contain;border-radius:4px;margin-right:8px">` : "";
+    const generatedAt = new Date().toLocaleString("en-KE");
+
+    const itemRows = (lastSale.items ?? []).map((item: ApiBizSaleItem) =>
+      `<tr>
+        <td style="border-right:1px dashed #999;padding-right:4px;vertical-align:top">${item.name}</td>
+        <td style="text-align:center;padding:0 4px;white-space:nowrap;vertical-align:top;width:30px">${item.qty}</td>
+        <td style="text-align:right;padding-left:4px;white-space:nowrap;font-weight:700;vertical-align:top">${fmt(item.totalPrice)}</td>
+      </tr>`
+    ).join("");
+
+    const taxLine = lastSale.taxAmount > 0
+      ? `<div style="display:flex;justify-content:space-between;color:#666"><span>VAT (${lastSale.taxRate}%, incl.):</span><span>Ksh ${fmt(lastSale.taxAmount)}</span></div>`
+      : "";
+    const discountLine = lastSale.discount > 0
+      ? `<div style="display:flex;justify-content:space-between"><span>Discount:</span><span>-Ksh ${fmt(lastSale.discount)}</span></div>`
+      : "";
+
+    const win = window.open("", "_blank", "width=380,height=720");
+    if (!win) { toast.error("Popup blocked — allow popups to print receipts"); return; }
+    win.document.write(`<html><head><title>Receipt</title><style>
+      *{box-sizing:border-box;margin:0;padding:0}
+      body{font-family:'Courier New',monospace;font-size:12px;padding:16px;max-width:320px;margin:auto;color:#111}
+      .row{display:flex;justify-content:space-between;margin:2px 0}
+      table{width:100%;border-collapse:collapse} td,th{padding:2px 0;vertical-align:top}
+      th{font-weight:normal;font-size:10px;color:#666;border-bottom:1px solid #ddd}
+      .dashed{border-top:1px dashed #555;margin:6px 0}
+    </style></head><body>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:6px;border-bottom:1px dashed #555;margin-bottom:6px">
         <div style="display:flex;align-items:center">
           ${logoHtml}
           <div>
             <div style="font-size:14px;font-weight:700">${b?.name ?? business.name}</div>
             ${b?.tagline ? `<div style="font-size:10px;color:#666">${b.tagline}</div>` : ""}
             ${b?.address ? `<div style="font-size:10px;color:#666">${b.address}</div>` : ""}
+            ${business.kraPin ? `<div style="font-size:10px;color:#666">KRA PIN: ${business.kraPin}</div>` : ""}
           </div>
         </div>
         ${branch ? `<div style="font-size:10px;color:#555;text-align:right">${branch}</div>` : ""}
-      </div>`;
-    const content = receiptRef.current?.innerHTML ?? "";
-    const win = window.open("", "_blank", "width=380,height=680");
-    if (!win) return;
-    win.document.write(`<html><head><title>Receipt — ${b?.name ?? business.name}</title><style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:'Courier New',monospace;font-size:12px;padding:16px;max-width:320px;margin:auto;color:#111}
-      .center{text-align:center} .bold{font-weight:700} .line{border-top:1px dashed #555;margin:6px 0}
-      table{width:100%} td,th{padding:2px 0;vertical-align:top} .right{text-align:right}
-      .total-row{font-weight:700;font-size:13px;border-top:1px dashed #555;padding-top:4px}
-    </style></head><body>${header}${content}</body></html>`);
-    win.document.close(); win.focus(); win.print(); win.close();
+      </div>
+      ${business.receiptHeader ? `<div style="text-align:center;font-size:10px;color:#666;margin-bottom:4px">${business.receiptHeader}</div>` : ""}
+      <div class="row"><span>Receipt:</span><span>${lastSale.saleRef}</span></div>
+      <div class="row"><span>Date:</span><span>${lastSale.date}</span></div>
+      ${lastSale.cashier ? `<div class="row"><span>Cashier:</span><span>${lastSale.cashier}</span></div>` : ""}
+      ${lastSale.customerPhone ? `<div class="row"><span>M-Pesa:</span><span>${lastSale.customerPhone}</span></div>` : ""}
+      ${lastSale.notes ? `<div class="row"><span>Note:</span><span>${lastSale.notes}</span></div>` : ""}
+      <div class="dashed" style="margin-top:8px"></div>
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;border-right:1px dashed #aaa;padding-right:4px">Item</th>
+            <th style="text-align:center;padding:0 4px;width:30px">Qty</th>
+            <th style="text-align:right;padding-left:4px">Amount</th>
+          </tr>
+        </thead>
+        <tbody>${itemRows}</tbody>
+      </table>
+      <div class="dashed" style="margin-top:8px"></div>
+      <div style="margin-top:4px">
+        <div class="row"><span>Subtotal:</span><span>Ksh ${fmt(lastSale.subtotal)}</span></div>
+        ${discountLine}
+        ${taxLine}
+        <div class="row" style="font-weight:700;font-size:13px;border-top:1px dashed #555;margin-top:4px;padding-top:4px"><span>TOTAL:</span><span>Ksh ${fmt(lastSale.totalAmount)}</span></div>
+        <div class="row"><span>Paid (${lastSale.paymentMethod}):</span><span>Ksh ${fmt(lastSale.amountPaid)}</span></div>
+        ${lastSale.change > 0 ? `<div class="row"><span>Change:</span><span>Ksh ${fmt(lastSale.change)}</span></div>` : ""}
+      </div>
+      <div class="dashed" style="margin-top:8px"></div>
+      ${business.receiptFooter ? `<p style="text-align:center;margin:4px 0">${business.receiptFooter}</p>` : ""}
+      <p style="text-align:center;color:#666">Thank you for your business!</p>
+      <p style="text-align:center;color:#999;font-size:10px;margin-top:4px">Generated: ${generatedAt}</p>
+    </body></html>`);
+    win.document.close();
+    win.focus();
+    // Let the page render (images etc.) before triggering print, close after user dismisses dialog
+    win.onafterprint = () => win.close();
+    setTimeout(() => win.print(), 400);
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -681,9 +740,9 @@ export function POSTab({ business }: Props) {
                   <span>− Ksh {fmt(orderDiscount)}</span>
                 </div>
               )}
-              {business.taxRate > 0 && (
+              {business.taxRate > 0 && taxAmount > 0 && (
                 <div className="flex justify-between text-muted-foreground">
-                  <span>Tax ({business.taxRate}%)</span>
+                  <span>VAT ({business.taxRate}%, incl.)</span>
                   <span>Ksh {fmt(taxAmount)}</span>
                 </div>
               )}
@@ -885,54 +944,75 @@ export function POSTab({ business }: Props) {
           </DialogHeader>
           {lastSale && (
             <>
-              <div ref={receiptRef} className="font-mono text-xs space-y-0.5 p-4 border rounded-xl bg-white">
-                {/* Branded receipt header */}
+              <div ref={receiptRef} className="font-mono text-xs p-4 border rounded-xl bg-white">
+                {/* Business header */}
                 {(() => {
                   const b = brandingStore.get();
                   const branch = activeLocation !== "All Locations" ? activeLocation : null;
                   return (
-                    <div className="not-mono mb-2">
-                      <div className="flex items-center gap-2 mb-1">
+                    <div className="not-mono mb-1">
+                      <div className="flex items-center gap-2 mb-0.5">
                         {b?.logo && <img src={b.logo} alt="" className="h-8 w-8 object-contain rounded" />}
                         <div>
                           <p className="font-bold text-sm text-foreground">{b?.name ?? business.name}</p>
                           {b?.tagline && <p className="text-[10px] text-muted-foreground">{b.tagline}</p>}
                           {b?.address && <p className="text-[10px] text-muted-foreground">{b.address}</p>}
+                          {business.kraPin && <p className="text-[10px] text-muted-foreground">KRA PIN: {business.kraPin}</p>}
                         </div>
                         {branch && <p className="ml-auto text-[10px] text-muted-foreground text-right">{branch}</p>}
                       </div>
-                      {business.receiptHeader && <p className="text-center text-[10px] text-muted-foreground">{business.receiptHeader}</p>}
+                      {business.receiptHeader && <p className="text-center text-[10px] text-muted-foreground mt-0.5">{business.receiptHeader}</p>}
                       <div className="border-t border-dashed my-1.5" />
                     </div>
                   );
                 })()}
-                <div className="flex justify-between"><span>Receipt:</span><span>{lastSale.saleRef}</span></div>
-                <div className="flex justify-between"><span>Date:</span><span>{lastSale.date}</span></div>
-                {lastSale.cashier && <div className="flex justify-between"><span>Cashier:</span><span>{lastSale.cashier}</span></div>}
-                {lastSale.customerPhone && <div className="flex justify-between"><span>M-Pesa:</span><span>{lastSale.customerPhone}</span></div>}
-                {lastSale.notes && <div className="flex justify-between"><span>Note:</span><span>{lastSale.notes}</span></div>}
-                <div className="border-t border-dashed my-1" />
-                <table className="w-full">
+                {/* Sale meta */}
+                <div className="space-y-0.5">
+                  <div className="flex justify-between"><span>Receipt:</span><span>{lastSale.saleRef}</span></div>
+                  <div className="flex justify-between"><span>Date:</span><span>{lastSale.date}</span></div>
+                  {lastSale.cashier && <div className="flex justify-between"><span>Cashier:</span><span>{lastSale.cashier}</span></div>}
+                  {lastSale.customerPhone && <div className="flex justify-between"><span>M-Pesa:</span><span>{lastSale.customerPhone}</span></div>}
+                  {lastSale.notes && <div className="flex justify-between"><span>Note:</span><span>{lastSale.notes}</span></div>}
+                </div>
+                {/* Space + dotted line before items */}
+                <div className="mt-2 border-t border-dashed" />
+                {/* Items table with headers */}
+                <table className="w-full mt-1">
+                  <thead>
+                    <tr className="text-[10px] text-muted-foreground">
+                      <th className="text-left font-normal pb-0.5 border-r border-dashed pr-1">Item</th>
+                      <th className="text-center font-normal pb-0.5 px-1 w-10">Qty</th>
+                      <th className="text-right font-normal pb-0.5 pl-1">Amount</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {(lastSale.items ?? []).map((item: ApiBizSaleItem, i: number) => (
                       <tr key={i}>
-                        <td className="pr-1">{item.name}</td>
-                        <td className="text-right whitespace-nowrap">{item.qty}×{fmt(item.unitPrice)}</td>
-                        <td className="text-right pl-2 whitespace-nowrap font-bold">{fmt(item.totalPrice)}</td>
+                        <td className="pr-1 border-r border-dashed align-top">{item.name}</td>
+                        <td className="text-center px-1 whitespace-nowrap w-10 align-top">{item.qty}</td>
+                        <td className="text-right pl-1 whitespace-nowrap font-bold align-top">{fmt(item.totalPrice)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div className="border-t border-dashed my-1" />
-                <div className="flex justify-between"><span>Subtotal:</span><span>Ksh {fmt(lastSale.subtotal)}</span></div>
-                {lastSale.discount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-Ksh {fmt(lastSale.discount)}</span></div>}
-                {lastSale.taxAmount > 0 && <div className="flex justify-between"><span>Tax ({lastSale.taxRate}%):</span><span>Ksh {fmt(lastSale.taxAmount)}</span></div>}
-                <div className="flex justify-between font-bold text-sm border-t border-dashed pt-1"><span>TOTAL:</span><span>Ksh {fmt(lastSale.totalAmount)}</span></div>
-                <div className="flex justify-between"><span>Paid ({lastSale.paymentMethod}):</span><span>Ksh {fmt(lastSale.amountPaid)}</span></div>
-                {lastSale.change > 0 && <div className="flex justify-between"><span>Change:</span><span>Ksh {fmt(lastSale.change)}</span></div>}
-                <div className="border-t border-dashed my-1" />
+                {/* Space + dotted line before subtotal */}
+                <div className="mt-2 border-t border-dashed" />
+                <div className="mt-1 space-y-0.5">
+                  <div className="flex justify-between"><span>Subtotal:</span><span>Ksh {fmt(lastSale.subtotal)}</span></div>
+                  {lastSale.discount > 0 && <div className="flex justify-between"><span>Discount:</span><span>-Ksh {fmt(lastSale.discount)}</span></div>}
+                  {lastSale.taxAmount > 0 && (
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>VAT ({lastSale.taxRate}%, incl.):</span><span>Ksh {fmt(lastSale.taxAmount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold border-t border-dashed pt-1 mt-1"><span>TOTAL:</span><span>Ksh {fmt(lastSale.totalAmount)}</span></div>
+                  <div className="flex justify-between"><span>Paid ({lastSale.paymentMethod}):</span><span>Ksh {fmt(lastSale.amountPaid)}</span></div>
+                  {lastSale.change > 0 && <div className="flex justify-between"><span>Change:</span><span>Ksh {fmt(lastSale.change)}</span></div>}
+                </div>
+                <div className="border-t border-dashed mt-2 mb-1" />
                 {business.receiptFooter && <p className="text-center">{business.receiptFooter}</p>}
                 <p className="text-center text-muted-foreground">Thank you for your business!</p>
+                <p className="text-center text-muted-foreground text-[10px] mt-1">Generated: {new Date().toLocaleString("en-KE")}</p>
               </div>
               <div className="flex gap-2 mt-2">
                 <Button variant="outline" className="flex-1" onClick={handlePrint}>
