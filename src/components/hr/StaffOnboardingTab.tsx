@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
-import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
@@ -99,6 +99,8 @@ export default function StaffOnboardingTab() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [filterStatus, setFilterStatus] = useState("__all__");
+  const [filterDept, setFilterDept] = useState("__all__");
+  const [filterType, setFilterType] = useState("__all__");
   const [loading, setLoading] = useState(true);
   const [stations, setStations] = useState<ApiStation[]>([]);
   const [depts, setDepts] = useState<ApiDepartment[]>([]);
@@ -127,7 +129,9 @@ export default function StaffOnboardingTab() {
     setLoading(true);
     try {
       const params: Record<string, unknown> = { page: p, limit: PAGE_LIMIT };
-      if (filterStatus && filterStatus !== "__all__") params.status = filterStatus;
+      if (filterStatus !== "__all__")  params.status         = filterStatus;
+      if (filterDept   !== "__all__")  params.departmentId   = filterDept;
+      if (filterType   !== "__all__")  params.employmentType = filterType;
       const r = await hrApi.employees.list(params as any);
       setData(r.data ?? []);
       setTotal(r.meta?.total ?? 0);
@@ -135,7 +139,7 @@ export default function StaffOnboardingTab() {
       setTotalPages(r.meta?.pages ?? 1);
     } catch (e: any) { toast.error(e?.message || "Failed to load employees"); }
     finally { setLoading(false); }
-  }, [filterStatus]);
+  }, [filterStatus, filterDept, filterType]);
 
   const loadSetupData = async () => {
     const [s, d, jt] = await Promise.allSettled([
@@ -209,6 +213,10 @@ export default function StaffOnboardingTab() {
   };
 
   const handleSave = async () => {
+    if (!form.phone?.trim())        return toast.error("Phone number is required");
+    if (!form.basicSalary)          return toast.error("Basic salary is required");
+    if (parseFloat(form.basicSalary) <= 0) return toast.error("Basic salary must be greater than 0");
+    if (!form.paymentMethod)        return toast.error("Payment method is required");
     try {
       const bank = KE_BANKS.find(b => b.code === form.bankCode);
       const bankDetails = form.paymentMethod === "MobileMoney" && form.mobileNumber
@@ -321,9 +329,8 @@ export default function StaffOnboardingTab() {
     { key: "status", label: "Status", render: e => <StatusBadge status={e.status} /> },
   ];
 
-  const filters: FilterOption[] = [
-    { key: "employmentType", label: "Type", options: EMPLOYMENT_TYPES.map(t => ({ label: t, value: t })) },
-  ];
+  const hasFilters = filterStatus !== "__all__" || filterDept !== "__all__" || filterType !== "__all__";
+  const clearFilters = () => { setFilterStatus("__all__"); setFilterDept("__all__"); setFilterType("__all__"); setPage(1); };
 
   const stats = {
     total,
@@ -347,13 +354,12 @@ export default function StaffOnboardingTab() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "Total Staff", value: stats.total, color: "", filter: "__all__" },
-          { label: "Active", value: stats.active, color: "text-green-600", filter: "Active" },
-          { label: "On Leave", value: stats.onLeave, color: "text-amber-600", filter: "OnLeave" },
-          { label: "Terminated", value: stats.terminated, color: "text-destructive", filter: "Terminated" },
+          { label: "Total Staff",  value: stats.total,      color: "" },
+          { label: "Active",       value: stats.active,     color: "text-green-600" },
+          { label: "On Leave",     value: stats.onLeave,    color: "text-amber-600" },
+          { label: "Terminated",   value: stats.terminated, color: "text-destructive" },
         ].map(s => (
-          <Card key={s.label} className={`cursor-pointer transition-shadow hover:shadow-md ${filterStatus === s.filter ? "ring-2 ring-primary" : ""}`}
-            onClick={() => { setFilterStatus(s.filter); setPage(1); }}>
+          <Card key={s.label}>
             <CardContent className="p-4">
               <p className="text-sm text-muted-foreground">{s.label}</p>
               <p className={`text-2xl font-bold ${s.color}`}>{loading ? "…" : s.value}</p>
@@ -362,12 +368,52 @@ export default function StaffOnboardingTab() {
         ))}
       </div>
 
+      {/* Inline filter form */}
+      <div className="flex flex-wrap gap-3 items-end p-3 bg-muted/30 rounded-lg border">
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+          <Select value={filterStatus} onValueChange={v => { setFilterStatus(v); setPage(1); }}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All statuses</SelectItem>
+              <SelectItem value="Active">Active</SelectItem>
+              <SelectItem value="OnLeave">On Leave</SelectItem>
+              <SelectItem value="Terminated">Terminated</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Department</Label>
+          <Select value={filterDept} onValueChange={v => { setFilterDept(v); setPage(1); }}>
+            <SelectTrigger className="h-8 w-44 text-xs"><SelectValue placeholder="All departments" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All departments</SelectItem>
+              {depts.map(d => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">Employment Type</Label>
+          <Select value={filterType} onValueChange={v => { setFilterType(v); setPage(1); }}>
+            <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="All types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All types</SelectItem>
+              {EMPLOYMENT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        {hasFilters && (
+          <button className="text-xs text-muted-foreground hover:text-foreground underline self-end pb-1" onClick={clearFilters}>
+            Clear filters
+          </button>
+        )}
+      </div>
+
       <DataTable
         data={data}
         columns={columns}
         searchKeys={["employeeNumber"]}
         searchPlaceholder="Search by employee number…"
-        filters={filters}
         pageSize={25}
         onView={e => setViewing(e)}
         onEdit={canEdit ? (e => e.status !== "Terminated" ? openEdit(e) : undefined) : undefined}

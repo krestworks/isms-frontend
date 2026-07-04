@@ -165,6 +165,7 @@ export interface ApiPayroll {
   houseAllowance: number;
   transportAllowance: number;
   overtimePay: number;
+  benefitInKind: number;
   grossPay: number;
   nhif: number;
   nssf: number;
@@ -193,10 +194,15 @@ export interface ApiPayrollRunRow {
   stationId: string;
   month: string;
   basicSalary: number;
+  houseAllowance: number;
+  transportAllowance: number;
+  overtimePay: number;
+  benefitInKind: number;
   grossPay: number;
   nhif: number;
   nssf: number;
   paye: number;
+  otherDeductions: number;
   totalDeductions: number;
   netPay: number;
   absenceDeduction: number;
@@ -471,10 +477,14 @@ export const hrApi = {
       includeAttendance?: boolean; includeLeave?: boolean;
     }) =>
       api.post<{ success: boolean; data: ApiPayrollRunRow[] | { created: number; skipped: number; failed: number }; meta?: { total: number; toCreate: number; toSkip: number; noSalary: number }; message?: string }>("/hr/payroll/run", data),
+    bulkCreate: (data: { month: string; rows: ApiPayrollRunRow[] }) =>
+      api.post<{ success: boolean; message: string; data: { created: number; skipped: number; failed: number; month: string; errors: string[] } }>("/hr/payroll/bulk-create", data),
     bulkUpdateStatus: (data: { month?: string; status: string; payDate?: string; ids?: string[]; stationIds?: string[]; departmentIds?: string[] }) =>
       api.put<{ success: boolean; data: { updated: number }; message: string }>("/hr/payroll/bulk-status", data),
     sendPayslip: (id: string) =>
       api.post<{ success: boolean; message: string; dev?: boolean }>(`/hr/payroll/${id}/send-payslip`, {}),
+    bulkSendPayslips: (data: { month: string; employeeIds?: string[] }) =>
+      api.post<{ success: boolean; message: string; sent: number; failed: number }>("/hr/payroll/bulk-send-payslips", data),
   },
 
   // ── Performance ─────────────────────────────────────────────────────────────

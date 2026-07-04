@@ -653,16 +653,16 @@ export default function LeaveManagementTab() {
   const isManager  = canApprove || canManage;
 
   useEffect(() => {
-    Promise.all([
+    Promise.allSettled([
       hrApi.leaveTypes.list(),
       hrApi.holidays.list(),
       isManager ? hrApi.employees.list({ limit: 200 }) : Promise.resolve({ data: [] }),
     ]).then(([typesRes, holRes, empRes]) => {
-      setLeaveTypes(typesRes.data ?? []);
-      setHolidays(holRes.data ?? []);
-      setEmployees((empRes as any).data ?? []);
-    }).catch(() => toast.error("Failed to load leave data"))
-      .finally(() => setInitLoading(false));
+      if (typesRes.status === "fulfilled") setLeaveTypes(typesRes.value.data ?? []);
+      else toast.error("Failed to load leave types");
+      if (holRes.status === "fulfilled") setHolidays(holRes.value.data ?? []);
+      if (empRes.status === "fulfilled") setEmployees((empRes.value as any).data ?? []);
+    }).finally(() => setInitLoading(false));
   }, [isManager]);
 
   if (initLoading) return <div className="p-10 text-center text-muted-foreground text-sm">Loading leave management…</div>;

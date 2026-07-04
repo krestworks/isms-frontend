@@ -1,8 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { esc } from "@/lib/sanitize";
 import {
   Calculator, ChevronLeft, ChevronRight, Download, FileText,
   Mail, Plus, Printer, RefreshCw, CheckCircle2, AlertCircle,
 } from "lucide-react";
+import PayrollBatchEntryPage from "./PayrollBatchEntryPage";
+import PayrollCalculatorModal from "./PayrollCalculatorModal";
+import { useSession } from "@/data/sessionStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -67,7 +71,7 @@ function downloadCsv(csv: string, filename: string) {
 
 const emptyForm = {
   employeeId: "", month: "", basicSalary: 0, houseAllowance: 0,
-  transportAllowance: 0, overtimePay: 0,
+  transportAllowance: 0, overtimePay: 0, benefitInKind: 0,
   sha: 0, nssf: 0, paye: 0, otherDeductions: 0,
   status: "pending", payDate: "",
 };
@@ -107,6 +111,7 @@ const PAGE_LIMIT = 100;
 
 export default function PayrollTab() {
   const can = usePermissions();
+  const { activeLocation } = useSession();
   const slipRef = useRef<HTMLDivElement>(null);
 
   // ── Records tab ─────────────────────────────────────────────────────────────
@@ -135,44 +140,28 @@ export default function PayrollTab() {
   const [stations,    setStations]    = useState<ApiStationFull[]>([]);
   const refLoadedRef = useRef(false);
 
-  // ── Run Payroll tab ──────────────────────────────────────────────────────────
-  type RunStep = "configure" | "adjustments" | "preview" | "done";
-  interface EmpOverride { houseAllow: number; transportAllow: number; bonus: number; extraDeduction: number; note: string; }
-  const [runStep, setRunStep] = useState<RunStep>("configure");
-  const [runScope, setRunScope] = useState<"all" | "location" | "department" | "specific">("all");
-  const [runMonth, setRunMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [runStationIds,  setRunStationIds]  = useState<string[]>([]);
-  const [runDeptIds,     setRunDeptIds]     = useState<string[]>([]);
-  const [runEmpSearch,   setRunEmpSearch]   = useState("");
-  const [runEmpIds,      setRunEmpIds]      = useState<string[]>([]);
-  const [runAttendance,  setRunAttendance]  = useState(false);
-  const [runLeave,       setRunLeave]       = useState(false);
-  const [previewRows,    setPreviewRows]    = useState<ApiPayrollRunRow[]>([]);
-  const [previewMeta,    setPreviewMeta]    = useState<{ total: number; toCreate: number; toSkip: number; noSalary: number } | null>(null);
-  const [previewPage,    setPreviewPage]    = useState(1);
-  const [runLoading,     setRunLoading]     = useState(false);
-  const [runResult,      setRunResult]      = useState<{ created: number; skipped: number; failed: number } | null>(null);
-  const [empOverrides,   setEmpOverrides]   = useState<Record<string, EmpOverride>>({});
-  const [savedDraftMonths, setSavedDraftMonths] = useState<string[]>(() => {
-    try {
-      return Object.keys(localStorage).filter(k => k.startsWith("isms_pr_draft_")).map(k => k.replace("isms_pr_draft_", ""));
-    } catch { return []; }
-  });
+  // ── Batch entry page ──────────────────────────────────────────────────────────
+  const [batchView, setBatchView] = useState(false);
+  const [calcOpen,  setCalcOpen]  = useState(false);
 
-  const PREVIEW_PAGE_SIZE = 50;
-  const previewPages = Math.max(1, Math.ceil(previewRows.length / PREVIEW_PAGE_SIZE));
-  const previewSlice = previewRows.slice((previewPage - 1) * PREVIEW_PAGE_SIZE, previewPage * PREVIEW_PAGE_SIZE);
-
-  const setEmpOverride = (empId: string, field: keyof EmpOverride, value: number | string) => {
-    setEmpOverrides(prev => ({
-      ...prev,
-      [empId]: { houseAllow: 0, transportAllow: 0, bonus: 0, extraDeduction: 0, note: "", ...prev[empId], [field]: value },
-    }));
-  };
+  // ── Run Payroll tab (process existing records) ────────────────────────────────
+  const [procMonth,         setProcMonth]         = useState(new Date().toISOString().slice(0, 7));
+  const [procData,          setProcData]          = useState<ApiPayroll[]>([]);
+  const [procLoading,       setProcLoading]       = useState(false);
+  const [procActionLoading, setProcActionLoading] = useState(false);
+  const [procConfirm,       setProcConfirm]       = useState<"processing" | "paid" | null>(null);
 
   // ── Payslip email + settings ──────────────────────────────────────────────────
   const [sendingPayslip,   setSendingPayslip]   = useState(false);
   const [payrollSettings,  setPayrollSettings]  = useState<Record<string, string>>({});
+
+  // ── Bulk Send Payslip modal ───────────────────────────────────────────────────
+  const [sendSlipOpen,     setSendSlipOpen]     = useState(false);
+  const [sendSlipMonth,    setSendSlipMonth]    = useState(new Date().toISOString().slice(0, 7));
+  const [sendSlipScope,    setSendSlipScope]    = useState<"all" | "specific">("all");
+  const [sendSlipEmpIds,   setSendSlipEmpIds]   = useState<string[]>([]);
+  const [sendSlipSearch,   setSendSlipSearch]   = useState("");
+  const [sendSlipLoading,  setSendSlipLoading]  = useState(false);
 
   // ── Reports tab ──────────────────────────────────────────────────────────────
   const [reportMonth,    setReportMonth]    = useState(new Date().toISOString().slice(0, 7));
@@ -252,7 +241,7 @@ export default function PayrollTab() {
   const autoCalculate = () => {
     const sha  = calcSHA(gross);
     const nssf = calcNSSF(gross);
-    const paye = calcPAYE(gross, nssf);
+    const paye = calcPAYE(gross, nssf, form.benefitInKind);
     setForm(f => { const nf = { ...f, sha, nssf, paye }; try { localStorage.setItem(LS_KEY, JSON.stringify(nf)); } catch { /**/ } return nf; });
     toast.success("Statutory deductions calculated");
   };
@@ -279,6 +268,7 @@ export default function PayrollTab() {
       employeeId: item.employeeId, month: item.month,
       basicSalary: item.basicSalary, houseAllowance: item.houseAllowance,
       transportAllowance: item.transportAllowance, overtimePay: item.overtimePay,
+      benefitInKind: item.benefitInKind ?? 0,
       sha: item.nhif, nssf: item.nssf, paye: item.paye,
       otherDeductions: item.otherDeductions, status: item.status, payDate: item.payDate ?? "",
     });
@@ -293,6 +283,7 @@ export default function PayrollTab() {
         employeeId: form.employeeId, month: form.month,
         basicSalary: form.basicSalary, houseAllowance: form.houseAllowance,
         transportAllowance: form.transportAllowance, overtimePay: form.overtimePay,
+        benefitInKind: form.benefitInKind,
         nhif: form.sha, nssf: form.nssf, paye: form.paye,
         otherDeductions: form.otherDeductions, status: form.status,
         payDate: form.payDate || undefined,
@@ -316,6 +307,10 @@ export default function PayrollTab() {
   };
 
   const handleDelete = async (item: ApiPayroll) => {
+    if (item.status === "paid" || item.status === "processing") {
+      toast.error("Cannot delete a submitted payroll record");
+      return;
+    }
     try {
       await hrApi.payroll.remove(item.id);
       setData(d => d.filter(i => i.id !== item.id));
@@ -348,15 +343,16 @@ export default function PayrollTab() {
     if (!viewing) return;
     const win = window.open("", "_blank");
     if (!win) return;
-    const b     = brandingStore.get();
+    const _b    = brandingStore.get();
+    const b     = { ..._b, name: esc(_b?.name), tagline: esc(_b?.tagline), address: esc(_b?.address) };
     const loc   = sessionStore.activeLocation();
-    const branch = loc !== "All Locations" ? loc : "";
-    const empKraPin  = viewing.employee?.kraPin || "—";
-    const empName    = viewing.employee?.user?.name ?? viewing.employeeId;
-    const empNo      = viewing.employee?.employeeNumber ?? "—";
-    const dept       = viewing.employee?.department?.name ?? "—";
-    const title      = viewing.employee?.jobTitle?.title ?? "—";
-    const erKraPin   = payrollSettings.employerKraPin || "—";
+    const branch = esc(loc !== "All Locations" ? loc : "");
+    const empKraPin  = esc(viewing.employee?.kraPin || "—");
+    const empName    = esc(viewing.employee?.user?.name ?? viewing.employeeId);
+    const empNo      = esc(viewing.employee?.employeeNumber ?? "—");
+    const dept       = esc(viewing.employee?.department?.name ?? "—");
+    const title      = esc(viewing.employee?.jobTitle?.title ?? "—");
+    const erKraPin   = esc(payrollSettings.employerKraPin || "—");
     const fmtK = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
 
     win.document.write(`<!DOCTYPE html><html><head><title>Payslip - ${viewing.month}</title>
@@ -384,7 +380,7 @@ export default function PayrollTab() {
   <div class="hdr-logo">
     ${b?.logo ? `<img src="${b.logo}" alt="">` : ""}
     <div>
-      <div class="biz-name">${b?.name ?? "ISMS"}</div>
+      <div class="biz-name">${b?.name || "ISMS"}</div>
       ${b?.tagline ? `<div class="biz-sub">${b.tagline}</div>` : ""}
       ${b?.address ? `<div class="biz-sub">${b.address}</div>` : ""}
       ${erKraPin !== "—" ? `<div class="biz-sub">Employer KRA PIN: ${erKraPin}</div>` : ""}
@@ -408,7 +404,8 @@ export default function PayrollTab() {
   ${viewing.houseAllowance > 0 ? `<tr><td>House Allowance</td><td class="right">${fmtK(viewing.houseAllowance)}</td></tr>` : ""}
   ${viewing.transportAllowance > 0 ? `<tr><td>Transport Allowance</td><td class="right">${fmtK(viewing.transportAllowance)}</td></tr>` : ""}
   ${viewing.overtimePay > 0 ? `<tr><td>Overtime Pay</td><td class="right">${fmtK(viewing.overtimePay)}</td></tr>` : ""}
-  <tr class="subtotal"><td>GROSS PAY</td><td class="right">${fmtK(viewing.grossPay)}</td></tr>
+  <tr class="subtotal"><td>GROSS PAY (Cash)</td><td class="right">${fmtK(viewing.grossPay)}</td></tr>
+  ${(viewing.benefitInKind ?? 0) > 0 ? `<tr style="background:#fff8e1"><td>Benefit in Kind (non-cash, taxable)</td><td class="right">${fmtK(viewing.benefitInKind)}</td></tr>` : ""}
 </table>
 <table>
   <tr class="section-hdr"><td>DEDUCTIONS</td><td class="right">Amount (KES)</td></tr>
@@ -446,109 +443,50 @@ export default function PayrollTab() {
     }
   };
 
-  // ── Run Payroll helpers ───────────────────────────────────────────────────────
+  // ── Run Payroll tab (process existing records) ───────────────────────────────
 
-  const buildRunPayload = (dryRun: boolean) => {
-    const payload: Parameters<typeof hrApi.payroll.run>[0] = {
-      month: runMonth, dryRun,
-      includeAttendance: runAttendance,
-      includeLeave: runLeave,
-    };
-    if (runScope === "location"   && runStationIds.length)  payload.stationIds   = runStationIds;
-    if (runScope === "department" && runDeptIds.length)     payload.departmentIds = runDeptIds;
-    if (runScope === "specific"   && runEmpIds.length)      payload.employeeIds   = runEmpIds;
-    return payload;
-  };
-
-  const handlePreview = async () => {
-    if (!runMonth) return toast.error("Select a payroll month");
-    if (runScope === "location"   && !runStationIds.length)  return toast.error("Select at least one location");
-    if (runScope === "department" && !runDeptIds.length)     return toast.error("Select at least one department");
-    if (runScope === "specific"   && !runEmpIds.length)      return toast.error("Select at least one employee");
-    setRunLoading(true);
+  const loadProcBatch = async () => {
+    if (!procMonth) return toast.error("Select a payroll month");
+    setProcLoading(true);
     try {
-      const res = await hrApi.payroll.run(buildRunPayload(true));
-      setPreviewRows((res.data as ApiPayrollRunRow[]) ?? []);
-      setPreviewMeta(res.meta ?? null);
-      setPreviewPage(1);
-      setEmpOverrides({});
-      setRunStep("adjustments"); // go to configure/adjust step first
-    } catch (e: any) { toast.error(e?.message || "Preview failed"); }
-    finally { setRunLoading(false); }
+      const res = await hrApi.payroll.list({ month: procMonth, limit: 1000 } as any);
+      setProcData(res.data ?? []);
+      setProcConfirm(null);
+      if (!(res.data ?? []).length) toast.info("No payroll records found for that month");
+    } catch (e: any) { toast.error(e?.message || "Failed to load batch"); }
+    finally { setProcLoading(false); }
   };
 
-  const handleGoToPreview = () => {
-    setPreviewPage(1);
-    setRunStep("preview");
-  };
-
-  const handleSubmitAdjusted = async () => {
-    const rows = previewRows.filter(r => !r.noSalary);
-    if (!rows.length) { toast.error("No employees to process"); return; }
-    setRunLoading(true);
+  const handleRunBatch = async (targetStatus: "processing" | "paid") => {
+    setProcActionLoading(true);
     try {
-      const results = await Promise.allSettled(
-        rows.map(r => {
-          const ov = empOverrides[r.employeeId];
-          const houseAllowance    = ov?.houseAllow || 0;
-          const transportAllowance = ov?.transportAllow || 0;
-          const overtimePay       = ov?.bonus || 0;
-          const otherDeductions   = ov?.extraDeduction || 0;
-          return hrApi.payroll.create({
-            employeeId: r.employeeId, month: r.month,
-            basicSalary: r.basicSalary, houseAllowance, transportAllowance, overtimePay,
-            nhif: r.nhif, nssf: r.nssf, paye: r.paye, otherDeductions,
-            status: "pending",
-          } as any);
-        })
-      );
-      const created = results.filter(x => x.status === "fulfilled").length;
-      const failed  = results.filter(x => x.status === "rejected").length;
-      setRunResult({ created, skipped: 0, failed });
-      setRunStep("done");
+      const payDate = targetStatus === "paid" ? new Date().toISOString().slice(0, 10) : undefined;
+      await hrApi.payroll.bulkUpdateStatus({ month: procMonth, status: targetStatus, ...(payDate ? { payDate } : {}) });
+      toast.success(`Marked as ${targetStatus}`);
+      await loadProcBatch();
       loadRecords(1);
-    } catch (e: any) { toast.error(e?.message || "Failed to process payroll"); }
-    finally { setRunLoading(false); }
+    } catch (e: any) { toast.error(e?.message || "Failed to update status"); }
+    finally { setProcActionLoading(false); setProcConfirm(null); }
   };
 
-  const handleSaveDraft = () => {
+  // ── Bulk Send Payslips ────────────────────────────────────────────────────────
+
+  const filteredSendSlipEmps = employees.filter(e =>
+    !sendSlipSearch || (e.user?.name ?? "").toLowerCase().includes(sendSlipSearch.toLowerCase()) || e.employeeNumber?.includes(sendSlipSearch)
+  ).slice(0, 100);
+
+  const handleBulkSendPayslips = async () => {
+    if (!sendSlipMonth) return toast.error("Select a month");
+    setSendSlipLoading(true);
     try {
-      const key = `isms_pr_draft_${runMonth}`;
-      localStorage.setItem(key, JSON.stringify({ runMonth, runScope, runStationIds, runDeptIds, runEmpIds, runAttendance, runLeave, previewRows, empOverrides }));
-      setSavedDraftMonths(prev => prev.includes(runMonth) ? prev : [...prev, runMonth]);
-      toast.success(`Draft saved for ${runMonth}`);
-    } catch { toast.error("Failed to save draft"); }
-  };
-
-  const handleLoadDraft = (month: string) => {
-    try {
-      const saved = localStorage.getItem(`isms_pr_draft_${month}`);
-      if (!saved) { toast.error("Draft not found"); return; }
-      const d = JSON.parse(saved);
-      setRunMonth(d.runMonth); setRunScope(d.runScope);
-      setRunStationIds(d.runStationIds || []); setRunDeptIds(d.runDeptIds || []);
-      setRunEmpIds(d.runEmpIds || []); setRunAttendance(d.runAttendance); setRunLeave(d.runLeave);
-      setPreviewRows(d.previewRows || []); setPreviewMeta(null);
-      setEmpOverrides(d.empOverrides || {}); setPreviewPage(1);
-      setRunStep("adjustments");
-      toast.success(`Draft loaded for ${month}`);
-    } catch { toast.error("Failed to load draft"); }
-  };
-
-  const handleDeleteDraft = (month: string) => {
-    try {
-      localStorage.removeItem(`isms_pr_draft_${month}`);
-      setSavedDraftMonths(prev => prev.filter(m => m !== month));
-      toast.success(`Draft deleted`);
-    } catch { /**/ }
-  };
-
-  const resetRun = () => {
-    setRunStep("configure");
-    setPreviewRows([]);
-    setPreviewMeta(null);
-    setRunResult(null);
-    setEmpOverrides({});
+      const payload: { month: string; employeeIds?: string[] } = { month: sendSlipMonth };
+      if (sendSlipScope === "specific" && sendSlipEmpIds.length) payload.employeeIds = sendSlipEmpIds;
+      const res = await hrApi.payroll.bulkSendPayslips(payload);
+      toast.success(res.message || `Sent ${res.sent} payslip(s)`);
+      setSendSlipOpen(false);
+      setSendSlipEmpIds([]);
+    } catch (e: any) { toast.error(e?.message || "Failed to send payslips"); }
+    finally { setSendSlipLoading(false); }
   };
 
   // ── Reports helpers ───────────────────────────────────────────────────────────
@@ -674,12 +612,13 @@ export default function PayrollTab() {
   const downloadReportPdf = (type: string, landscape = false) => {
     if (!reportData.length) { toast.error("Load data first"); return; }
     const period = type === "p9" ? reportYear : (reportData[0]?.month ?? reportMonth);
-    const b = brandingStore.get();
-    const erKraPin = payrollSettings.employerKraPin || "";
+    const _br = brandingStore.get();
+    const b = { name: esc(_br?.name) || "ISMS", address: esc(_br?.address) };
+    const erKraPin = esc(payrollSettings.employerKraPin || "");
     const brandHdr = `<div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #333;padding-bottom:10px;margin-bottom:14px">
       <div>
-        <strong style="font-size:15px">${b?.name ?? "ISMS"}</strong>
-        ${b?.address ? `<br><span style="font-size:11px;color:#555">${b.address}</span>` : ""}
+        <strong style="font-size:15px">${b.name}</strong>
+        ${b.address ? `<br><span style="font-size:11px;color:#555">${b.address}</span>` : ""}
         ${erKraPin ? `<br><span style="font-size:11px;color:#555">KRA PIN: ${erKraPin}</span>` : ""}
       </div>
       <div style="text-align:right"><strong>${reportTitle(type)}</strong><br><span style="font-size:11px;color:#555">Period: ${period}</span></div>
@@ -834,14 +773,15 @@ export default function PayrollTab() {
       downloadCsv(buildCsv(hdrs, data), `payroll-variance-${varMonth1}-vs-${varMonth2}.csv`);
       toast.success("Variance CSV downloaded");
     } else {
-      const b = brandingStore.get();
+      const _bv = brandingStore.get();
+      const b = { name: esc(_bv?.name) || "ISMS" };
       const fmtK = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
       const varRows = rows.map((r, i) => {
         const gDiff = diff(r.m1?.grossPay, r.m2?.grossPay);
         const nDiff = diff(r.m1?.netPay, r.m2?.netPay);
         const color = gDiff > 0 ? "#155724" : gDiff < 0 ? "#c00" : "";
         return `<tr>
-          <td>${i+1}</td><td>${r.empNo}</td><td>${r.name}</td><td>${r.dept}</td>
+          <td>${i+1}</td><td>${esc(r.empNo)}</td><td>${esc(r.name)}</td><td>${esc(r.dept)}</td>
           <td class="r">${fmtK(r.m1?.grossPay ?? 0)}</td><td class="r">${fmtK(r.m2?.grossPay ?? 0)}</td>
           <td class="r" style="color:${color}">${gDiff >= 0 ? "+" : ""}${fmtK(gDiff)}</td>
           <td class="r">${pct(r.m1?.grossPay, r.m2?.grossPay)}</td>
@@ -861,7 +801,7 @@ export default function PayrollTab() {
   th, td { border: 1px solid #ccc; padding: 3px 5px; }
   th { background: #f0f0f0; font-size: 8.5px; } .r { text-align: right; }
 </style></head><body>
-<h2>${b?.name ?? "ISMS"} — Payroll Variance Report</h2>
+<h2>${b?.name || "ISMS"} — Payroll Variance Report</h2>
 <p>Comparing ${varMonth1} vs ${varMonth2}</p>
 <table><thead><tr>
   <th>#</th><th>Emp No</th><th>Name</th><th>Dept</th>
@@ -874,16 +814,22 @@ export default function PayrollTab() {
     }
   };
 
-  // Toggle scope selections
-  const toggleId = (arr: string[], id: string, setArr: (v: string[]) => void) => {
-    setArr(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id]);
-  };
-
-  const filteredEmpSearch = employees.filter(e =>
-    !runEmpSearch || (e.user?.name ?? "").toLowerCase().includes(runEmpSearch.toLowerCase()) || e.employeeNumber?.includes(runEmpSearch)
-  ).slice(0, 50);
 
   // ─────────────────────────────────────────────────────────────────────────────
+
+  // ── Batch page override ───────────────────────────────────────────────────────
+  if (batchView) {
+    return (
+      <PayrollBatchEntryPage
+        onBack={() => setBatchView(false)}
+        onSuccess={(month) => { setBatchView(false); setFilterMonth(month); loadRecords(1); }}
+        employees={employees}
+        departments={departments}
+        stations={stations}
+        activeLocation={activeLocation}
+      />
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -940,14 +886,27 @@ export default function PayrollTab() {
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${loading ? "animate-spin" : ""}`} /> Refresh
             </Button>
             <div className="flex-1" />
+            {can("hr.payroll.view") && (
+              <Button variant="outline" size="sm" className="h-8" onClick={() => { setSendSlipMonth(filterMonth || new Date().toISOString().slice(0,7)); setSendSlipScope("all"); setSendSlipEmpIds([]); setSendSlipOpen(true); }}>
+                <Mail className="h-3.5 w-3.5 mr-1" /> Send Payslips
+              </Button>
+            )}
             {can("hr.payroll.process") && (
               <Button variant="outline" size="sm" className="h-8" onClick={() => setBulkOpen(true)}>
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Bulk Update Status
               </Button>
             )}
+            <Button variant="outline" size="sm" className="h-8" onClick={() => setCalcOpen(true)}>
+              <Calculator className="h-3.5 w-3.5 mr-1" /> Payroll Calculator
+            </Button>
             {can("hr.payroll.process") && (
-              <Button size="sm" className="h-8" onClick={() => { loadRef(); openNew(); }}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> New Entry
+              <Button variant="outline" size="sm" className="h-8" onClick={() => { loadRef(); openNew(); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> Single Entry
+              </Button>
+            )}
+            {can("hr.payroll.process") && (
+              <Button size="sm" className="h-8" onClick={() => { loadRef(); setBatchView(true); }}>
+                <Plus className="h-3.5 w-3.5 mr-1" /> New Payroll Batch
               </Button>
             )}
           </div>
@@ -956,7 +915,7 @@ export default function PayrollTab() {
             data={data}
             columns={columns}
             searchKeys={["id", "employeeId", "month"]}
-            searchPlaceholder="Search payroll…"
+            searchPlaceholder="Search payrollâ€¦"
             filters={filterOpts}
             onView={item => setViewing(item)}
             onEdit={can("hr.payroll.process") ? openEdit : undefined}
@@ -980,418 +939,120 @@ export default function PayrollTab() {
           )}
         </TabsContent>
 
-        {/* ── Run Payroll Tab ───────────────────────────────────────────────────── */}
+        {/* ── Run Payroll Tab (process & approve existing records) ─────────────── */}
         <TabsContent value="run" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Select a payroll month to load all records, then mark them as <strong>Processing</strong> or <strong>Paid</strong>.
+            To create new payroll records go to the <strong>Records</strong> tab → <strong>New Payroll Batch</strong>.
+          </p>
 
-          {/* Step: Configure / Select */}
-          {runStep === "configure" && (
-            <div className="space-y-4 max-w-2xl">
-              <div>
-                <h3 className="text-sm font-semibold">Step 1 — Select Payroll Scope</h3>
-                <p className="text-xs text-muted-foreground">Choose the period, coverage, and auto-pull options, then click Next to configure per-employee adjustments.</p>
-              </div>
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Payroll Scope</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    {(["all","location","department","specific"] as const).map(s => (
-                      <button key={s} onClick={() => setRunScope(s)}
-                        className={`border rounded-lg p-3 text-left text-sm transition-colors ${runScope === s ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-muted-foreground"}`}>
-                        <div className="font-medium capitalize">{s === "specific" ? "Select Employees" : s === "all" ? "All Employees" : `By ${s.charAt(0).toUpperCase() + s.slice(1)}`}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {s === "all"        && "Process all active employees"}
-                          {s === "location"   && "Filter by station / branch"}
-                          {s === "department" && "Filter by department"}
-                          {s === "specific"   && "Hand-pick individual employees"}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Location multi-select */}
-                  {runScope === "location" && (
-                    <div>
-                      <Label className="text-xs mb-1 block">Select Locations</Label>
-                      <div className="border rounded-lg max-h-40 overflow-y-auto p-2 space-y-1">
-                        {stations.filter(s => s.status === "Active").map(s => (
-                          <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded">
-                            <Checkbox
-                              checked={runStationIds.includes(s.id)}
-                              onCheckedChange={() => toggleId(runStationIds, s.id, setRunStationIds)}
-                            />
-                            {s.name}
-                          </label>
-                        ))}
-                        {stations.length === 0 && <p className="text-xs text-muted-foreground p-1">No locations found</p>}
-                      </div>
-                      {runStationIds.length > 0 && <p className="text-xs text-muted-foreground mt-1">{runStationIds.length} location(s) selected</p>}
-                    </div>
-                  )}
-
-                  {/* Department multi-select */}
-                  {runScope === "department" && (
-                    <div>
-                      <Label className="text-xs mb-1 block">Select Departments</Label>
-                      <div className="border rounded-lg max-h-40 overflow-y-auto p-2 space-y-1">
-                        {departments.map(d => (
-                          <label key={d.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded">
-                            <Checkbox
-                              checked={runDeptIds.includes(d.id)}
-                              onCheckedChange={() => toggleId(runDeptIds, d.id, setRunDeptIds)}
-                            />
-                            {d.name}
-                          </label>
-                        ))}
-                        {departments.length === 0 && <p className="text-xs text-muted-foreground p-1">No departments found</p>}
-                      </div>
-                      {runDeptIds.length > 0 && <p className="text-xs text-muted-foreground mt-1">{runDeptIds.length} department(s) selected</p>}
-                    </div>
-                  )}
-
-                  {/* Employee search + select */}
-                  {runScope === "specific" && (
-                    <div className="space-y-2">
-                      <Input placeholder="Search employees…" value={runEmpSearch} onChange={e => setRunEmpSearch(e.target.value)} className="h-8 text-xs" />
-                      <div className="border rounded-lg max-h-48 overflow-y-auto p-2 space-y-1">
-                        {filteredEmpSearch.map(e => (
-                          <label key={e.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded">
-                            <Checkbox
-                              checked={runEmpIds.includes(e.id)}
-                              onCheckedChange={() => toggleId(runEmpIds, e.id, setRunEmpIds)}
-                            />
-                            <span>{e.user?.name ?? e.employeeNumber}</span>
-                            <span className="text-muted-foreground text-xs">{e.employeeNumber}</span>
-                          </label>
-                        ))}
-                        {filteredEmpSearch.length === 0 && <p className="text-xs text-muted-foreground p-1">No employees found</p>}
-                      </div>
-                      {runEmpIds.length > 0 && <p className="text-xs text-muted-foreground">{runEmpIds.length} employee(s) selected</p>}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3"><CardTitle className="text-sm">Payroll Month & Options</CardTitle></CardHeader>
-                <CardContent className="space-y-3">
-                  <div>
-                    <Label className="text-xs mb-1 block">Payroll Month *</Label>
-                    <Input type="month" value={runMonth} onChange={e => setRunMonth(e.target.value)} className="w-40" />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={runAttendance} onCheckedChange={v => setRunAttendance(!!v)} />
-                      <span>Include attendance adjustments</span>
-                      <span className="text-xs text-muted-foreground">(deduct absent days from salary)</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={runLeave} onCheckedChange={v => setRunLeave(!!v)} />
-                      <span>Include unpaid leave deductions</span>
-                      <span className="text-xs text-muted-foreground">(deduct unpaid leave days)</span>
-                    </label>
-                  </div>
-                  <p className="text-xs text-muted-foreground border-t pt-2">
-                    Deductions calculated: SHA = 2.75% · NSSF = 6% (Tier I+II, first Ksh 18,000) · PAYE = graduated rates with Ksh 2,400 personal relief
-                  </p>
-                </CardContent>
-              </Card>
-
-              {/* Saved drafts */}
-              {savedDraftMonths.length > 0 && (
-                <div className="border rounded-lg p-3 bg-muted/30">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Saved Drafts</p>
-                  <div className="flex flex-wrap gap-2">
-                    {savedDraftMonths.map(m => (
-                      <div key={m} className="flex items-center gap-1 border rounded px-2 py-1 bg-background text-xs">
-                        <span>{m}</span>
-                        <button onClick={() => handleLoadDraft(m)} className="text-primary hover:underline">Load</button>
-                        <button onClick={() => handleDeleteDraft(m)} className="text-destructive hover:underline ml-1">✕</button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button onClick={handlePreview} disabled={runLoading} size="sm">
-                  {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Loading…</> : <><Calculator className="h-3.5 w-3.5 mr-1.5" /> Next: Configure Payroll</>}
-                </Button>
-              </div>
+          {/* Month selector */}
+          <div className="flex gap-3 items-end">
+            <div>
+              <Label className="text-xs mb-1 block">Payroll Month</Label>
+              <Input type="month" value={procMonth} onChange={e => setProcMonth(e.target.value)} className="w-40 h-8 text-xs" />
             </div>
-          )}
+            <Button onClick={loadProcBatch} disabled={procLoading} size="sm" className="h-8">
+              {procLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Loadingâ€¦</> : "Load Batch"}
+            </Button>
+          </div>
 
-          {/* Step: Adjustments / Configure per-employee */}
-          {runStep === "adjustments" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold">Step 2 — Configure &amp; Adjust</h3>
-                  <p className="text-xs text-muted-foreground">Adjust allowances, bonuses, and extra deductions per employee. System-calculated statutory deductions are shown for reference.</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-8" onClick={resetRun}>Cancel</Button>
-                  <Button variant="outline" size="sm" className="h-8" onClick={handleSaveDraft}>Save Draft</Button>
-                  <Button size="sm" className="h-8" onClick={handleGoToPreview}>Preview →</Button>
-                </div>
-              </div>
-
+          {procData.length > 0 && (
+            <>
               {/* Summary cards */}
               <div className="flex gap-3 flex-wrap">
                 <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">Employees</p>
-                  <p className="text-xl font-bold">{previewRows.filter(r => !r.noSalary).length}</p>
+                  <p className="text-xs text-muted-foreground">Pending</p>
+                  <p className="text-2xl font-bold text-amber-600">{procData.filter(r => r.status === "pending").length}</p>
                 </CardContent></Card>
                 <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">No Salary</p>
-                  <p className="text-xl font-bold text-amber-600">{previewRows.filter(r => r.noSalary).length}</p>
+                  <p className="text-xs text-muted-foreground">Processing</p>
+                  <p className="text-2xl font-bold text-blue-600">{procData.filter(r => r.status === "processing").length}</p>
                 </CardContent></Card>
                 <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
-                  <p className="text-xs text-muted-foreground">Est. Gross</p>
-                  <p className="text-sm font-bold">{fmt(previewRows.reduce((s, r) => s + r.grossPay, 0))}</p>
+                  <p className="text-xs text-muted-foreground">Paid</p>
+                  <p className="text-2xl font-bold text-green-600">{procData.filter(r => r.status === "paid").length}</p>
+                </CardContent></Card>
+                <Card className="flex-1 min-w-[100px]"><CardContent className="p-3">
+                  <p className="text-xs text-muted-foreground">Total Net Pay</p>
+                  <p className="text-sm font-bold text-green-700">{fmt(procData.reduce((s, r) => s + r.netPay, 0))}</p>
                 </CardContent></Card>
               </div>
 
-              {/* Per-employee adjustment table */}
+              {/* Records table */}
               <div className="border rounded-lg overflow-x-auto">
-                <table className="w-full text-xs min-w-[900px]">
-                  <thead>
-                    <tr className="bg-muted/30 border-b">
-                      <th className="px-3 py-2 text-left">Employee</th>
-                      <th className="px-3 py-2 text-left">Dept</th>
-                      <th className="px-2 py-2 text-right">Basic (Ksh)</th>
-                      <th className="px-2 py-2 text-right">House Allow</th>
-                      <th className="px-2 py-2 text-right">Transport</th>
-                      <th className="px-2 py-2 text-right">Bonus/OT</th>
-                      <th className="px-2 py-2 text-right">Extra Deduct</th>
-                      <th className="px-2 py-2 text-right text-muted-foreground">SHA</th>
-                      <th className="px-2 py-2 text-right text-muted-foreground">NSSF</th>
-                      <th className="px-2 py-2 text-right text-muted-foreground">PAYE</th>
-                      <th className="px-2 py-2 text-right font-semibold">Est. Net</th>
-                      <th className="px-2 py-2 text-left">Note</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {previewRows.map(r => {
-                      const ov = empOverrides[r.employeeId] || { houseAllow: 0, transportAllow: 0, bonus: 0, extraDeduction: 0, note: "" };
-                      const adjGross = r.basicSalary + (ov.houseAllow || 0) + (ov.transportAllow || 0) + (ov.bonus || 0);
-                      const adjNet   = Math.max(0, adjGross - r.nhif - r.nssf - r.paye - (ov.extraDeduction || 0));
-                      return (
-                        <tr key={r.employeeId} className={`border-b ${r.noSalary ? "opacity-40" : "hover:bg-muted/20"}`}>
-                          <td className="px-3 py-1.5">
-                            <div className="font-medium truncate max-w-[140px]">{r.name}</div>
-                            <div className="text-muted-foreground">{r.employeeNumber}</div>
-                          </td>
-                          <td className="px-3 py-1.5 text-muted-foreground truncate max-w-[80px]">{r.department}</td>
-                          <td className="px-2 py-1.5 text-right">{fmt(r.basicSalary)}</td>
-                          <td className="px-2 py-1.5">
-                            <Input type="number" min={0} value={ov.houseAllow || ""}
-                              onChange={e => setEmpOverride(r.employeeId, "houseAllow", +e.target.value)}
-                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <Input type="number" min={0} value={ov.transportAllow || ""}
-                              onChange={e => setEmpOverride(r.employeeId, "transportAllow", +e.target.value)}
-                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <Input type="number" min={0} value={ov.bonus || ""}
-                              onChange={e => setEmpOverride(r.employeeId, "bonus", +e.target.value)}
-                              className="h-6 w-20 text-xs text-right" placeholder="0" disabled={r.noSalary} />
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <Input type="number" min={0} value={ov.extraDeduction || ""}
-                              onChange={e => setEmpOverride(r.employeeId, "extraDeduction", +e.target.value)}
-                              className="h-6 w-20 text-xs text-right text-destructive" placeholder="0" disabled={r.noSalary} />
-                          </td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.nhif)}</td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.nssf)}</td>
-                          <td className="px-2 py-1.5 text-right text-muted-foreground">{fmt(r.paye)}</td>
-                          <td className="px-2 py-1.5 text-right font-semibold text-primary">{r.noSalary ? "—" : fmt(adjNet)}</td>
-                          <td className="px-2 py-1.5">
-                            <Input value={ov.note || ""}
-                              onChange={e => setEmpOverride(r.employeeId, "note", e.target.value)}
-                              className="h-6 w-28 text-xs" placeholder="optional note" disabled={r.noSalary} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                {previewRows.length === 0 && (
-                  <div className="py-8 text-center text-muted-foreground text-sm">No employees matched the selection</div>
-                )}
-              </div>
-
-              <div className="flex gap-2 pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={resetRun}>Cancel</Button>
-                <Button variant="outline" size="sm" onClick={handleSaveDraft}>Save Draft</Button>
-                <Button size="sm" onClick={handleGoToPreview}>Preview All Calculations →</Button>
-              </div>
-            </div>
-          )}
-
-          {/* Step: Preview */}
-          {runStep === "preview" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold">Step 3 — Review &amp; Submit</h3>
-                  <p className="text-xs text-muted-foreground">Review all computed amounts below. Submit to create payroll records, or go back to adjust.</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" className="h-8" onClick={resetRun}>Cancel</Button>
-                  <Button variant="outline" size="sm" className="h-8" onClick={() => setRunStep("adjustments")}>← Back to Adjust</Button>
-                  <Button variant="outline" size="sm" className="h-8" onClick={handleSaveDraft}>Save Draft</Button>
-                  <Button size="sm" className="h-8" onClick={handleSubmitAdjusted} disabled={runLoading}>
-                    {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Submitting…</> : `Submit Payroll (${previewRows.filter(r => !r.noSalary).length})`}
-                  </Button>
-                </div>
-              </div>
-              {/* Summary */}
-              <div className="flex flex-wrap gap-3">
-                {[
-                  { label: "Total Employees", value: previewRows.length, color: "" },
-                  { label: "Will Create",     value: previewRows.filter(r => !r.noSalary && !r.willSkip).length, color: "text-green-600" },
-                  { label: "Skip (existing)", value: previewRows.filter(r => r.willSkip).length, color: "text-muted-foreground" },
-                  { label: "No Salary",       value: previewRows.filter(r => r.noSalary).length, color: "text-amber-600" },
-                ].map(s => (
-                  <Card key={s.label} className="flex-1 min-w-[120px]">
-                    <CardContent className="p-3">
-                      <p className="text-xs text-muted-foreground">{s.label}</p>
-                      <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Preview Table */}
-              <div className="border rounded-lg overflow-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/50 sticky top-0">
+                <table className="w-full text-xs min-w-[600px]">
+                  <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-2 py-2 text-left font-medium">Employee</th>
-                      <th className="px-2 py-2 text-left font-medium">Dept</th>
+                      <th className="px-3 py-2 text-left font-medium">Employee</th>
+                      <th className="px-3 py-2 text-left font-medium">Dept</th>
                       <th className="px-2 py-2 text-right font-medium">Gross</th>
-                      {(runAttendance || runLeave) && <th className="px-2 py-2 text-right font-medium">Absence Ded.</th>}
-                      <th className="px-2 py-2 text-right font-medium">SHA</th>
-                      <th className="px-2 py-2 text-right font-medium">NSSF</th>
-                      <th className="px-2 py-2 text-right font-medium">PAYE</th>
-                      <th className="px-2 py-2 text-right font-medium">Extra Ded.</th>
+                      <th className="px-2 py-2 text-right font-medium">Total Deductions</th>
                       <th className="px-2 py-2 text-right font-bold">Net Pay</th>
                       <th className="px-2 py-2 text-center font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {previewSlice.map(r => {
-                      const ov = empOverrides[r.employeeId];
-                      const adjGross = r.basicSalary + (ov?.houseAllow || 0) + (ov?.transportAllow || 0) + (ov?.bonus || 0);
-                      const adjNet   = Math.max(0, adjGross - r.nhif - r.nssf - r.paye - (ov?.extraDeduction || 0));
-                      const hasAdj   = !!(ov?.houseAllow || ov?.transportAllow || ov?.bonus || ov?.extraDeduction);
-                      return (
-                        <tr key={r.employeeId} className={`border-t ${r.willSkip ? "opacity-40" : r.noSalary ? "bg-amber-50" : ""}`}>
-                          <td className="px-2 py-1.5">
-                            <div className="font-medium">{r.name}</div>
-                            <div className="text-muted-foreground">{r.employeeNumber}</div>
-                          </td>
-                          <td className="px-2 py-1.5 text-muted-foreground">{r.department}</td>
-                          <td className="px-2 py-1.5 text-right">
-                            {hasAdj ? <span className="text-primary font-medium">{fmtNum(adjGross)}</span> : fmtNum(r.grossPay)}
-                          </td>
-                          {(runAttendance || runLeave) && <td className="px-2 py-1.5 text-right text-destructive">{r.absenceDeduction > 0 ? `-${fmtNum(r.absenceDeduction)}` : "—"}</td>}
-                          <td className="px-2 py-1.5 text-right">{fmtNum(r.nhif)}</td>
-                          <td className="px-2 py-1.5 text-right">{fmtNum(r.nssf)}</td>
-                          <td className="px-2 py-1.5 text-right">{fmtNum(r.paye)}</td>
-                          {ov?.extraDeduction ? <td className="px-2 py-1.5 text-right text-destructive">{fmtNum(ov.extraDeduction)}</td> : <td className="px-2 py-1.5 text-right">—</td>}
-                          <td className="px-2 py-1.5 text-right font-bold text-primary">
-                            {hasAdj ? fmtNum(adjNet) : fmtNum(r.netPay)}
-                          </td>
-                          <td className="px-2 py-1.5 text-center">
-                            {r.willSkip  ? <span className="text-muted-foreground">existing</span>
-                              : r.noSalary ? <span className="text-amber-600">no salary</span>
-                              : <span className="text-green-600">ready</span>}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  {previewSlice.length > 0 && (
-                    <tfoot className="bg-muted/30 font-semibold border-t-2">
-                      <tr>
-                        <td className="px-2 py-1.5" colSpan={2}>Page Totals</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.grossPay, 0))}</td>
-                        {(runAttendance || runLeave) && <td className="px-2 py-1.5 text-right text-destructive">{fmtNum(previewSlice.reduce((s,r) => s + r.absenceDeduction, 0))}</td>}
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.nhif, 0))}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.nssf, 0))}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + r.paye, 0))}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => s + (empOverrides[r.employeeId]?.extraDeduction || 0), 0))}</td>
-                        <td className="px-2 py-1.5 text-right">{fmtNum(previewSlice.reduce((s,r) => {
-                          const ov = empOverrides[r.employeeId];
-                          const g = r.basicSalary + (ov?.houseAllow||0) + (ov?.transportAllow||0) + (ov?.bonus||0);
-                          return s + Math.max(0, g - r.nhif - r.nssf - r.paye - (ov?.extraDeduction||0));
-                        }, 0))}</td>
-                        <td />
+                    {procData.map(r => (
+                      <tr key={r.id} className="border-t hover:bg-muted/20">
+                        <td className="px-3 py-1.5">
+                          <div className="font-medium">{r.employee?.user?.name ?? "—"}</div>
+                          <div className="text-muted-foreground text-[10px]">{r.employee?.employeeNumber}</div>
+                        </td>
+                        <td className="px-3 py-1.5 text-muted-foreground">{r.employee?.department?.name ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-right">{fmt(r.grossPay)}</td>
+                        <td className="px-2 py-1.5 text-right text-destructive">{fmt(r.totalDeductions)}</td>
+                        <td className="px-2 py-1.5 text-right font-semibold text-primary">{fmt(r.netPay)}</td>
+                        <td className="px-2 py-1.5 text-center"><StatusBadge status={r.status} /></td>
                       </tr>
-                    </tfoot>
-                  )}
+                    ))}
+                  </tbody>
                 </table>
               </div>
 
-              {/* Preview pagination */}
-              {previewPages > 1 && (
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>Showing {(previewPage - 1) * PREVIEW_PAGE_SIZE + 1}–{Math.min(previewPage * PREVIEW_PAGE_SIZE, previewRows.length)} of {previewRows.length}</span>
-                  <div className="flex gap-1">
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={previewPage <= 1} onClick={() => setPreviewPage(p => p - 1)}>Prev</Button>
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={previewPage >= previewPages} onClick={() => setPreviewPage(p => p + 1)}>Next</Button>
-                  </div>
+              {/* Confirmation inline prompt */}
+              {procConfirm && (
+                <div className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  Mark all <strong>{procData.filter(r => r.status === (procConfirm === "paid" ? "processing" : "pending")).length}</strong> record(s) as <strong>{procConfirm}</strong>?
+                  <div className="flex-1" />
+                  <Button size="sm" className="h-7" onClick={() => handleRunBatch(procConfirm)} disabled={procActionLoading}>
+                    {procActionLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : "Confirm"}
+                  </Button>
+                  <Button variant="outline" size="sm" className="h-7" onClick={() => setProcConfirm(null)}>Cancel</Button>
                 </div>
               )}
 
               {/* Action buttons */}
-              <div className="flex gap-2 pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={resetRun}>Cancel</Button>
-                <Button variant="outline" size="sm" onClick={() => setRunStep("adjustments")}>← Back to Adjust</Button>
-                <Button variant="outline" size="sm" onClick={handleSaveDraft}>Save Draft</Button>
-                <div className="flex-1" />
-                {previewRows.filter(r => !r.noSalary && !r.willSkip).length === 0 && (
-                  <p className="text-sm text-muted-foreground self-center">Nothing new to create for this period.</p>
-                )}
-                <Button size="sm" onClick={handleSubmitAdjusted} disabled={runLoading || previewRows.filter(r => !r.noSalary).length === 0}>
-                  {runLoading ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" />Submitting…</> : `Submit & Create Payroll Records`}
-                </Button>
-              </div>
+              {!procConfirm && (
+                <div className="flex gap-3 pt-2 border-t flex-wrap">
+                  {procData.some(r => r.status === "pending") && (
+                    <Button variant="outline" size="sm" onClick={() => setProcConfirm("processing")}>
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                      Mark Pending → Processing ({procData.filter(r => r.status === "pending").length})
+                    </Button>
+                  )}
+                  {procData.some(r => r.status === "processing") && (
+                    <Button size="sm" onClick={() => setProcConfirm("paid")}>
+                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                      Mark Processing → Paid ({procData.filter(r => r.status === "processing").length})
+                    </Button>
+                  )}
+                  {procData.every(r => r.status === "paid") && (
+                    <p className="text-sm text-green-600 self-center font-medium">All {procData.length} records for {procMonth} are paid.</p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {procData.length === 0 && !procLoading && (
+            <div className="py-10 text-center text-muted-foreground border rounded-lg">
+              <p className="font-medium">No records loaded</p>
+              <p className="text-xs mt-1">Select a month and click <strong>Load Batch</strong> to see payroll records.</p>
             </div>
           )}
 
-          {/* Step: Done */}
-          {runStep === "done" && runResult && (
-            <div className="space-y-4 max-w-lg">
-              <div className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-medium text-green-800">Payroll run complete</p>
-                  <p className="text-sm text-green-700 mt-1">
-                    {runResult.created} records created · {runResult.skipped} skipped{runResult.failed > 0 ? ` · ${runResult.failed} errors` : ""}
-                  </p>
-                </div>
-              </div>
-              {runResult.created > 0 && (
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <p className="text-sm font-medium">Ready to mark as paid?</p>
-                    <p className="text-xs text-muted-foreground">The records are saved as "Pending". Use Bulk Update Status in the Records tab or the button below to advance their status.</p>
-                    <Button size="sm" onClick={() => {
-                      setBulkForm(f => ({ ...f, month: runMonth, status: "paid" }));
-                      setBulkOpen(true);
-                    }}>
-                      <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Mark {runMonth} as Paid
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-              <Button variant="outline" size="sm" onClick={resetRun}>Run Another Payroll</Button>
-            </div>
-          )}
         </TabsContent>
 
         {/* ── Reports Tab ───────────────────────────────────────────────────────── */}
@@ -1563,8 +1224,14 @@ export default function PayrollTab() {
             <div><Label>Overtime Pay (Ksh)</Label><Input type="number" value={form.overtimePay} onChange={e => set("overtimePay", Number(e.target.value))} /></div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg flex justify-between">
-            <span className="text-sm text-muted-foreground">Gross Pay:</span>
+            <span className="text-sm text-muted-foreground">Gross Pay (cash):</span>
             <span className="font-bold">{fmt(gross)}</span>
+          </div>
+
+          <div>
+            <Label>Benefit in Kind / FBT (Ksh) <span className="text-muted-foreground font-normal text-xs">— non-cash benefit taxed on employer side</span></Label>
+            <Input type="number" min={0} value={form.benefitInKind} onChange={e => set("benefitInKind", Number(e.target.value))} className="mt-1" />
+            <p className="text-xs text-muted-foreground mt-1">Housing, vehicle use, loan subsidy, etc. Added to taxable income for PAYE only — not deducted from employee's cash net.</p>
           </div>
 
           <div className="flex items-center justify-between">
@@ -1573,7 +1240,7 @@ export default function PayrollTab() {
               <Calculator className="h-3.5 w-3.5 mr-1.5" /> Auto-Calculate
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground -mt-2">SHA = 2.75% · NSSF = 6% (Tier I+II) · PAYE = graduated rates with Ksh 2,400 relief</p>
+          <p className="text-xs text-muted-foreground -mt-2">SHA = 2.75% · NSSF = 6% (Tier I+II) · PAYE = graduated rates with Ksh 2,400 relief{form.benefitInKind > 0 ? ` · BIK ${fmt(form.benefitInKind)} added to taxable income` : ""}</p>
           <div className="grid grid-cols-2 gap-4">
             <div><Label>SHA / Social Health (Ksh)</Label><Input type="number" value={form.sha} onChange={e => set("sha", Number(e.target.value))} /></div>
             <div><Label>NSSF (Ksh)</Label><Input type="number" value={form.nssf} onChange={e => set("nssf", Number(e.target.value))} /></div>
@@ -1649,6 +1316,12 @@ export default function PayrollTab() {
                       <td className="px-3 py-1.5 border text-right">{fmt(v)}</td>
                     </tr>
                   ))}
+                  {(viewing.benefitInKind ?? 0) > 0 && (
+                    <tr className="border bg-amber-50/50">
+                      <td className="px-3 py-1.5 border">Benefit in Kind (non-cash, taxable)</td>
+                      <td className="px-3 py-1.5 border text-right text-amber-700">{fmt(viewing.benefitInKind)}</td>
+                    </tr>
+                  )}
                   <tr className="font-semibold bg-muted/20 border">
                     <td className="px-3 py-2 border">Gross Pay</td>
                     <td className="px-3 py-2 border text-right">{fmt(viewing.grossPay)}</td>
@@ -1663,7 +1336,7 @@ export default function PayrollTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {([ ["SHA (Social Health Authority)", viewing.nhif], ["NSSF", viewing.nssf], ["PAYE Tax", viewing.paye], ["Other Deductions", viewing.otherDeductions] ] as [string, number][]).map(([l, v]) => (
+                  {([ ["SHA (Social Health Authority)", viewing.nhif], ["NSSF", viewing.nssf], ["PAYE Tax", viewing.paye], ["Other Deductions", viewing.otherDeductions] ] as [string, number][]).filter(([, v]) => v > 0).map(([l, v]) => (
                     <tr key={l} className="border">
                       <td className="px-3 py-1.5 border">{l}</td>
                       <td className="px-3 py-1.5 border text-right">{fmt(v)}</td>
@@ -1690,7 +1363,7 @@ export default function PayrollTab() {
               </Button>
               <Button variant="outline" size="sm" onClick={handleSendPayslip} disabled={sendingPayslip}>
                 {sendingPayslip
-                  ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Sending…</>
+                  ? <><RefreshCw className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Sendingâ€¦</>
                   : <><Mail className="h-3.5 w-3.5 mr-1.5" /> Send to Employee</>}
               </Button>
             </div>
@@ -1736,6 +1409,71 @@ export default function PayrollTab() {
           </div>
         </div>
       </ModalForm>
+
+      {/* ── Send Payslips Modal ───────────────────────────────────────────────── */}
+      <ModalForm
+        open={sendSlipOpen}
+        onClose={() => setSendSlipOpen(false)}
+        title="Send Payslips"
+        description="Send payslips by email to employees for the selected month."
+        onSubmit={handleBulkSendPayslips}
+        submitLabel={sendSlipLoading ? "Sendingâ€¦" : "Send Payslips"}
+        loading={sendSlipLoading}>
+        <div className="space-y-4">
+          <div>
+            <Label>Payroll Month *</Label>
+            <Input type="month" value={sendSlipMonth} onChange={e => setSendSlipMonth(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-sm font-medium mb-2 block">Send to</Label>
+            <div className="flex gap-4">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" checked={sendSlipScope === "all"} onChange={() => { setSendSlipScope("all"); setSendSlipEmpIds([]); }} className="accent-primary" />
+                All employees with payroll for this month
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" checked={sendSlipScope === "specific"} onChange={() => setSendSlipScope("specific")} className="accent-primary" />
+                Specific employees
+              </label>
+            </div>
+          </div>
+          {sendSlipScope === "specific" && (
+            <div className="space-y-2">
+              <Input
+                placeholder="Search employeesâ€¦"
+                value={sendSlipSearch}
+                onChange={e => setSendSlipSearch(e.target.value)}
+                className="h-8 text-xs"
+              />
+              <div className="border rounded-lg max-h-48 overflow-y-auto p-2 space-y-1">
+                {filteredSendSlipEmps.map(e => (
+                  <label key={e.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted/30 px-1 py-0.5 rounded">
+                    <Checkbox
+                      checked={sendSlipEmpIds.includes(e.id)}
+                      onCheckedChange={() => {
+                        setSendSlipEmpIds(prev =>
+                          prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]
+                        );
+                      }}
+                    />
+                    <span>{e.user?.name ?? e.employeeNumber}</span>
+                    <span className="text-muted-foreground text-xs">{e.employeeNumber}</span>
+                  </label>
+                ))}
+                {filteredSendSlipEmps.length === 0 && (
+                  <p className="text-xs text-muted-foreground p-2 text-center">No employees found</p>
+                )}
+              </div>
+              {sendSlipEmpIds.length > 0 && (
+                <p className="text-xs text-muted-foreground">{sendSlipEmpIds.length} employee(s) selected</p>
+              )}
+            </div>
+          )}
+        </div>
+      </ModalForm>
+
+      {/* ── Payroll Calculator Modal ─────────────────────────────────────────── */}
+      <PayrollCalculatorModal open={calcOpen} onClose={() => setCalcOpen(false)} />
 
     </div>
   );

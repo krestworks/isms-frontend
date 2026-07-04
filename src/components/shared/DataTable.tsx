@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Pencil, Trash2 } from "lucide-react";
+import { useDebounce } from "@/hooks/useDebounce";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -84,6 +85,7 @@ export function DataTable<T extends Record<string, any>>({
     </div>
   );
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -92,8 +94,8 @@ export function DataTable<T extends Record<string, any>>({
   const filtered = useMemo(() => {
     let result = [...data];
 
-    if (search && searchKeys.length > 0) {
-      const q = search.toLowerCase();
+    if (debouncedSearch && searchKeys.length > 0) {
+      const q = debouncedSearch.toLowerCase();
       result = result.filter((item) =>
         searchKeys.some((key) => String(item[key] ?? "").toLowerCase().includes(q))
       );
@@ -115,7 +117,7 @@ export function DataTable<T extends Record<string, any>>({
     }
 
     return result;
-  }, [data, search, searchKeys, activeFilters, sortKey, sortDir]);
+  }, [data, debouncedSearch, searchKeys, activeFilters, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safeP = Math.min(page, totalPages);

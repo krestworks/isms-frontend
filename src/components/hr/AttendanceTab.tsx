@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
+import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ export default function AttendanceTab() {
   const [stationId, setStationId] = useState("all");
   const [fromDate, setFromDate] = useState(today);
   const [toDate, setToDate] = useState(today);
+  const [filterStatus, setFilterStatus] = useState("__all__");
   const [manualOpen, setManualOpen] = useState(false);
   const [viewing, setViewing] = useState<ApiAttendance | null>(null);
   const [manualForm, setManualForm] = useState(() => {
@@ -54,7 +55,7 @@ export default function AttendanceTab() {
     setLoading(true);
     try {
       const [attRes, stationsRes] = await Promise.all([
-        hrApi.attendance.list({ stationId: stationId === "all" ? undefined : stationId, from: fromDate, to: toDate }),
+        hrApi.attendance.list({ stationId: stationId === "all" ? undefined : stationId, from: fromDate || undefined, to: toDate || undefined }),
         hrApi.stations.list(),
       ]);
       setAttendance(attRes.data ?? []);
@@ -131,9 +132,9 @@ export default function AttendanceTab() {
     { key: "status", label: "Status", render: a => <StatusBadge status={a.status} /> },
   ];
 
-  const filterOpts: FilterOption[] = [
-    { key: "status", label: "Status", options: STATUSES.map(s => ({ label: s.label, value: s.value })) },
-  ];
+  const displayData = filterStatus === "__all__"
+    ? attendance
+    : attendance.filter(a => a.status === filterStatus);
 
   return (
     <div className="space-y-4">
@@ -159,11 +160,11 @@ export default function AttendanceTab() {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 items-end">
+      <div className="flex flex-wrap gap-3 items-end p-3 bg-muted/30 rounded-lg border">
         <div>
-          <Label className="text-xs">Station</Label>
-          <Select value={stationId} onValueChange={setStationId}>
-            <SelectTrigger className="w-44 h-8 text-xs"><SelectValue placeholder="All stations" /></SelectTrigger>
+          <Label className="text-xs text-muted-foreground mb-1 block">Station</Label>
+          <Select value={stationId} onValueChange={v => { setStationId(v); }}>
+            <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="All stations" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All stations</SelectItem>
               {stations.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
@@ -171,13 +172,31 @@ export default function AttendanceTab() {
           </Select>
         </div>
         <div>
-          <Label className="text-xs">From</Label>
+          <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-36 h-8 text-xs"><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All statuses</SelectItem>
+              {STATUSES.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <Label className="text-xs text-muted-foreground mb-1 block">From</Label>
           <Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} />
         </div>
         <div>
-          <Label className="text-xs">To</Label>
+          <Label className="text-xs text-muted-foreground mb-1 block">To</Label>
           <Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} />
         </div>
+        {(stationId !== "all" || filterStatus !== "__all__" || fromDate !== today || toDate !== today) && (
+          <button
+            className="text-xs text-muted-foreground hover:text-foreground underline self-end pb-1"
+            onClick={() => { setStationId("all"); setFilterStatus("__all__"); setFromDate(today); setToDate(today); }}
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -195,11 +214,10 @@ export default function AttendanceTab() {
       </div>
 
       <DataTable
-        data={attendance}
+        data={displayData}
         columns={columns}
         searchKeys={["date"]}
         searchPlaceholder="Search by date..."
-        filters={filterOpts}
         onView={item => setViewing(item)}
       />
 
