@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useBusinessSlug } from "@/hooks/useAppPaths";
 import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const slug     = useBusinessSlug();
   const [business, setBusiness] = useState<ApiBizBusiness | null>(null);
   const [loading,  setLoading]  = useState(true);
 
@@ -40,9 +42,9 @@ export default function BusinessDetailPage() {
     if (!id) return;
     bizApi.businesses.get(id)
       .then(r => setBusiness(r.data))
-      .catch(e => { toast.error(e?.message || "Failed to load business"); navigate("/business"); })
+      .catch(e => { toast.error(e?.message || "Failed to load business"); navigate(`/${slug}/business`); })
       .finally(() => setLoading(false));
-  }, [id, navigate]);
+  }, [id, navigate, slug]);
 
   if (loading) {
     return (
@@ -67,7 +69,7 @@ export default function BusinessDetailPage() {
       <div className="space-y-4">
         {/* Back + status badge */}
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/business")}>
+          <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate(`/${slug}/business`)}>
             <ArrowLeft className="h-4 w-4 mr-1" />All Businesses
           </Button>
           <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-medium ${colorCls}`}>

@@ -79,8 +79,21 @@ export function canAccessModule(moduleName: string): boolean {
   return !!alt && hasPermission(alt);
 }
 
+/**
+ * Strip the leading /:businessSlug segment from a pathname so it can be
+ * looked up in ROUTE_TO_MODULE, which uses module-relative paths (/fuel, /hr, …).
+ * Also strips query params before splitting.
+ */
+function extractModulePath(fullPath: string): string {
+  const path = fullPath.split("?")[0];
+  const parts = path.split("/").filter(Boolean); // ["slug", "fuel"] or ["slug"]
+  if (parts.length <= 1) return "/";             // root index = dashboard
+  return "/" + parts.slice(1).join("/");          // "/fuel" or "/business/123"
+}
+
 export function canAccessRoute(path: string): boolean {
-  const mod = ROUTE_TO_MODULE[path];
+  const modulePath = extractModulePath(path);
+  const mod = ROUTE_TO_MODULE[modulePath];
   if (!mod) return true;
   return canAccessModule(mod);
 }

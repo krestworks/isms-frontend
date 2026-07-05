@@ -9,12 +9,14 @@ import { canSwitchLocation } from "@/lib/permissions";
 import { setActiveStationId } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useAppPaths } from "@/hooks/useAppPaths";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
   const stations   = useStations();
   const { switchRole } = useAuth();
   const navigate  = useNavigate();
+  const paths     = useAppPaths();
   const canSwitch = canSwitchLocation();
 
   // Admins see "All Locations" + every real station. Non-admins see only their home station.
@@ -51,10 +53,9 @@ export function HeaderSwitchers() {
                   .then(() => {
                     // Navigate to the right landing page for the new role
                     if (r === "Employee") {
-                      navigate("/employee-portal");
+                      navigate(paths.employeePortal);
                     } else if (prevRole === "Employee") {
-                      // Leaving Employee role — go to dashboard (avoids staying on /employee-portal which would block)
-                      navigate("/");
+                      navigate(paths.dashboard);
                     }
                   })
                   .catch((e: any) => toast.error(e?.message || "Role switch failed — you may not be assigned that role"));

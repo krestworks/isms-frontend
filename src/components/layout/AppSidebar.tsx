@@ -9,6 +9,7 @@ import { useLocation } from "react-router-dom";
 import { canAccessRoute, useStationModuleFilter } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
 import { useBranding } from "@/data/brandingStore";
+import { useAppPaths } from "@/hooks/useAppPaths";
 import {
   Sidebar,
   SidebarContent,
@@ -23,56 +24,23 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 
-// Map URL → module key (for StationModule enabled/disabled check)
-const ROUTE_MODULE_KEY: Record<string, string> = {
-  "/fuel":       "fuel",
-  "/lpg":        "lpg",
-  "/water":      "water",
-  "/automotive": "auto",
-  "/carwash":    "carwash",
-  "/business":   "pos",
-  "/inventory":  "pos",
-  "/finance":    "finance",
-  "/hr":         "hr",
+// Module key by last URL segment — used by useStationModuleFilter.
+const SEGMENT_MODULE_KEY: Record<string, string> = {
+  "fuel":       "fuel",
+  "lpg":        "lpg",
+  "water":      "water",
+  "automotive": "auto",
+  "carwash":    "carwash",
+  "business":   "pos",
+  "inventory":  "pos",
+  "finance":    "finance",
+  "hr":         "hr",
 };
-
-const operations = [
-  { title: "Fuel Management",  url: "/fuel",       icon: Fuel },
-  { title: "LPG Management",   url: "/lpg",        icon: Flame },
-  { title: "Water Production", url: "/water",      icon: Droplets },
-  { title: "Auto Services",    url: "/automotive", icon: Wrench },
-  { title: "Car Wash",         url: "/carwash",    icon: Car },
-  { title: "Business",         url: "/business",   icon: Store },
-  { title: "Inventory",        url: "/inventory",  icon: Package },
-];
-
-const administration = [
-  { title: "Locations",     url: "/locations", icon: MapPin },
-  { title: "HR Management", url: "/hr",        icon: UserCog },
-];
-
-const management = [
-  { title: "Revenue & Finance", url: "/finance",  icon: DollarSign },
-  { title: "Clients",           url: "/clients",  icon: Users },
-  { title: "Reports",           url: "/reports",  icon: FileText },
-  { title: "Settings",          url: "/settings", icon: Settings },
-];
-
-const employeeItems = [
-  { title: "My Overview",    url: "/employee-portal",              icon: LayoutDashboard },
-  { title: "My Details",     url: "/employee-portal/details",      icon: UserCircle },
-  { title: "Clock In / Out", url: "/employee-portal/attendance",   icon: Clock },
-  { title: "My Shifts",      url: "/employee-portal/shifts",       icon: Calendar },
-  { title: "My Leave",       url: "/employee-portal/leave",        icon: Umbrella },
-  { title: "My Payslips",    url: "/employee-portal/payslips",     icon: Receipt },
-  { title: "My Performance", url: "/employee-portal/performance",  icon: TrendingUp },
-  { title: "Disciplinary",   url: "/employee-portal/disciplinary", icon: AlertTriangle },
-  { title: "My Documents",   url: "/employee-portal/documents",    icon: FileText },
-];
 
 export function AppSidebar() {
   const { user } = useSession();
   const branding = useBranding();
+  const paths = useAppPaths();
   const isModuleEnabled = useStationModuleFilter();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed  = state === "collapsed";
@@ -80,10 +48,49 @@ export function AppSidebar() {
   const isSuperAdmin = user.activeRole === "SuperAdmin";
   const isEmployee   = user.activeRole === "Employee";
 
-  // isActive: exact match for root and employee portal overview; prefix match for everything else
+  // URL arrays depend on the current slug + station param, so defined here.
+  const operations = [
+    { title: "Fuel Management",  url: paths.fuel,       icon: Fuel },
+    { title: "LPG Management",   url: paths.lpg,        icon: Flame },
+    { title: "Water Production", url: paths.water,      icon: Droplets },
+    { title: "Auto Services",    url: paths.automotive, icon: Wrench },
+    { title: "Car Wash",         url: paths.carwash,    icon: Car },
+    { title: "Business",         url: paths.business,   icon: Store },
+    { title: "Inventory",        url: paths.inventory,  icon: Package },
+  ];
+
+  const administration = [
+    { title: "Locations",     url: paths.locations, icon: MapPin },
+    { title: "HR Management", url: paths.hr,        icon: UserCog },
+  ];
+
+  const management = [
+    { title: "Revenue & Finance", url: paths.finance,  icon: DollarSign },
+    { title: "Clients",           url: paths.clients,  icon: Users },
+    { title: "Reports",           url: paths.reports,  icon: FileText },
+    { title: "Settings",          url: paths.settings, icon: Settings },
+  ];
+
+  const employeeItems = [
+    { title: "My Overview",    url: paths.employeePortal,                         icon: LayoutDashboard },
+    { title: "My Details",     url: paths.employeePortalSection("details"),       icon: UserCircle },
+    { title: "Clock In / Out", url: paths.employeePortalSection("attendance"),    icon: Clock },
+    { title: "My Shifts",      url: paths.employeePortalSection("shifts"),        icon: Calendar },
+    { title: "My Leave",       url: paths.employeePortalSection("leave"),         icon: Umbrella },
+    { title: "My Payslips",    url: paths.employeePortalSection("payslips"),      icon: Receipt },
+    { title: "My Performance", url: paths.employeePortalSection("performance"),   icon: TrendingUp },
+    { title: "Disciplinary",   url: paths.employeePortalSection("disciplinary"),  icon: AlertTriangle },
+    { title: "My Documents",   url: paths.employeePortalSection("documents"),     icon: FileText },
+  ];
+
+  // isActive: strip query params before comparing; exact match for dashboard and
+  // employee portal overview, prefix match for everything else.
   const isActive = (url: string) => {
-    if (url === "/" || url === "/employee-portal") return location.pathname === url;
-    return location.pathname === url || location.pathname.startsWith(url + "/");
+    const urlPath = url.split("?")[0];
+    if (urlPath === paths.base || urlPath === paths.employeePortal) {
+      return location.pathname === urlPath || location.pathname === urlPath + "/";
+    }
+    return location.pathname === urlPath || location.pathname.startsWith(urlPath + "/");
   };
 
   const initials = user.name
@@ -98,7 +105,7 @@ export function AppSidebar() {
       <SidebarMenuButton asChild isActive={isActive(item.url)} tooltip={item.title}>
         <NavLink
           to={item.url}
-          end={item.url === "/" || item.url === "/employee-portal"}
+          end={item.url === paths.base || item.url === paths.employeePortal}
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent"
           activeClassName="bg-sidebar-accent text-sidebar-primary font-medium shadow-glow"
           onClick={() => { if (isMobile) setOpenMobile(false); }}
@@ -111,10 +118,10 @@ export function AppSidebar() {
   );
 
   const renderGroup = (label: string, items: typeof operations) => {
-    const visible = items.filter(i =>
-      canAccessRoute(i.url) &&
-      isModuleEnabled(ROUTE_MODULE_KEY[i.url] ?? "")
-    );
+    const visible = items.filter(i => {
+      const segment = i.url.split("?")[0].split("/").filter(Boolean).at(-1) ?? "";
+      return canAccessRoute(i.url) && isModuleEnabled(SEGMENT_MODULE_KEY[segment] ?? "");
+    });
     if (visible.length === 0) return null;
     return (
       <SidebarGroup>
@@ -182,7 +189,7 @@ export function AppSidebar() {
             <SidebarGroup>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {renderItem({ title: "Dashboard", url: "/", icon: LayoutDashboard })}
+                  {renderItem({ title: "Dashboard", url: paths.base, icon: LayoutDashboard })}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
@@ -193,7 +200,7 @@ export function AppSidebar() {
                 <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">Platform</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
-                    {renderItem({ title: "Accounts", url: "/accounts", icon: Building2 })}
+                    {renderItem({ title: "Accounts", url: paths.accounts, icon: Building2 })}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -208,7 +215,7 @@ export function AppSidebar() {
                     <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">My Portal</SidebarGroupLabel>
                     <SidebarGroupContent>
                       <SidebarMenu>
-                        {renderItem({ title: "Employee Portal", url: "/employee-portal", icon: UserCircle })}
+                        {renderItem({ title: "Employee Portal", url: paths.employeePortal, icon: UserCircle })}
                       </SidebarMenu>
                     </SidebarGroupContent>
                   </SidebarGroup>

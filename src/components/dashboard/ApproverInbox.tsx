@@ -10,6 +10,7 @@ import { sessionStore, useSession } from "@/data/sessionStore";
 import { hrApi, ApiLeaveRequest } from "@/lib/hrApi";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
+import { useAppPaths } from "@/hooks/useAppPaths";
 
 const APPROVER_ROLES = ["Admin", "Manager"];
 
@@ -17,6 +18,7 @@ export function ApproverInbox() {
   useSession();
   const user = sessionStore.user();
   const isApprover = APPROVER_ROLES.includes(user.activeRole);
+  const paths = useAppPaths();
 
   const [requests, setRequests] = useState<ApiLeaveRequest[]>([]);
   const [loading, setLoading]   = useState(false);
@@ -83,7 +85,7 @@ export function ApproverInbox() {
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={load} disabled={loading}>
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             </Button>
-            <Link to="/hr" className="text-xs text-primary hover:underline">View in HR →</Link>
+            <Link to={paths.hr} className="text-xs text-primary hover:underline">View in HR →</Link>
           </div>
         </div>
 

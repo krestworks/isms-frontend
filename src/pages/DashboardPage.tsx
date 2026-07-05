@@ -16,14 +16,7 @@ import { fuelApi, ApiFuelSummary } from "@/lib/fuelApi";
 import { accountsApi, ApiAccount } from "@/lib/accountsApi";
 import { Link, Navigate } from "react-router-dom";
 import { toast } from "sonner";
-
-const modules = [
-  { title: "Fuel Management",  description: "Tank levels, pump sales, reconciliation",  icon: Fuel,     href: "/fuel",       colorVar: "--chart-fuel"  },
-  { title: "LPG Management",   description: "Cylinder inventory, sales, refills",        icon: Flame,    href: "/lpg",        colorVar: "--chart-lpg"   },
-  { title: "Water Production", description: "Production, equipment, distribution",       icon: Droplets, href: "/water",      colorVar: "--chart-water" },
-  { title: "Auto Services",    description: "Service records, billing, technicians",     icon: Wrench,   href: "/automotive", colorVar: "--chart-auto"  },
-  { title: "Car Wash",         description: "Queue, packages, daily tracking",           icon: Car,      href: "/carwash",    colorVar: "--chart-wash"  },
-];
+import { useAppPaths } from "@/hooks/useAppPaths";
 
 function fmtTime(dt?: string | null): string {
   if (!dt) return "—";
@@ -33,6 +26,15 @@ function fmtTime(dt?: string | null): string {
 export default function DashboardPage() {
   const { user } = useSession();
   const can = usePermissions();
+  const paths = useAppPaths();
+
+  const modules = [
+    { title: "Fuel Management",  description: "Tank levels, pump sales, reconciliation",  icon: Fuel,     href: paths.fuel,       colorVar: "--chart-fuel"  },
+    { title: "LPG Management",   description: "Cylinder inventory, sales, refills",        icon: Flame,    href: paths.lpg,        colorVar: "--chart-lpg"   },
+    { title: "Water Production", description: "Production, equipment, distribution",       icon: Droplets, href: paths.water,      colorVar: "--chart-water" },
+    { title: "Auto Services",    description: "Service records, billing, technicians",     icon: Wrench,   href: paths.automotive, colorVar: "--chart-auto"  },
+    { title: "Car Wash",         description: "Queue, packages, daily tracking",           icon: Car,      href: paths.carwash,    colorVar: "--chart-wash"  },
+  ];
   const canViewFinance  = can("finance.reports.view");
   const canViewStations = can("stations.view");
   const canViewFuel     = can("fuel.sales.view");
@@ -140,7 +142,7 @@ export default function DashboardPage() {
 
   // ── Employee redirect ────────────────────────────────────────────────────────
   if (user.activeRole === "Employee") {
-    return <Navigate to="/employee-portal" replace />;
+    return <Navigate to={paths.employeePortal} replace />;
   }
 
   // ── SuperAdmin dashboard ────────────────────────────────────────────────────

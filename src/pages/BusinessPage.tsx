@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAppPaths } from "@/hooks/useAppPaths";
 import { Store, Plus, RefreshCw, ShoppingCart, Pill, UtensilsCrossed, Croissant, Trash2, CheckCircle2, Lock } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ const emptyForm = { name: "", taxRate: 16, receiptHeader: "", receiptFooter: "" 
 
 export default function BusinessPage() {
   const navigate  = useNavigate();
+  const paths     = useAppPaths();
   const { stationId } = useActiveStation();
   const can       = usePermissions();
   const canManage = can("business.setup.manage");
@@ -113,7 +115,7 @@ export default function BusinessPage() {
                   <Card
                     key={meta.type}
                     className="cursor-pointer hover:shadow-md transition-all hover:border-primary/40 group"
-                    onClick={() => navigate(`/business/${biz.id}`)}
+                    onClick={() => navigate(paths.businessById(biz.id))}
                   >
                     <CardContent className="p-5 flex flex-col gap-3">
                       <div className="flex items-start justify-between">
@@ -141,7 +143,7 @@ export default function BusinessPage() {
                         <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
                         <p className="text-xs text-muted-foreground mt-2">Tax: {biz.taxRate}% · {biz.currency}</p>
                       </div>
-                      <Button size="sm" variant="outline" className="w-full mt-auto" onClick={e => { e.stopPropagation(); navigate(`/business/${biz.id}`); }}>
+                      <Button size="sm" variant="outline" className="w-full mt-auto" onClick={e => { e.stopPropagation(); navigate(paths.businessById(biz.id)); }}>
                         Open
                       </Button>
                     </CardContent>

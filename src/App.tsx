@@ -1,13 +1,14 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "@/lib/theme";
-import { BrowserRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate, useLocation, useParams } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AuthProvider, useAuth } from "@/components/auth/AuthProvider";
 import { RouteGuard } from "./components/layout/RouteGuard";
+import { useBusinessSlug } from "@/hooks/useAppPaths";
 
 // ── Lazy page imports (route-based code splitting) ───────────────────────────
 const DashboardPage            = lazy(() => import("./pages/DashboardPage"));
@@ -55,14 +56,42 @@ function PageLoader() {
   );
 }
 
+// Redirects bare "/" to "/{slug}" after auth context is available.
+function RootRedirect() {
+  const slug = useBusinessSlug();
+  return <Navigate to={`/${slug}`} replace />;
+}
+
+// Redirects legacy flat URLs (/fuel, /hr, …) to "/{slug}/module".
+function LegacyRedirect({ to }: { to: string }) {
+  const slug = useBusinessSlug();
+  return <Navigate to={`/${slug}/${to}`} replace />;
+}
+
+const LEGACY_MODULES = [
+  "fuel", "lpg", "water", "automotive", "carwash",
+  "business", "finance", "clients", "reports",
+  "settings", "hr", "employee-portal", "locations",
+  "inventory", "accounts",
+];
+
 function RequireAuth({ children }: { children: JSX.Element }) {
   const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
+  const { businessSlug } = useParams<{ businessSlug: string }>();
+  const expectedSlug = useBusinessSlug();
 
   if (isLoading) return <PageLoader />;
 
   if (!isAuthenticated) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+    return <Navigate to="/login" state={{ from: location.pathname + location.search }} replace />;
+  }
+
+  // Silently correct a stale or default slug in the URL (e.g. after first login
+  // via RootRedirect before branding loaded). Only correct once branding is real.
+  if (businessSlug && expectedSlug !== "app" && businessSlug !== expectedSlug) {
+    const corrected = location.pathname.replace(`/${businessSlug}`, `/${expectedSlug}`);
+    return <Navigate to={corrected + location.search} replace />;
   }
 
   return children;
@@ -78,33 +107,41 @@ const App = () => (
         <AuthProvider>
           <Suspense fallback={<PageLoader />}>
             <Routes>
-              {/* Public */}
+              {/* Public — unchanged */}
               <Route path="/login"              element={<LoginPage />} />
               <Route path="/activate"           element={<ActivatePage />} />
               <Route path="/payroll-calculator" element={<PublicPayrollCalculatorPage />} />
               <Route path="/careers/:accountId"        element={<CareersPage />} />
               <Route path="/careers/:accountId/:jobId" element={<CareersPage />} />
 
-              {/* Protected */}
-              <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
-                <Route path="/" element={<DashboardPage />} />
-                <Route path="/fuel"            element={guard(<FuelPage />)} />
-                <Route path="/lpg"             element={guard(<LpgPage />)} />
-                <Route path="/water"           element={guard(<WaterPage />)} />
-                <Route path="/automotive"      element={guard(<AutomotivePage />)} />
-                <Route path="/carwash"         element={guard(<CarwashPage />)} />
-                <Route path="/business"        element={guard(<BusinessPage />)} />
-                <Route path="/business/:id"    element={guard(<BusinessDetailPage />)} />
-                <Route path="/finance"         element={guard(<FinancePage />)} />
-                <Route path="/clients"         element={guard(<ClientsPage />)} />
-                <Route path="/reports"         element={guard(<ReportsPage />)} />
-                <Route path="/settings"        element={guard(<SettingsPage />)} />
-                <Route path="/hr"              element={guard(<HRPage />)} />
-                <Route path="/employee-portal" element={<EmployeePortalPage />} />
-                <Route path="/employee-portal/:section" element={<EmployeePortalPage />} />
-                <Route path="/locations"       element={guard(<LocationsPage />)} />
-                <Route path="/inventory"       element={guard(<InventoryPage />)} />
-                <Route path="/accounts"        element={guard(<AccountsPage />)} />
+              {/* Root redirect: "/" → "/{slug}" */}
+              <Route path="/" element={<RootRedirect />} />
+
+              {/* Legacy flat URLs → "/{slug}/module" (backward compat for old bookmarks) */}
+              {LEGACY_MODULES.map(m => (
+                <Route key={m} path={`/${m}`} element={<LegacyRedirect to={m} />} />
+              ))}
+
+              {/* Protected — all modules nested under "/:businessSlug" */}
+              <Route path="/:businessSlug" element={<RequireAuth><AppLayout /></RequireAuth>}>
+                <Route index                    element={<DashboardPage />} />
+                <Route path="fuel"              element={guard(<FuelPage />)} />
+                <Route path="lpg"               element={guard(<LpgPage />)} />
+                <Route path="water"             element={guard(<WaterPage />)} />
+                <Route path="automotive"        element={guard(<AutomotivePage />)} />
+                <Route path="carwash"           element={guard(<CarwashPage />)} />
+                <Route path="business"          element={guard(<BusinessPage />)} />
+                <Route path="business/:id"      element={guard(<BusinessDetailPage />)} />
+                <Route path="finance"           element={guard(<FinancePage />)} />
+                <Route path="clients"           element={guard(<ClientsPage />)} />
+                <Route path="reports"           element={guard(<ReportsPage />)} />
+                <Route path="settings"          element={guard(<SettingsPage />)} />
+                <Route path="hr"                element={guard(<HRPage />)} />
+                <Route path="employee-portal"   element={<EmployeePortalPage />} />
+                <Route path="employee-portal/:section" element={<EmployeePortalPage />} />
+                <Route path="locations"         element={guard(<LocationsPage />)} />
+                <Route path="inventory"         element={guard(<InventoryPage />)} />
+                <Route path="accounts"          element={guard(<AccountsPage />)} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

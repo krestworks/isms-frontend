@@ -1,4 +1,5 @@
 import { useParams, Navigate, Link } from "react-router-dom";
+import { useAppPaths } from "@/hooks/useAppPaths";
 import {
   LayoutDashboard, UserCircle, Clock, Calendar, Umbrella,
   Receipt, TrendingUp, AlertTriangle, FileText, ArrowRight,
@@ -87,10 +88,11 @@ export default function EmployeePortalPage() {
   const { section } = useParams<{ section?: string }>();
   const { user } = useSession();
   const { employee, loading } = useMyEmployee();
+  const paths = useAppPaths();
 
   // Only employees can access this portal
   if (user.activeRole !== "Employee") {
-    return <Navigate to="/" replace />;
+    return <Navigate to={paths.dashboard} replace />;
   }
 
   // Wait for employee record check before rendering any tab

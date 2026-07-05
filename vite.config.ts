@@ -11,6 +11,9 @@ export default defineConfig(({ mode }) => ({
     hmr: {
       overlay: false,
     },
+    // Serve index.html for any path Vite can't match — required for BrowserRouter
+    // with slug-prefixed routes like /acme-gas/fuel on direct browser refresh.
+    historyApiFallback: true,
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
   resolve: {
