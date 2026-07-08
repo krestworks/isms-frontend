@@ -65,7 +65,7 @@ export default function DocumentsTab() {
   };
 
   const columns: Column<ApiDocument>[] = [
-    { key: "employee", label: "Employee", render: d => d.employee?.user?.name || d.employeeId },
+    { key: "employee", label: "Employee", render: d => (d.employee?.user?.name ?? d.employee?.name) || d.employeeId },
     { key: "type",     label: "Type",     render: d => <Badge variant="outline">{d.type}</Badge> },
     { key: "fileName", label: "File",     render: d => <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {d.fileName} <span className="text-[10px] text-muted-foreground">({formatBytes(d.fileSize)})</span></span> },
     { key: "uploadedAt", label: "Uploaded", sortable: true, render: d => d.uploadedAt?.split("T")[0] },
@@ -191,7 +191,7 @@ export default function DocumentsTab() {
             <div><Label>Employee *</Label>
               <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}
@@ -228,7 +228,7 @@ export default function DocumentsTab() {
         {viewing && (
           <div className="space-y-2 text-sm">
             <div className="flex items-center justify-between"><Badge variant="outline">{viewing.id.slice(0, 12)}</Badge><Badge>{viewing.type}</Badge></div>
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name || viewing.employeeId}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {(viewing.employee?.user?.name ?? viewing.employee?.name) || viewing.employeeId}</div>
             <div><span className="text-muted-foreground">File:</span> {viewing.fileName} ({formatBytes(viewing.fileSize)})</div>
             <div><span className="text-muted-foreground">Uploaded:</span> {viewing.uploadedAt?.split("T")[0]} by {viewing.uploadedBy}</div>
             <div><span className="text-muted-foreground">Expires:</span> {viewing.expiresOn || "—"}</div>

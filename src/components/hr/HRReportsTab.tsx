@@ -71,7 +71,7 @@ export default function HRReportsTab() {
       if (open === "headcount") {
         const res = await hrApi.employees.list({ limit: 500 } as any);
         rows = byDept(res.data ?? []).map(e => ({
-          employeeNo: e.employeeNumber, name: e.user?.name ?? "—",
+          employeeNo: e.employeeNumber, name: e.user?.name ?? e.name ?? "—",
           department: e.department?.name ?? "—", jobTitle: e.jobTitle?.title ?? "—",
           email: e.user?.email ?? "—", startDate: e.startDate, status: e.status,
           employmentType: e.employmentType,
@@ -82,14 +82,14 @@ export default function HRReportsTab() {
           department === "all" || (a as any).employee?.department?.name === department
         );
         rows = list.map(a => ({
-          employee: a.employee?.user?.name ?? a.employeeId, date: a.date,
+          employee: a.employee?.user?.name ?? a.employee?.name ?? a.employeeId, date: a.date,
           checkIn: a.checkIn ?? "—", checkOut: a.checkOut ?? "—",
           status: a.status, note: a.note ?? "",
         }));
       } else if (open === "leave") {
         const res = await hrApi.leaves.list({ limit: 500 } as any);
         rows = (res.data ?? []).map(l => ({
-          employee: l.employee?.user?.name ?? l.employeeId,
+          employee: l.employee?.user?.name ?? l.employee?.name ?? l.employeeId,
           leaveType: l.leaveType?.name ?? l.leaveTypeId,
           startDate: l.startDate, endDate: l.endDate, days: l.days,
           paid: l.leaveType?.isPaid ? "Yes" : "No", status: l.status,
@@ -100,12 +100,12 @@ export default function HRReportsTab() {
         const list = byDept(res.data ?? []);
         rows = open === "statutory"
           ? list.map(pr => ({
-              employee: pr.employee?.user?.name ?? pr.employeeId,
+              employee: pr.employee?.user?.name ?? pr.employee?.name ?? pr.employeeId,
               employeeNo: pr.employee?.employeeNumber ?? "—",
               month: pr.month, paye: pr.paye, sha: pr.nhif, nssf: pr.nssf,
             }))
           : list.map(pr => ({
-              employee: pr.employee?.user?.name ?? pr.employeeId,
+              employee: pr.employee?.user?.name ?? pr.employee?.name ?? pr.employeeId,
               department: pr.employee?.department?.name ?? "—",
               month: pr.month, basicSalary: pr.basicSalary, houseAllowance: pr.houseAllowance,
               transportAllowance: pr.transportAllowance, overtimePay: pr.overtimePay,
@@ -116,7 +116,7 @@ export default function HRReportsTab() {
       } else if (open === "discipline") {
         const res = await hrApi.employees.disciplinary.listAll();
         rows = byDept(res.data ?? []).map(dr => ({
-          employee: dr.employee?.user?.name ?? dr.employeeId,
+          employee: dr.employee?.user?.name ?? dr.employee?.name ?? dr.employeeId,
           category: dr.category, offence: dr.offence ?? "—",
           date: dr.date?.split("T")[0], stage: dr.stage, outcome: dr.outcome ?? "—",
           hearingDate: dr.hearingDate?.split?.("T")?.[0] ?? "—", reportedBy: dr.reportedBy ?? "—",
@@ -124,7 +124,7 @@ export default function HRReportsTab() {
       } else if (open === "performance") {
         const res = await hrApi.performance.list({ limit: 500 } as any);
         rows = byDept(res.data ?? []).map(t => ({
-          employee: t.employee?.user?.name ?? t.employeeId,
+          employee: t.employee?.user?.name ?? t.employee?.name ?? t.employeeId,
           title: t.title, category: t.category, dueDate: t.dueDate ?? "—",
           priority: t.priority, status: t.status, rating: t.rating ?? "—",
           assignedBy: t.assignedBy ?? "—",

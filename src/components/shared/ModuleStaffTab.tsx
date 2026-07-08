@@ -17,7 +17,7 @@ interface Props {
 
 const columns: Column<ApiEmployee>[] = [
   { key: "employeeNumber", label: "Emp ID",   sortable: true },
-  { key: "user",          label: "Name",      sortable: true, render: e => e.user?.name ?? e.employeeNumber },
+  { key: "user",          label: "Name",      sortable: true, render: e => e.user?.name ?? e.name ?? e.employeeNumber },
   { key: "jobTitle",      label: "Role",      render: e => e.jobTitle?.title ?? "—" },
   { key: "department",    label: "Department", render: e => e.department?.name ?? "—" },
   { key: "startDate",     label: "Joined",    sortable: true, render: e => new Date(e.startDate).toLocaleDateString() },

@@ -16,8 +16,8 @@ import {
 import { toast } from "sonner";
 
 const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
-const pubBase = (accountId: string) =>
-  `${BASE_URL.replace("/api/v1", "")}/api/v1/public/${accountId}/jobs`;
+const pubBase = (slug: string) =>
+  `${BASE_URL.replace("/api/v1", "")}/api/v1/public/${slug}/jobs`;
 
 interface PublicJob {
   id: string; jobCode: string; title: string;
@@ -82,14 +82,20 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export default function CareersPage() {
-  const { accountId, jobId } = useParams<{ accountId?: string; jobId?: string }>();
+  const { slug, jobId } = useParams<{ slug?: string; jobId?: string }>();
   const navigate = useNavigate();
 
   const [jobs,    setJobs]    = useState<PublicJob[]>([]);
   const [job,     setJob]     = useState<PublicJob | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Only the direct-job-link path needs a spinner on first paint — the listing
+  // path stays idle until the visitor clicks "View Open Positions".
+  const [loading, setLoading] = useState(!!jobId);
   const [applying, setApplying] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  // The listing only fetches once the visitor clicks through — keeps the raw
+  // job data (and the public API's existence) out of the very first response
+  // a passive crawler/scraper would see.
+  const [revealed, setRevealed] = useState(false);
 
   // ── Form state ────────────────────────────────────────────────────────────────
   const [step, setStep] = useState(1);
@@ -117,25 +123,28 @@ export default function CareersPage() {
   const docInputRef  = useRef<HTMLInputElement>(null);
 
   // ── Load jobs / single job ────────────────────────────────────────────────────
+  // Listing only fires once the visitor reveals it (see `revealed`); a direct
+  // link to a specific job (jobId present) always loads immediately — someone
+  // followed a link, there's nothing to gate.
   useEffect(() => {
-    if (!accountId) return;
+    if (!slug || jobId || !revealed) return;
     setLoading(true);
-    fetch(pubBase(accountId))
+    fetch(pubBase(slug))
       .then(r => r.json())
       .then(d => setJobs(d.data ?? []))
       .catch(() => toast.error("Failed to load jobs"))
       .finally(() => setLoading(false));
-  }, [accountId]);
+  }, [slug, jobId, revealed]);
 
   useEffect(() => {
-    if (!jobId || !accountId) { setJob(null); return; }
+    if (!jobId || !slug) { setJob(null); return; }
     setLoading(true);
-    fetch(`${pubBase(accountId)}/${jobId}`)
+    fetch(`${pubBase(slug)}/${jobId}`)
       .then(r => r.json())
       .then(d => setJob(d.data ?? null))
       .catch(() => toast.error("Failed to load job details"))
       .finally(() => setLoading(false));
-  }, [jobId, accountId]);
+  }, [jobId, slug]);
 
   // ── File handlers ──────────────────────────────────────────────────────────────
   const handleCvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -182,14 +191,14 @@ export default function CareersPage() {
   // ── Submit ─────────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!cvFileData || !cvFile) return toast.error("CV/Resume file is required");
-    if (!accountId || !jobId) return;
+    if (!slug || !jobId) return;
 
     const validEdu = education.filter(e => e.institution.trim());
     const validWork = workExp.filter(w => w.company.trim());
 
     setApplying(true);
     try {
-      const res = await fetch(`${pubBase(accountId)}/${jobId}/apply`, {
+      const res = await fetch(`${pubBase(slug)}/${jobId}/apply`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -235,7 +244,7 @@ export default function CareersPage() {
   };
 
   // ── Invalid link ───────────────────────────────────────────────────────────────
-  if (!accountId) {
+  if (!slug) {
     return (
       <PageShell>
         <div className="text-center py-20 text-muted-foreground">
@@ -253,7 +262,7 @@ export default function CareersPage() {
     return (
       <PageShell>
         <button
-          onClick={() => navigate(`/careers/${accountId}`)}
+          onClick={() => navigate(`/careers/${slug}`)}
           className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
         >
           <ArrowLeft className="h-4 w-4" /> All Openings
@@ -729,7 +738,12 @@ export default function CareersPage() {
           <p className="text-muted-foreground mt-1">Join our team — explore open positions below</p>
         </div>
 
-        {loading ? (
+        {!revealed ? (
+          <div className="text-center py-16">
+            <Briefcase className="h-10 w-10 mx-auto mb-3 opacity-30 text-muted-foreground" />
+            <Button size="lg" onClick={() => setRevealed(true)}>View Open Positions</Button>
+          </div>
+        ) : loading ? (
           <div className="flex justify-center py-16"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
         ) : jobs.length === 0 ? (
           <div className="text-center py-16 text-muted-foreground">
@@ -742,7 +756,7 @@ export default function CareersPage() {
               <Card
                 key={j.id}
                 className="hover:shadow-md transition-shadow cursor-pointer"
-                onClick={() => navigate(`/careers/${accountId}/${j.id}`)}
+                onClick={() => navigate(`/careers/${slug}/${j.id}`)}
               >
                 <CardContent className="p-5">
                   <div className="flex items-start justify-between gap-4">

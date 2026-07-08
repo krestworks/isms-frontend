@@ -14,7 +14,10 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { hrApi, ApiEmployee, ApiDepartment, ApiJobTitle, ApiStation } from "@/lib/hrApi";
+import { bizApi, ApiBizBusiness } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
+
+const BASE_WORK_MODULES = ["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Inventory", "Finance", "HR"];
 
 const EMPLOYMENT_TYPES = ["FullTime", "PartTime", "Contract", "Intern"];
 const CONTRACT_TYPES = ["Permanent", "Fixed-Term", "Casual"];
@@ -79,7 +82,7 @@ const emptyForm = {
 
 type FormState = typeof emptyForm;
 
-function formatName(emp: ApiEmployee) { return emp.user?.name || emp.user?.email || "—"; }
+function formatName(emp: ApiEmployee) { return (emp.user?.name ?? emp.name) || emp.user?.email || "—"; }
 
 function loadPersistedForm(): FormState {
   try {
@@ -117,6 +120,7 @@ export default function StaffOnboardingTab() {
   const [branchesLoading, setBranchesLoading] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchQuery, setBranchQuery] = useState("");
+  const [stationBusinesses, setStationBusinesses] = useState<ApiBizBusiness[]>([]);
 
   const can = usePermissions();
   const canCreate = can("hr.staff.create");
@@ -155,6 +159,17 @@ export default function StaffOnboardingTab() {
   useEffect(() => { load(1); }, [load]);
   useEffect(() => { loadSetupData(); }, []);
 
+  // Fetch the businesses actually enabled at the selected station — module
+  // assignment offers these specific businesses instead of a generic "POS"
+  // catch-all, and scoping to the station is enforced here (only businesses
+  // belonging to this exact station are ever shown/selectable).
+  useEffect(() => {
+    if (!modalOpen || !form.stationId) { setStationBusinesses([]); return; }
+    bizApi.businesses.list(form.stationId)
+      .then(res => setStationBusinesses(res.data ?? []))
+      .catch(() => setStationBusinesses([]));
+  }, [modalOpen, form.stationId]);
+
   const set = (field: keyof FormState, value: string) => {
     setForm(f => {
       const nf = { ...f, [field]: value };
@@ -189,7 +204,7 @@ export default function StaffOnboardingTab() {
     const pm   = emp.paymentMethod || bd?.paymentMethod || "Cash";
     const bankCode = bank?.code || bd?.bankCode || "";
     const nf: FormState = {
-      name: emp.user?.name || "", email: emp.user?.email || "", phone: emp.user?.phone || "",
+      name: (emp.user?.name ?? emp.name) || "", email: emp.user?.email || "", phone: emp.user?.phone || "",
       stationId: emp.stationId, departmentId: emp.department?.id || emp.departmentId || "", jobTitleId: emp.jobTitle?.id || emp.jobTitleId || "",
       employmentType: emp.employmentType, contractType: emp.contractType || "Permanent",
       startDate: emp.startDate?.split("T")[0] || "", endDate: emp.endDate?.split("T")[0] || "",
@@ -533,7 +548,7 @@ export default function StaffOnboardingTab() {
           <div>
             <Label className="text-xs text-muted-foreground mb-2 block">Select which modules this employee works in (independent of HR department)</Label>
             <div className="flex flex-wrap gap-2">
-              {["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Inventory", "Finance", "HR", "POS"].map(mod => {
+              {BASE_WORK_MODULES.map(mod => {
                 const active = form.workModules?.includes(mod);
                 return (
                   <button key={mod} type="button"
@@ -545,6 +560,32 @@ export default function StaffOnboardingTab() {
                     }}
                     className={`px-3 py-1 rounded-full text-xs border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/30 text-muted-foreground hover:border-primary/50"}`}>
                     {mod}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Specific businesses at this station — replaces a generic "POS" catch-all
+                so an attendant is assigned to (and can only see) the exact business
+                they work in, e.g. "Mart" but not "Pharmacy". */}
+            <Label className="text-xs text-muted-foreground mt-3 mb-2 block">
+              Business assignment {!form.stationId && "(select a station first)"}
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              {stationBusinesses.length === 0 && form.stationId && (
+                <span className="text-xs text-muted-foreground">No businesses enabled at this station yet.</span>
+              )}
+              {stationBusinesses.map(biz => {
+                const active = form.workModules?.includes(biz.name);
+                return (
+                  <button key={biz.id} type="button"
+                    onClick={() => {
+                      const next = active
+                        ? (form.workModules ?? []).filter((m: string) => m !== biz.name)
+                        : [...(form.workModules ?? []), biz.name];
+                      set("workModules", next);
+                    }}
+                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${active ? "bg-primary text-primary-foreground border-primary" : "border-muted-foreground/30 text-muted-foreground hover:border-primary/50"}`}>
+                    {biz.name}
                   </button>
                 );
               })}

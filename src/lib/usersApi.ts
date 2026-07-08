@@ -21,6 +21,7 @@ export interface ApiRole {
   id: string;
   name: string;
   description?: string | null;
+  requiresOtpLogin?: boolean;
   usersCount: number;
   permissions: string[];
   status: string;
@@ -70,14 +71,22 @@ export const usersApi = {
       "/users/bulk-invite-from-hr",
       { employees: entries }
     ),
+
+  /** Active sessions for a user — admin/manager view */
+  listSessions: (id: string) =>
+    api.get<R<{ id: string; ipAddress: string | null; userAgent: string | null; createdAt: string; expiresAt: string }[]>>(`/users/${id}/sessions`),
+
+  /** Force logout — revokes every active session for a user */
+  forceLogout: (id: string) =>
+    api.delete<{ success: boolean; message: string }>(`/users/${id}/sessions`),
 };
 
 export const rolesApi = {
   list: () =>
     api.get<R<ApiRole[]>>("/permissions/roles"),
-  create: (body: { name: string; description?: string; permissions?: string[] }) =>
+  create: (body: { name: string; description?: string; permissions?: string[]; requiresOtpLogin?: boolean }) =>
     api.post<R<ApiRole>>("/permissions/roles", body),
-  update: (id: string, body: { name?: string; description?: string; permissions?: string[] }) =>
+  update: (id: string, body: { name?: string; description?: string; permissions?: string[]; requiresOtpLogin?: boolean }) =>
     api.put<R<ApiRole>>(`/permissions/roles/${id}`, body),
   delete: (id: string) =>
     api.delete<R<{ id: string }>>(`/permissions/roles/${id}`),

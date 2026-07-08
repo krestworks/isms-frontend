@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useBusinessSlug } from "@/hooks/useAppPaths";
-import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft } from "lucide-react";
+import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft, Power, PowerOff, ShieldAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness } from "@/lib/bizApi";
+import { canAccessBusiness } from "@/lib/permissions";
 
 import { POSTab }            from "@/components/business/POSTab";
 import { ProductsTab }       from "@/components/business/ProductsTab";
@@ -39,8 +41,22 @@ export default function BusinessDetailPage() {
   const slug     = useBusinessSlug();
   const [business, setBusiness] = useState<ApiBizBusiness | null>(null);
   const [loading,  setLoading]  = useState(true);
+  const [toggling, setToggling] = useState(false);
   const can = usePermissions();
   const showAudit = can("audit.view");
+  const canManage = can("business.setup.manage");
+
+  const handleToggleStatus = async () => {
+    if (!business) return;
+    const nextStatus = business.status === "active" ? "inactive" : "active";
+    setToggling(true);
+    try {
+      const res = await bizApi.businesses.update(business.id, { status: nextStatus });
+      setBusiness(res.data);
+      toast.success(`${business.name} ${nextStatus === "active" ? "activated" : "deactivated"}`);
+    } catch (e: any) { toast.error(e?.message || "Failed to update status"); }
+    finally { setToggling(false); }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -59,6 +75,20 @@ export default function BusinessDetailPage() {
   }
 
   if (!business) return null;
+
+  if (!canAccessBusiness(business.name)) {
+    return (
+      <Card className="max-w-md mx-auto mt-12">
+        <CardContent className="p-8 text-center space-y-3">
+          <div className="h-12 w-12 rounded-full bg-destructive/10 mx-auto flex items-center justify-center">
+            <ShieldAlert className="h-6 w-6 text-destructive" />
+          </div>
+          <h2 className="text-lg font-semibold">Access Denied</h2>
+          <p className="text-sm text-muted-foreground">You aren&apos;t assigned to {business.name}. Contact your administrator if you believe this is a mistake.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const Icon        = ICONS[business.type] ?? Store;
   const isRestaurant = business.type === "restaurant";
@@ -82,6 +112,18 @@ export default function BusinessDetailPage() {
             <Badge variant={business.status === "active" ? "default" : "secondary"} className="text-[10px] h-4 px-1.5">
               {business.status}
             </Badge>
+            {canManage && (
+              <Button
+                variant="ghost" size="sm"
+                className={`h-6 px-2 -my-1 text-[11px] ${business.status === "active" ? "text-destructive hover:text-destructive" : "text-emerald-600 hover:text-emerald-600"}`}
+                onClick={handleToggleStatus}
+                disabled={toggling}
+              >
+                {business.status === "active"
+                  ? <><PowerOff className="h-3 w-3 mr-1" />Deactivate</>
+                  : <><Power className="h-3 w-3 mr-1" />Activate</>}
+              </Button>
+            )}
           </div>
         </div>
 

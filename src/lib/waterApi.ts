@@ -134,5 +134,7 @@ export const waterApi = {
       api.put<R<ApiWaterInvoice>>(`/water/invoices/${id}`, data, sh(stationId)),
     delete: (id: string, stationId?: string | null) =>
       api.delete<R<void>>(`/water/invoices/${id}`, sh(stationId)),
+    email: (id: string, data: { email: string; name?: string }, stationId?: string | null) =>
+      api.post<R<{ dev?: boolean }>>(`/water/invoices/${id}/email`, data, sh(stationId)),
   },
 };

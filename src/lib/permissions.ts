@@ -149,6 +149,34 @@ export function useStationModuleFilter(): (moduleKey: string) => boolean {
   };
 }
 
+// ── Business assignment scoping ────────────────────────────────────────────────
+// Managerial roles see every business at their station regardless of individual
+// assignment (matching how Fuel/LPG/etc. already work for them). Operational
+// roles (Attendant, plain Employee, ...) are scoped to only the specific
+// business(es) they were assigned to in Staff Onboarding.
+
+const UNRESTRICTED_BUSINESS_ROLES = new Set(["SuperAdmin", "Admin", "Manager", "LocationHead"]);
+const GENERIC_WORK_MODULES = new Set(["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Inventory", "Finance", "HR"]);
+
+export function hasUnrestrictedBusinessAccess(): boolean {
+  return UNRESTRICTED_BUSINESS_ROLES.has(sessionStore.user().activeRole);
+}
+
+/** True if the current user can see/use the given business — always true for
+ * managerial roles, otherwise only if they were individually assigned to it. */
+export function canAccessBusiness(businessName: string): boolean {
+  if (hasUnrestrictedBusinessAccess()) return true;
+  return !!sessionStore.user().workModules?.includes(businessName);
+}
+
+/** True if an operational-role user has been assigned to at least one business
+ * — used to decide whether the "Business" nav link should appear at all. */
+export function hasAnyBusinessAssignment(): boolean {
+  if (hasUnrestrictedBusinessAccess()) return true;
+  const modules = sessionStore.user().workModules;
+  return !!modules?.some(m => !GENERIC_WORK_MODULES.has(m));
+}
+
 export function isLocationVisible(locationName?: string): boolean {
   const u = sessionStore.user();
   const active = sessionStore.activeLocation();

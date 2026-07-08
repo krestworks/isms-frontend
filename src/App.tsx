@@ -30,6 +30,7 @@ const InventoryPage            = lazy(() => import("./pages/InventoryPage"));
 const AccountsPage             = lazy(() => import("./pages/AccountsPage"));
 const LoginPage                = lazy(() => import("./pages/LoginPage"));
 const ActivatePage             = lazy(() => import("./pages/ActivatePage"));
+const VerifyEmailPage          = lazy(() => import("./pages/VerifyEmailPage"));
 const CareersPage              = lazy(() => import("./pages/CareersPage"));
 const PublicPayrollCalculatorPage = lazy(() => import("./pages/PublicPayrollCalculatorPage"));
 const NotFound                 = lazy(() => import("./pages/NotFound"));
@@ -110,9 +111,10 @@ const App = () => (
               {/* Public — unchanged */}
               <Route path="/login"              element={<LoginPage />} />
               <Route path="/activate"           element={<ActivatePage />} />
+              <Route path="/verify-email"       element={<VerifyEmailPage />} />
               <Route path="/payroll-calculator" element={<PublicPayrollCalculatorPage />} />
-              <Route path="/careers/:accountId"        element={<CareersPage />} />
-              <Route path="/careers/:accountId/:jobId" element={<CareersPage />} />
+              <Route path="/careers/:slug"          element={<CareersPage />} />
+              <Route path="/careers/:slug/:jobId"   element={<CareersPage />} />
 
               {/* Root redirect: "/" → "/{slug}" */}
               <Route path="/" element={<RootRedirect />} />

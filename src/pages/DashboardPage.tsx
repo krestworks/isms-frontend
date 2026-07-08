@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { sessionStore, useSession } from "@/data/sessionStore";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, canAccessModule, useStationModuleFilter } from "@/lib/permissions";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import { hrApi, ApiAttendance, ApiLeaveBalance } from "@/lib/hrApi";
 import { fuelApi, ApiFuelSummary } from "@/lib/fuelApi";
@@ -29,13 +29,17 @@ export default function DashboardPage() {
   const can = usePermissions();
   const paths = useAppPaths();
 
-  const modules = [
-    { title: "Fuel Management",  description: "Tank levels, pump sales, reconciliation",  icon: Fuel,     href: paths.fuel,       colorVar: "--chart-fuel"  },
-    { title: "LPG Management",   description: "Cylinder inventory, sales, refills",        icon: Flame,    href: paths.lpg,        colorVar: "--chart-lpg"   },
-    { title: "Water Production", description: "Production, equipment, distribution",       icon: Droplets, href: paths.water,      colorVar: "--chart-water" },
-    { title: "Auto Services",    description: "Service records, billing, technicians",     icon: Wrench,   href: paths.automotive, colorVar: "--chart-auto"  },
-    { title: "Car Wash",         description: "Queue, packages, daily tracking",           icon: Car,      href: paths.carwash,    colorVar: "--chart-wash"  },
+  const isModuleEnabled = useStationModuleFilter();
+  const allModules = [
+    { title: "Fuel Management",  description: "Tank levels, pump sales, reconciliation",  icon: Fuel,     href: paths.fuel,       colorVar: "--chart-fuel",  moduleName: "Fuel",       moduleKey: "fuel"  },
+    { title: "LPG Management",   description: "Cylinder inventory, sales, refills",        icon: Flame,    href: paths.lpg,        colorVar: "--chart-lpg",   moduleName: "LPG",        moduleKey: "lpg"   },
+    { title: "Water Production", description: "Production, equipment, distribution",       icon: Droplets, href: paths.water,      colorVar: "--chart-water", moduleName: "Water",      moduleKey: "water" },
+    { title: "Auto Services",    description: "Service records, billing, technicians",     icon: Wrench,   href: paths.automotive, colorVar: "--chart-auto",  moduleName: "Automotive", moduleKey: "auto"  },
+    { title: "Car Wash",         description: "Queue, packages, daily tracking",           icon: Car,      href: paths.carwash,    colorVar: "--chart-wash",  moduleName: "Car Wash",   moduleKey: "carwash" },
   ];
+  // Same filtering the sidebar already applies — only show modules the active
+  // role can access AND that are actually enabled at the current station.
+  const modules = allModules.filter(m => canAccessModule(m.moduleName) && isModuleEnabled(m.moduleKey));
   const canViewFinance  = can("finance.reports.view");
   const canViewStations = can("stations.view");
   const canViewFuel     = can("fuel.sales.view");
@@ -386,15 +390,17 @@ export default function DashboardPage() {
         <AlertsFeed />
       </div>
 
-      <div>
-        <h2 className="text-lg font-semibold text-foreground mb-4">
-          Modules
-          {!isAllScope && <span className="text-xs font-normal text-muted-foreground ml-2">— {activeLoc}</span>}
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-          {modules.map((mod, i) => <ModuleCard key={mod.title} {...mod} stats={[]} index={i} />)}
+      {modules.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-foreground mb-4">
+            Modules
+            {!isAllScope && <span className="text-xs font-normal text-muted-foreground ml-2">— {activeLoc}</span>}
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            {modules.map((mod, i) => <ModuleCard key={mod.title} {...mod} stats={[]} index={i} />)}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

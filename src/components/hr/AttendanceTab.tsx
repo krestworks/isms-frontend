@@ -124,7 +124,7 @@ export default function AttendanceTab() {
   };
 
   const columns: Column<ApiAttendance>[] = [
-    { key: "employee", label: "Employee", render: a => a.employee?.user?.name || "—", sortable: true },
+    { key: "employee", label: "Employee", render: a => (a.employee?.user?.name ?? a.employee?.name) || "—", sortable: true },
     { key: "date", label: "Date", sortable: true },
     { key: "checkIn", label: "In", render: a => a.checkIn ? a.checkIn.slice(11, 16) : "—" },
     { key: "checkOut", label: "Out", render: a => a.checkOut ? a.checkOut.slice(11, 16) : "—" },
@@ -236,7 +236,7 @@ export default function AttendanceTab() {
             <Select value={manualForm.employeeId} onValueChange={v => setManualForm(f => ({ ...f, employeeId: v }))}>
               <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
               <SelectContent>
-                {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} ({e.employeeNumber})</SelectItem>)}
+                {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber} ({e.employeeNumber})</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -264,7 +264,7 @@ export default function AttendanceTab() {
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Attendance Record" isView>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name || "—"}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {(viewing.employee?.user?.name ?? viewing.employee?.name) || "—"}</div>
             <div><span className="text-muted-foreground">Date:</span> {viewing.date}</div>
             <div><span className="text-muted-foreground">Check In:</span> {viewing.checkIn ? viewing.checkIn.slice(11, 16) : "—"}</div>
             <div><span className="text-muted-foreground">Check Out:</span> {viewing.checkOut ? viewing.checkOut.slice(11, 16) : "—"}</div>

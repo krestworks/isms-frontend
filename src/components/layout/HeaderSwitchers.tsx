@@ -43,7 +43,10 @@ export function HeaderSwitchers() {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="text-xs">Switch role</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {user.roles.map(r => (
+          {/* "Employee" is auto-assigned to every account as a permissions floor —
+              only offer it as a switchable role for users who actually have an
+              HR employee record, otherwise it's a dead end with nothing to see. */}
+          {user.roles.filter(r => r !== "Employee" || user.isEmployee).map(r => (
             <DropdownMenuItem
               key={r}
               onClick={() => {

@@ -219,7 +219,7 @@ export default function ShiftsTab() {
                   style={{ gridTemplateColumns: "180px repeat(7, 1fr)" }}
                 >
                   <div className="px-3 py-2.5 border-r flex flex-col justify-center min-w-0">
-                    <span className="text-sm font-medium truncate leading-tight">{emp.user?.name ?? emp.employeeNumber}</span>
+                    <span className="text-sm font-medium truncate leading-tight">{emp.user?.name ?? emp.name ?? emp.employeeNumber}</span>
                     <span className="text-[10px] text-muted-foreground truncate">
                       {emp.jobTitle?.title || emp.employmentType}
                     </span>
@@ -230,7 +230,7 @@ export default function ShiftsTab() {
                     return (
                       <div
                         key={d}
-                        title={canManage ? `Click to assign shift for ${emp.user?.name ?? emp.employeeNumber} on ${d}` : undefined}
+                        title={canManage ? `Click to assign shift for ${emp.user?.name ?? emp.name ?? emp.employeeNumber} on ${d}` : undefined}
                         className={`p-1 border-r last:border-r-0 min-h-[54px] flex items-center justify-center ${
                           isToday ? "bg-primary/4" : ""
                         } ${canManage ? "cursor-pointer hover:bg-primary/8 transition-colors" : ""}`}
@@ -301,7 +301,7 @@ export default function ShiftsTab() {
               <SelectContent>
                 {employees.map(e => (
                   <SelectItem key={e.id} value={e.id}>
-                    {e.user?.name ?? e.employeeNumber}
+                    {e.user?.name ?? e.name ?? e.employeeNumber}
                     {e.jobTitle && <span className="text-muted-foreground"> · {e.jobTitle.title}</span>}
                   </SelectItem>
                 ))}

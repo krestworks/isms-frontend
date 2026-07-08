@@ -58,7 +58,7 @@ function toCase(r: ApiDisciplinaryRecord): DisciplinaryCase {
   return {
     id:               r.id,
     employeeId:       r.employeeId,
-    employeeName:     r.employee?.user?.name ?? r.employeeId,
+    employeeName:     r.employee?.user?.name ?? r.employee?.name ?? r.employeeId,
     offence:          r.offence ?? "",
     category:         r.category,
     reportedBy:       r.reportedBy ?? "",
@@ -239,7 +239,7 @@ export default function DisciplinaryTab() {
             <div><Label>Employee *</Label>
               <Select value={form.employeeId} onValueChange={v => set("employeeId", v)} disabled={!!editing}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Category</Label>

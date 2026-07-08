@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 export interface AccountBranding {
   id: string;
   name: string;
+  slug?: string | null;
   logo: string | null;      // base64 data URL or null
   tagline: string | null;
   website: string | null;

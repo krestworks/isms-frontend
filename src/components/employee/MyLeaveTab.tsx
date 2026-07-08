@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { LeaveCalendar } from "@/components/shared/LeaveCalendar";
+import { LeaveSlipModal } from "@/components/shared/LeaveSlipModal";
 import { toast } from "sonner";
 import { hrApi, ApiLeaveRequest, ApiLeaveBalance, ApiLeaveType, ApiPublicHoliday } from "@/lib/hrApi";
 
@@ -47,6 +48,10 @@ export default function MyLeaveTab() {
   const [form, setForm]             = useState(blank);
   const [saving, setSaving]         = useState(false);
   const [view, setView]             = useState<"list" | "calendar">("list");
+  const [adjusting, setAdjusting]   = useState<ApiLeaveRequest | null>(null);
+  const [returnDate, setReturnDate] = useState("");
+  const [adjustSaving, setAdjustSaving] = useState(false);
+  const [slipId, setSlipId]         = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -94,13 +99,35 @@ export default function MyLeaveTab() {
   };
 
   const handleCancel = async (req: ApiLeaveRequest) => {
-    if (req.status !== "Pending") return toast.error("Only pending requests can be cancelled");
+    if (!["Pending", "Approved"].includes(req.status)) return toast.error("Only pending or approved requests can be cancelled");
     try {
       await hrApi.self.leaves.cancel(req.id);
       toast.success("Leave request cancelled");
       load();
     } catch (e: any) {
+      // The backend blocks cancelling a leave that's already started (use
+      // "Adjust return date" instead) — surface its message as-is.
       toast.error(e?.message || "Failed to cancel");
+    }
+  };
+
+  const openAdjust = (req: ApiLeaveRequest) => {
+    setAdjusting(req);
+    setReturnDate(req.endDate.split("T")[0]);
+  };
+
+  const handleAdjust = async () => {
+    if (!adjusting || !returnDate) return;
+    setAdjustSaving(true);
+    try {
+      await hrApi.self.leaves.adjust(adjusting.id, { returnDate });
+      toast.success("Leave request adjusted");
+      setAdjusting(null);
+      load();
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to adjust");
+    } finally {
+      setAdjustSaving(false);
     }
   };
 
@@ -164,7 +191,11 @@ export default function MyLeaveTab() {
           searchPlaceholder="Search leave requests..."
           filters={filterOpts}
           onView={r => setViewing(r)}
-          extraActions={[{ label: "Cancel", onClick: handleCancel }]}
+          extraActions={[
+            { label: "Download Slip", onClick: r => setSlipId(r.id) },
+            { label: "Cancel", onClick: handleCancel, show: r => ["Pending", "Approved"].includes(r.status) },
+            { label: "Adjust Return Date", onClick: openAdjust, show: r => r.status === "Approved" },
+          ]}
         />
       )}
 
@@ -215,6 +246,27 @@ export default function MyLeaveTab() {
           </div>
         )}
       </ModalForm>
+
+      {/* Adjust return date modal */}
+      <ModalForm
+        open={!!adjusting}
+        onClose={() => setAdjusting(null)}
+        title="Adjust Return Date"
+        description="Shorten or extend this leave. If it's already in progress, the new return date can't be before today."
+        onSubmit={handleAdjust}
+        submitLabel={adjustSaving ? "Saving..." : "Save"}
+      >
+        {adjusting && (
+          <div className="space-y-4">
+            <div className="text-sm text-muted-foreground">
+              Original: {new Date(adjusting.startDate).toLocaleDateString()} – {new Date(adjusting.endDate).toLocaleDateString()} ({adjusting.days} days)
+            </div>
+            <div><Label>New Return Date</Label><Input type="date" value={returnDate} onChange={e => setReturnDate(e.target.value)} /></div>
+          </div>
+        )}
+      </ModalForm>
+
+      <LeaveSlipModal leaveRequestId={slipId} onClose={() => setSlipId(null)} />
     </div>
   );
 }

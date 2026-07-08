@@ -24,6 +24,8 @@ import {
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
 import { useStations } from "@/data/stationsCache";
+import { useBranding } from "@/data/brandingStore";
+import { CareersApiKeysSection } from "./CareersApiKeysSection";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -77,10 +79,13 @@ export default function RecruitmentTab() {
   const canManage = can("hr.recruitment.manage");
   const { user, activeLocation } = useSession();
   const stations = useStations();
+  const branding = useBranding();
 
   // global admin has no specific station selected
   const isGlobal = activeLocation === "All Locations";
   const accountId = user.accountId || "";
+  const accountSlug = branding?.slug || accountId;
+  const [showApiEndpoints, setShowApiEndpoints] = useState(false);
 
   type MainTab = "jobs" | "pipeline" | "screening";
   const [mainTab, setMainTab]         = useState<MainTab>("jobs");
@@ -620,35 +625,42 @@ export default function RecruitmentTab() {
 
         {/* Public careers portal banner */}
         {accountId && (() => {
-          const careersUrl = `${window.location.origin}/careers/${accountId}`;
-          const apiBase    = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace("/api/v1", "") + `/api/v1/public/${accountId}/jobs`;
+          const careersUrl = `${window.location.origin}/careers/${accountSlug}`;
+          const apiBase    = (import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1").replace("/api/v1", "") + `/api/v1/public/${accountSlug}/jobs`;
           return (
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Public Careers Portal</p>
-                    <p className="text-xs text-muted-foreground">Share this link on your website or social media so candidates can view and apply for open positions.</p>
-                    <div className="flex items-center gap-2 flex-wrap mt-2">
-                      <code className="text-xs bg-background border px-2 py-1 rounded select-all">{careersUrl}</code>
-                      <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => { navigator.clipboard.writeText(careersUrl); toast.success("Copied!"); }}>Copy</Button>
-                      <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => window.open(careersUrl, "_blank")}>
-                        <ExternalLink className="h-3 w-3 mr-1" />Open
-                      </Button>
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold">Public Careers Portal</p>
+                  <p className="text-xs text-muted-foreground">Share this link on your website or social media so candidates can view and apply for open positions.</p>
+                  <div className="flex items-center gap-2 flex-wrap mt-2">
+                    <code className="text-xs bg-background border px-2 py-1 rounded select-all">{careersUrl}</code>
+                    <Button size="sm" variant="outline" className="h-6 text-xs px-2" onClick={() => { navigator.clipboard.writeText(careersUrl); toast.success("Copied!"); }}>Copy</Button>
+                    <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => window.open(careersUrl, "_blank")}>
+                      <ExternalLink className="h-3 w-3 mr-1" />Open
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-primary/10">
+                  <Button size="sm" variant="ghost" className="h-6 text-xs px-2 -ml-2" onClick={() => setShowApiEndpoints(v => !v)}>
+                    {showApiEndpoints ? "Hide" : "Show"} public API endpoints
+                  </Button>
+                  {showApiEndpoints && (
+                    <div className="space-y-1 text-xs text-muted-foreground mt-1.5">
+                      <p><code className="bg-background border px-1 rounded">GET {apiBase}</code> — list published jobs</p>
+                      <p><code className="bg-background border px-1 rounded">GET {apiBase}/:id</code> — job details</p>
+                      <p><code className="bg-background border px-1 rounded">POST {apiBase}/:id/apply</code> — submit application</p>
+                      <p className="text-[10px]">No authentication required · CORS enabled for all origins — this is the same data the /careers page fetches.</p>
                     </div>
-                  </div>
-                  <div className="space-y-1 text-xs text-muted-foreground min-w-0">
-                    <p className="font-medium text-foreground">Public API Endpoints</p>
-                    <p><code className="bg-background border px-1 rounded">GET {apiBase}</code> — list published jobs</p>
-                    <p><code className="bg-background border px-1 rounded">GET {apiBase}/:id</code> — job details</p>
-                    <p><code className="bg-background border px-1 rounded">POST {apiBase}/:id/apply</code> — submit application</p>
-                    <p className="text-[10px]">No authentication required · CORS enabled for all origins</p>
-                  </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
           );
         })()}
+
+        {canManage && <CareersApiKeysSection />}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
@@ -719,7 +731,7 @@ export default function RecruitmentTab() {
                       <div className="flex gap-1 flex-wrap justify-end">
                         {job.status === "Published" && accountId && (
                           <Button variant="ghost" size="sm" title="Copy public application link"
-                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/careers/${accountId}/${job.id}`); toast.success("Link copied"); }}>
+                            onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/careers/${accountSlug}/${job.id}`); toast.success("Link copied"); }}>
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
                         )}

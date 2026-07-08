@@ -63,7 +63,7 @@ export function ApproverInbox() {
     setActing(true);
     try {
       await hrApi.leaves.approve(r.id, action, notes || undefined);
-      toast.success(action === "approve" ? `Approved leave for ${r.employee?.user?.name ?? "employee"}` : "Leave request rejected");
+      toast.success(action === "approve" ? `Approved leave for ${r.employee?.user?.name ?? r.employee?.name ?? "employee"}` : "Leave request rejected");
       setActiveId(null); setNotes("");
       load();
     } catch (e: any) { toast.error(e?.message || "Action failed"); }
@@ -117,7 +117,7 @@ export function ApproverInbox() {
             {filtered.slice(0, 20).map(r => {
               const isActive  = activeId === r.id;
               const isPending = r.status === "Pending";
-              const empName   = r.employee?.user?.name ?? "Employee";
+              const empName   = r.employee?.user?.name ?? r.employee?.name ?? "Employee";
               const leaveName = r.leaveType?.name ?? "Leave";
               return (
                 <div key={r.id} className="p-3 rounded-lg border border-border bg-muted/20 text-xs space-y-2">

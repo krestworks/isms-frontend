@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, Download, Printer } from "lucide-react";
+import { Plus, RefreshCw, Download, Printer, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,6 +72,24 @@ export function InvoicesTab() {
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
   const viewRef = useRef<HTMLDivElement>(null);
+
+  const [emailTarget, setEmailTarget] = useState<ApiLpgInvoice | null>(null);
+  const [emailAddress, setEmailAddress] = useState("");
+  const [sendingEmail, setSendingEmail] = useState(false);
+
+  const openEmail = (inv: ApiLpgInvoice) => { setEmailTarget(inv); setEmailAddress(""); };
+
+  const handleSendEmail = async () => {
+    if (!emailTarget) return;
+    if (!emailAddress.trim()) return toast.error("Enter a recipient email address");
+    setSendingEmail(true);
+    try {
+      const res = await lpgApi.invoices.email(emailTarget.id, { email: emailAddress.trim(), name: emailTarget.client }, stationId);
+      toast.success(res.data?.dev ? "Email logged (SMTP not configured in this environment)" : `Invoice emailed to ${emailAddress.trim()}`);
+      setEmailTarget(null);
+    } catch (e: any) { toast.error(e?.message || "Failed to send invoice email"); }
+    finally { setSendingEmail(false); }
+  };
 
   const handlePrint = () => {
     if (!viewRef.current || !viewing) return;
@@ -273,7 +291,10 @@ export function InvoicesTab() {
 
       {/* View modal */}
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type === "receipt" ? "Receipt" : "Invoice"} isView
-        footerExtra={<Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>}>
+        footerExtra={<>
+          <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && openEmail(viewing)}><Mail className="h-3.5 w-3.5 mr-1.5" />Email</Button>
+        </>}>
         {viewing && (
           <div className="border border-border rounded-lg p-6 space-y-4 bg-background">
             <div ref={viewRef} className="space-y-4">
@@ -326,6 +347,17 @@ export function InvoicesTab() {
             </div>{/* /viewRef */}
           </div>
         )}
+      </ModalForm>
+
+      {/* Email invoice modal */}
+      <ModalForm open={!!emailTarget} onClose={() => setEmailTarget(null)}
+        title={`Email ${emailTarget?.type === "receipt" ? "Receipt" : "Invoice"} ${emailTarget?.invoiceNo ?? ""}`}
+        onSubmit={handleSendEmail} submitLabel={sendingEmail ? "Sending..." : "Send"} submitDisabled={sendingEmail}>
+        <div className="space-y-2">
+          <Label>Recipient Email *</Label>
+          <Input type="email" autoFocus value={emailAddress} onChange={e => setEmailAddress(e.target.value)} placeholder="client@example.com" />
+          <p className="text-xs text-muted-foreground">Sends a formatted copy of this {emailTarget?.type === "receipt" ? "receipt" : "invoice"} to the address above.</p>
+        </div>
       </ModalForm>
     </div>
   );

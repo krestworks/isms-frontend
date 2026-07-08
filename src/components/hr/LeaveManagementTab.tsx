@@ -21,6 +21,7 @@ import {
 } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
 import { LeaveCalendar } from "@/components/shared/LeaveCalendar";
+import { LeaveSlipModal } from "@/components/shared/LeaveSlipModal";
 
 // ── Sub-tab types ─────────────────────────────────────────────────────────────
 type SubTab = "requests" | "entitlements" | "periods" | "calendar";
@@ -90,7 +91,7 @@ function LeaveRequestDetail({
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Employee</p>
-              <p className="font-medium">{req.employee?.user?.name || "—"}</p>
+              <p className="font-medium">{(req.employee?.user?.name ?? req.employee?.name) || "—"}</p>
               <p className="text-xs text-muted-foreground">{req.employee?.user?.email}</p>
             </div>
             <div>
@@ -203,6 +204,7 @@ function RequestsTab({
   const [loading, setLoading]   = useState(true);
   const [filter, setFilter]     = useState<RequestFilter>("Pending");
   const [viewing, setViewing]   = useState<ApiLeaveRequest | null>(null);
+  const [slipId, setSlipId]     = useState<string | null>(null);
   const [submitOpen, setSubmitOpen]       = useState(false);
   const [applyForEmployee, setApplyForEmployee] = useState(false);
   const [saving, setSaving]               = useState(false);
@@ -276,7 +278,7 @@ function RequestsTab({
 
   const columns: Column<ApiLeaveRequest>[] = [
     { key: "leaveRef",   label: "Ref",      render: r => <span className="font-mono text-xs">{r.leaveRef || r.id.slice(-8).toUpperCase()}</span> },
-    { key: "employee",   label: "Employee",  render: r => r.employee?.user?.name || "—", sortable: true },
+    { key: "employee",   label: "Employee",  render: r => (r.employee?.user?.name ?? r.employee?.name) || "—", sortable: true },
     { key: "leaveTypeId",label: "Type",      render: r => <Badge variant="secondary">{r.leaveType?.name || "—"}</Badge> },
     { key: "startDate",  label: "From",      sortable: true, render: r => r.startDate?.split("T")[0] },
     { key: "endDate",    label: "To",        render: r => r.endDate?.split("T")[0] },
@@ -347,11 +349,18 @@ function RequestsTab({
         searchKeys={["leaveRef", "employee"]}
         searchPlaceholder="Search leave requests…"
         actions={r => (
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewing(r)}>
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
+          <>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setViewing(r)}>
+              <Eye className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" className="h-7 w-7" title="Download Slip" onClick={() => setSlipId(r.id)}>
+              <Download className="h-3.5 w-3.5" />
+            </Button>
+          </>
         )}
       />
+
+      <LeaveSlipModal leaveRequestId={slipId} onClose={() => setSlipId(null)} />
 
       {/* Submit leave modal */}
       <ModalForm open={submitOpen} onClose={() => setSubmitOpen(false)}
@@ -364,7 +373,7 @@ function RequestsTab({
               <Label>Employee</Label>
               <Select value={form.employeeId} onValueChange={v => set("employeeId", v)}>
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? "—"}</SelectItem>)}</SelectContent>
+                <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? "—"}</SelectItem>)}</SelectContent>
               </Select>
             </div>
           )}
@@ -491,7 +500,7 @@ function EntitlementsTab({
   const setAdj = (k: string, v: any) => setAdjustForm(f => ({ ...f, [k]: v }));
 
   const columns: Column<ApiLeaveBalance>[] = [
-    { key: "employee",    label: "Employee",   render: b => b.employee?.user?.name || "—" },
+    { key: "employee",    label: "Employee",   render: b => (b.employee?.user?.name ?? b.employee?.name) || "—" },
     { key: "leaveType",   label: "Leave Type", render: b => <Badge variant="secondary">{b.leaveType?.name}</Badge> },
     { key: "year",        label: "Year" },
     { key: "total",       label: "Entitlement", render: b => <span className="font-medium">{b.total}d</span> },
@@ -515,7 +524,7 @@ function EntitlementsTab({
             <SelectTrigger className="w-52"><SelectValue placeholder="All employees" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="__all__">All employees</SelectItem>
-              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber}</SelectItem>)}
+              {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber}</SelectItem>)}
             </SelectContent>
           </Select>
           {canManage && (
@@ -549,7 +558,7 @@ function EntitlementsTab({
           <div><Label>Employee</Label>
             <Select value={adjustForm.employeeId} onValueChange={v => setAdj("employeeId", v)}>
               <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
-              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? "—"}</SelectItem>)}</SelectContent>
+              <SelectContent>{employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? "—"}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div><Label>Leave Type</Label>

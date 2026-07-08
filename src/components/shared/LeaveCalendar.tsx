@@ -13,10 +13,10 @@ const MONTHS = ["January","February","March","April","May","June",
 const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
 const STATUS_BAR: Record<string, string> = {
-  Approved:  "bg-green-100 text-green-800 border-l-2 border-green-500",
-  Pending:   "bg-amber-100 text-amber-800 border-l-2 border-amber-500",
-  Rejected:  "bg-red-50 text-red-400",
-  Cancelled: "bg-gray-100 text-gray-400",
+  Approved:  "bg-green-200 text-green-900 border-l-2 border-green-600 dark:bg-green-900/50 dark:text-green-200 dark:border-green-500",
+  Pending:   "bg-amber-200 text-amber-900 border-l-2 border-amber-600 dark:bg-amber-900/50 dark:text-amber-200 dark:border-amber-500",
+  Rejected:  "bg-red-100 text-red-700 border-l-2 border-red-400 dark:bg-red-950/50 dark:text-red-300",
+  Cancelled: "bg-gray-200 text-gray-700 border-l-2 border-gray-400 dark:bg-gray-800/60 dark:text-gray-300",
 };
 
 export function LeaveCalendar({ leaves: propLeaves, mode = "hr", holidays: propHolidays }: Props) {
@@ -153,11 +153,11 @@ export function LeaveCalendar({ leaves: propLeaves, mode = "hr", holidays: propH
                         <div
                           key={ev.id}
                           title={mode === "hr"
-                            ? `${ev.employee?.user?.name ?? "Employee"} — ${ev.leaveType?.name} (${ev.status})`
+                            ? `${ev.employee?.user?.name ?? ev.employee?.name ?? "Employee"} — ${ev.leaveType?.name} (${ev.status})`
                             : `${ev.leaveType?.name} (${ev.status})`}
                           className={`text-[10px] leading-tight px-1 py-[2px] rounded-sm truncate cursor-default ${STATUS_BAR[ev.status] ?? STATUS_BAR.Cancelled}`}
                         >
-                          {mode === "hr" ? (ev.employee?.user?.name ?? "Employee") : (ev.leaveType?.name ?? "Leave")}
+                          {mode === "hr" ? (ev.employee?.user?.name ?? ev.employee?.name ?? "Employee") : (ev.leaveType?.name ?? "Leave")}
                         </div>
                       ))}
                       {events.length > 3 && (

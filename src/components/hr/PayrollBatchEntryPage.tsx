@@ -106,7 +106,7 @@ export default function PayrollBatchEntryPage({
   const debouncedEmpSearch = useDebounce(empSearch, 300);
   const filteredEmps = useMemo(() => employees.filter(e =>
     !debouncedEmpSearch ||
-    (e.user?.name ?? "").toLowerCase().includes(debouncedEmpSearch.toLowerCase()) ||
+    (e.user?.name ?? e.name ?? "").toLowerCase().includes(debouncedEmpSearch.toLowerCase()) ||
     (e.employeeNumber ?? "").includes(debouncedEmpSearch)
   ).slice(0, 100), [employees, debouncedEmpSearch]);
 
@@ -186,7 +186,12 @@ export default function PayrollBatchEntryPage({
           netPay: Math.max(0, gross - sha - nssf - paye - extra),
         };
       });
-      const res = await hrApi.payroll.bulkCreate({ month, rows: apiRows });
+      const scopeLabel =
+        scope === "department" ? `Department: ${departments.filter(d => deptIds.includes(d.id)).map(d => d.name).join(", ") || "—"}` :
+        scope === "salaryRange" ? `Salary range: ${salaryFrom || "0"} – ${salaryTo || "no limit"}` :
+        scope === "specific"    ? `Specific employees (${empIds.length})` :
+        "All Employees";
+      const res = await hrApi.payroll.bulkCreate({ month, rows: apiRows, scope: scopeLabel });
       try { localStorage.removeItem(draftKey(month, activeStationId)); } catch {}
       setDraftList(prev => prev.filter(d => !(d.month === month && d.stationId === activeStationId)));
       toast.success(res.message || `Created ${res.data.created} payroll record(s)`);
@@ -358,7 +363,7 @@ export default function PayrollBatchEntryPage({
                   {filteredEmps.map(e => (
                     <label key={e.id} className="flex items-center gap-1.5 text-xs cursor-pointer py-0.5 min-w-[200px]">
                       <Checkbox checked={empIds.includes(e.id)} onCheckedChange={() => toggleEmp(e.id)} className="h-3.5 w-3.5" />
-                      <span>{e.user?.name ?? e.employeeNumber}</span>
+                      <span>{e.user?.name ?? e.name ?? e.employeeNumber}</span>
                       <span className="text-muted-foreground ml-1 text-[10px]">{e.employeeNumber}</span>
                     </label>
                   ))}

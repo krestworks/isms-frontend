@@ -80,7 +80,7 @@ export function ShiftScheduleTab({ department }: Props) {
   }), [assignments, today]);
 
   const columns: Column<ApiShiftAssignment>[] = [
-    { key: "employee",     label: "Employee",  render: a => a.employee?.user?.name ?? "—" },
+    { key: "employee",     label: "Employee",  render: a => a.employee?.user?.name ?? a.employee?.name ?? "—" },
     { key: "date",         label: "Date",       sortable: true, render: a => new Date(a.date).toLocaleDateString() },
     { key: "shiftPattern", label: "Shift",      render: a => <Badge variant="outline">{a.shiftPattern?.name ?? "—"}</Badge> },
     { key: "startTime",    label: "Start",      render: a => a.shiftPattern?.startTime ?? "—" },
@@ -188,7 +188,7 @@ export function ShiftScheduleTab({ department }: Props) {
               <SelectContent>
                 {employees.map(e => (
                   <SelectItem key={e.id} value={e.id}>
-                    {e.user?.name ?? e.employeeNumber} — {e.jobTitle?.title ?? e.user?.activeRole ?? "—"}
+                    {e.user?.name ?? e.name ?? e.employeeNumber} — {e.jobTitle?.title ?? e.user?.activeRole ?? "—"}
                   </SelectItem>
                 ))}
               </SelectContent>

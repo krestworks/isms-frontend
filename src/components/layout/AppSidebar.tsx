@@ -5,11 +5,13 @@ import {
   Receipt, TrendingUp, AlertTriangle, X, type LucideIcon,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
-import { canAccessRoute, useStationModuleFilter } from "@/lib/permissions";
+import { useLocation, useNavigate } from "react-router-dom";
+import { canAccessRoute, useStationModuleFilter, hasAnyBusinessAssignment } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
 import { useBranding } from "@/data/brandingStore";
 import { useAppPaths } from "@/hooks/useAppPaths";
+import { useAuth } from "@/components/auth/AuthProvider";
+import { toast } from "sonner";
 import {
   Sidebar,
   SidebarContent,
@@ -41,6 +43,8 @@ export function AppSidebar() {
   const { user } = useSession();
   const branding = useBranding();
   const paths = useAppPaths();
+  const navigate = useNavigate();
+  const { switchRole } = useAuth();
   const isModuleEnabled = useStationModuleFilter();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const collapsed  = state === "collapsed";
@@ -48,14 +52,27 @@ export function AppSidebar() {
   const isSuperAdmin = user.activeRole === "SuperAdmin";
   const isEmployee   = user.activeRole === "Employee";
 
+  // "My Portal" — switches into the Employee role (not just navigation) so
+  // permissions/UI chrome match what's actually being viewed. Only offered to
+  // users who have a real HR Employee record (user.isEmployee), not everyone —
+  // the base "Employee" role is auto-assigned to all accounts as a permissions
+  // floor and isn't the same thing as actually being HR-onboarded staff.
+  const goToMyPortal = () => {
+    switchRole("Employee")
+      .then(() => navigate(paths.employeePortal))
+      .catch((e: any) => toast.error(e?.message || "Could not open My Portal"));
+  };
+
   // URL arrays depend on the current slug + station param, so defined here.
+  // "Business" is dropped entirely for operational roles with no business
+  // assignment — managerial roles (Admin/Manager/LocationHead) always keep it.
   const operations = [
     { title: "Fuel Management",  url: paths.fuel,       icon: Fuel },
     { title: "LPG Management",   url: paths.lpg,        icon: Flame },
     { title: "Water Production", url: paths.water,      icon: Droplets },
     { title: "Auto Services",    url: paths.automotive, icon: Wrench },
     { title: "Car Wash",         url: paths.carwash,    icon: Car },
-    { title: "Business",         url: paths.business,   icon: Store },
+    ...(hasAnyBusinessAssignment() ? [{ title: "Business", url: paths.business, icon: Store }] : []),
     { title: "Inventory",        url: paths.inventory,  icon: Package },
   ];
 
@@ -209,13 +226,21 @@ export function AppSidebar() {
             {/* Non-SuperAdmin regular sections */}
             {!isSuperAdmin && (
               <>
-                {/* Employee Portal quick link — for users who also have an employee record */}
+                {/* My Portal — only for users who actually have an HR employee record.
+                    Clicking it switches the active role to Employee (see goToMyPortal). */}
                 {user.isEmployee && (
                   <SidebarGroup>
                     <SidebarGroupLabel className="text-[10px] uppercase tracking-widest text-sidebar-foreground/50 mb-1">My Portal</SidebarGroupLabel>
                     <SidebarGroupContent>
                       <SidebarMenu>
-                        {renderItem({ title: "Employee Portal", url: paths.employeePortal, icon: UserCircle })}
+                        <SidebarMenuItem>
+                          <SidebarMenuButton tooltip="My Portal" onClick={() => { goToMyPortal(); if (isMobile) setOpenMobile(false); }}>
+                            <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm w-full text-left text-sidebar-foreground hover:text-sidebar-accent-foreground hover:bg-sidebar-accent transition-colors">
+                              <UserCircle className="h-4 w-4 shrink-0" />
+                              {!collapsed && <span>My Portal</span>}
+                            </div>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
                       </SidebarMenu>
                     </SidebarGroupContent>
                   </SidebarGroup>

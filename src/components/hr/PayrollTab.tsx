@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { hrApi, ApiEmployee, ApiPayroll, ApiDepartment, ApiPayrollRunRow } from "@/lib/hrApi";
+import { hrApi, ApiEmployee, ApiPayroll, ApiPayrollBatch, ApiDepartment, ApiPayrollRunRow } from "@/lib/hrApi";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import { brandingStore } from "@/data/brandingStore";
 import { sessionStore } from "@/data/sessionStore";
@@ -86,7 +86,7 @@ function loadForm() {
 
 const columns: Column<ApiPayroll>[] = [
   { key: "id",         label: "Pay ID",   sortable: true, render: i => <span className="font-mono text-xs">{i.id.slice(-8).toUpperCase()}</span> },
-  { key: "employeeId", label: "Employee", render: i => i.employee?.user?.name ?? i.employeeId },
+  { key: "employeeId", label: "Employee", render: i => i.employee?.user?.name ?? i.employee?.name ?? i.employeeId },
   { key: "employeeId", label: "Dept",     render: i => i.employee?.department?.name
       ? <Badge variant="outline">{i.employee.department.name}</Badge>
       : <span className="text-muted-foreground">—</span> },
@@ -144,6 +144,12 @@ export default function PayrollTab() {
   const [batchView, setBatchView] = useState(false);
   const [calcOpen,  setCalcOpen]  = useState(false);
 
+  // ── Records view: grouped by batch (default) vs flat list of every record ────
+  const [recordsView, setRecordsView]   = useState<"batches" | "all">("batches");
+  const [batches, setBatches]           = useState<ApiPayrollBatch[]>([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  const [viewingBatch, setViewingBatch] = useState<(ApiPayrollBatch & { records: ApiPayroll[] }) | null>(null);
+
   // ── Run Payroll tab (process existing records) ────────────────────────────────
   const [procMonth,         setProcMonth]         = useState(new Date().toISOString().slice(0, 7));
   const [procData,          setProcData]          = useState<ApiPayroll[]>([]);
@@ -193,6 +199,22 @@ export default function PayrollTab() {
     finally { setLoading(false); }
   }, [filterMonth, filterStatus]);
 
+  const loadBatches = useCallback(async () => {
+    setBatchesLoading(true);
+    try {
+      const res = await hrApi.payroll.batches.list({ month: filterMonth || undefined, limit: 50 });
+      setBatches(res.data ?? []);
+    } catch { /**/ }
+    finally { setBatchesLoading(false); }
+  }, [filterMonth]);
+
+  const openBatch = async (b: ApiPayrollBatch) => {
+    try {
+      const res = await hrApi.payroll.batches.get(b.id);
+      setViewingBatch(res.data);
+    } catch (e: any) { toast.error(e?.message || "Failed to load batch"); }
+  };
+
   // Load reference data (employees, departments, stations) once
   const loadRef = useCallback(async () => {
     if (refLoadedRef.current) return;
@@ -219,6 +241,7 @@ export default function PayrollTab() {
   }, []);
 
   useEffect(() => { loadRecords(1); loadRef(); }, [loadRecords, loadRef]);
+  useEffect(() => { loadBatches(); }, [loadBatches]);
 
   // ── Summary stats (current page) ─────────────────────────────────────────────
   const stats = {
@@ -348,7 +371,7 @@ export default function PayrollTab() {
     const loc   = sessionStore.activeLocation();
     const branch = esc(loc !== "All Locations" ? loc : "");
     const empKraPin  = esc(viewing.employee?.kraPin || "—");
-    const empName    = esc(viewing.employee?.user?.name ?? viewing.employeeId);
+    const empName    = esc(viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId);
     const empNo      = esc(viewing.employee?.employeeNumber ?? "—");
     const dept       = esc(viewing.employee?.department?.name ?? "—");
     const title      = esc(viewing.employee?.jobTitle?.title ?? "—");
@@ -472,7 +495,7 @@ export default function PayrollTab() {
   // ── Bulk Send Payslips ────────────────────────────────────────────────────────
 
   const filteredSendSlipEmps = employees.filter(e =>
-    !sendSlipSearch || (e.user?.name ?? "").toLowerCase().includes(sendSlipSearch.toLowerCase()) || e.employeeNumber?.includes(sendSlipSearch)
+    !sendSlipSearch || (e.user?.name ?? e.name ?? "").toLowerCase().includes(sendSlipSearch.toLowerCase()) || e.employeeNumber?.includes(sendSlipSearch)
   ).slice(0, 100);
 
   const handleBulkSendPayslips = async () => {
@@ -516,7 +539,7 @@ export default function PayrollTab() {
       case "master": {
         const hdrs = ["Emp No","Name","Department","Job Title","Month","Basic","House Allow","Transport","Overtime","Gross Pay","SHA","NSSF","PAYE","Other Deduct","Total Deduct","Net Pay","Status"];
         const rows = reportData.map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—",
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—",
           p.employee?.department?.name ?? "—", p.employee?.jobTitle?.title ?? "—", p.month,
           p.basicSalary, p.houseAllowance, p.transportAllowance, p.overtimePay, p.grossPay,
           p.nhif, p.nssf, p.paye, p.otherDeductions, p.totalDeductions, p.netPay, p.status,
@@ -532,7 +555,7 @@ export default function PayrollTab() {
       case "gross-to-net": {
         const hdrs = ["Emp No","Name","Gross Pay","SHA","NSSF","PAYE","Other Deductions","Total Deductions","Net Pay"];
         const rows = reportData.map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—",
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—",
           p.grossPay, p.nhif, p.nssf, p.paye, p.otherDeductions, p.totalDeductions, p.netPay,
         ]);
         downloadCsv(buildCsv(hdrs, rows), `gross-to-net-${period}.csv`);
@@ -541,7 +564,7 @@ export default function PayrollTab() {
       case "statutory": {
         const hdrs = ["Emp No","Name","Month","Gross Pay","SHA (2.75%)","NSSF Employee","PAYE","Total Statutory"];
         const rows = reportData.map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—", p.month,
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—", p.month,
           p.grossPay, p.nhif, p.nssf, p.paye, p.nhif + p.nssf + p.paye,
         ]);
         // Statutory totals
@@ -555,7 +578,7 @@ export default function PayrollTab() {
       case "p9": {
         const hdrs = ["Emp No","Name","Month","Gross Pay","NSSF (Exempt)","Taxable Pay","PAYE Withheld","Personal Relief","Net PAYE"];
         const rows = reportData.map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—", p.month,
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—", p.month,
           p.grossPay, p.nssf, p.grossPay - p.nssf, p.paye, 2400, p.paye,
         ]);
         downloadCsv(buildCsv(hdrs, rows), `p9-tax-certificate-${reportYear}.csv`);
@@ -564,7 +587,7 @@ export default function PayrollTab() {
       case "disbursement": {
         const hdrs = ["Emp No","Name","Month","Net Pay","Status"];
         const rows = reportData.filter(p => p.status === "paid" || p.status === "processing").map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—", p.month, p.netPay, p.status,
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—", p.month, p.netPay, p.status,
         ]);
         if (!rows.length) { toast.info("No paid/processing records to disburse"); return; }
         downloadCsv(buildCsv(hdrs, rows), `disbursement-list-${period}.csv`);
@@ -596,7 +619,7 @@ export default function PayrollTab() {
       case "third-party": {
         const hdrs = ["Emp No","Name","Month","Other Deductions"];
         const rows = reportData.filter(p => p.otherDeductions > 0).map(p => [
-          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? "—", p.month, p.otherDeductions,
+          p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—", p.month, p.otherDeductions,
         ]);
         if (!rows.length) { toast.info("No third-party deductions found"); return; }
         downloadCsv(buildCsv(hdrs, rows), `third-party-deductions-${period}.csv`);
@@ -632,51 +655,51 @@ export default function PayrollTab() {
       const totalGross = r.reduce((s, x) => s + x.grossPay, 0);
       const totalSHA   = r.reduce((s, x) => s + x.nhif, 0);
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Gross Pay</th><th class="r">SHA (2.75%)</th></tr></thead><tbody>
-        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td></tr>`).join("")}
+        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="4">TOTALS</td><td class="r">${fmtK(totalGross)}</td><td class="r">${fmtK(totalSHA)}</td></tr>
       </tbody></table>`;
     } else if (type === "nssf") {
       const tGross = r.reduce((s, x) => s + x.grossPay, 0);
       const tNSSF  = r.reduce((s, x) => s + x.nssf, 0);
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Gross Pay</th><th class="r">NSSF Employee</th></tr></thead><tbody>
-        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td></tr>`).join("")}
+        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="4">TOTALS</td><td class="r">${fmtK(tGross)}</td><td class="r">${fmtK(tNSSF)}</td></tr>
       </tbody></table>`;
     } else if (type === "paye") {
       const tGross = r.reduce((s, x) => s + x.grossPay, 0);
       const tPAYE  = r.reduce((s, x) => s + x.paye, 0);
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>KRA PIN</th><th>Month</th><th class="r">Gross Pay</th><th class="r">NSSF Relief</th><th class="r">Taxable Pay</th><th class="r">PAYE</th><th class="r">Personal Relief</th><th class="r">Net PAYE</th></tr></thead><tbody>
-        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.employee?.kraPin ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.grossPay - p.nssf)}</td><td class="r">${fmtK(p.paye + 2400)}</td><td class="r">${fmtK(2400)}</td><td class="r">${fmtK(p.paye)}</td></tr>`).join("")}
+        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.employee?.kraPin ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.grossPay - p.nssf)}</td><td class="r">${fmtK(p.paye + 2400)}</td><td class="r">${fmtK(2400)}</td><td class="r">${fmtK(p.paye)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="5">TOTALS</td><td class="r">${fmtK(tGross)}</td><td class="r"></td><td class="r"></td><td class="r"></td><td class="r"></td><td class="r">${fmtK(tPAYE)}</td></tr>
       </tbody></table>`;
     } else if (type === "helb") {
       const rows = r.filter(p => p.otherDeductions > 0);
       if (!rows.length) { toast.info("No third-party/HELB deductions found"); return; }
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Other Deductions</th></tr></thead><tbody>
-        ${rows.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.otherDeductions)}</td></tr>`).join("")}
+        ${rows.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.otherDeductions)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="4">TOTALS</td><td class="r">${fmtK(rows.reduce((s,x) => s + x.otherDeductions, 0))}</td></tr>
       </tbody></table>`;
     } else if (type === "p9") {
       const yr = r.filter(p => p.month?.startsWith(reportYear));
       if (!yr.length) { toast.info(`No records found for ${reportYear} — load annual data first`); return; }
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Employee KRA PIN</th><th>Month</th><th class="r">Gross Pay</th><th class="r">NSSF (Exempt)</th><th class="r">Taxable Pay</th><th class="r">PAYE Withheld</th><th class="r">Personal Relief</th><th class="r">Net PAYE</th></tr></thead><tbody>
-        ${yr.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.employee?.kraPin ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.grossPay - p.nssf)}</td><td class="r">${fmtK(p.paye + 2400)}</td><td class="r">${fmtK(2400)}</td><td class="r">${fmtK(p.paye)}</td></tr>`).join("")}
+        ${yr.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.employee?.kraPin ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.grossPay - p.nssf)}</td><td class="r">${fmtK(p.paye + 2400)}</td><td class="r">${fmtK(2400)}</td><td class="r">${fmtK(p.paye)}</td></tr>`).join("")}
       </tbody></table>`;
     } else if (type === "master") {
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Dept</th><th>Month</th><th class="r">Basic</th><th class="r">House Allow</th><th class="r">Transport</th><th class="r">OT</th><th class="r">Gross</th><th class="r">SHA</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
-        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.employee?.department?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.basicSalary)}</td><td class="r">${fmtK(p.houseAllowance)}</td><td class="r">${fmtK(p.transportAllowance)}</td><td class="r">${fmtK(p.overtimePay)}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
+        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.employee?.department?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.basicSalary)}</td><td class="r">${fmtK(p.houseAllowance)}</td><td class="r">${fmtK(p.transportAllowance)}</td><td class="r">${fmtK(p.overtimePay)}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="9">TOTALS</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.grossPay,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nhif,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nssf,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.paye,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.otherDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.totalDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.netPay,0))}</td></tr>
       </tbody></table>`;
     } else if (type === "gross-to-net") {
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th class="r">Gross Pay</th><th class="r">SHA</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
-        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
+        ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="3">TOTALS</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.grossPay,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nhif,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nssf,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.paye,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.otherDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.totalDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.netPay,0))}</td></tr>
       </tbody></table>`;
     } else if (type === "disbursement") {
       const paid = r.filter(p => p.status === "paid" || p.status === "processing");
       if (!paid.length) { toast.info("No paid/processing records"); return; }
       body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Net Pay</th><th>Status</th></tr></thead><tbody>
-        ${paid.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.netPay)}</td><td>${p.status}</td></tr>`).join("")}
+        ${paid.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.netPay)}</td><td>${p.status}</td></tr>`).join("")}
         <tr class="tot"><td colspan="4">TOTALS</td><td class="r">${fmtK(paid.reduce((s,x)=>s+x.netPay,0))}</td><td></td></tr>
       </tbody></table>`;
     } else if (type === "ledger") {
@@ -745,12 +768,12 @@ export default function PayrollTab() {
     const map = new Map<string, { name: string; empNo: string; dept: string; m1?: ApiPayroll; m2?: ApiPayroll }>();
     for (const p of varData1) {
       const key = p.employeeId;
-      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
+      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? p.employee?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
       map.get(key)!.m1 = p;
     }
     for (const p of varData2) {
       const key = p.employeeId;
-      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
+      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? p.employee?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
       map.get(key)!.m2 = p;
     }
 
@@ -822,7 +845,7 @@ export default function PayrollTab() {
     return (
       <PayrollBatchEntryPage
         onBack={() => setBatchView(false)}
-        onSuccess={(month) => { setBatchView(false); setFilterMonth(month); loadRecords(1); }}
+        onSuccess={(month) => { setBatchView(false); setFilterMonth(month); setRecordsView("batches"); loadRecords(1); loadBatches(); }}
         employees={employees}
         departments={departments}
         stations={stations}
@@ -911,6 +934,42 @@ export default function PayrollTab() {
             )}
           </div>
 
+          {/* By Batch (default) vs All Records toggle */}
+          <div className="flex rounded-lg border overflow-hidden w-fit">
+            <button
+              onClick={() => setRecordsView("batches")}
+              className={`px-3 py-1.5 text-xs transition-colors ${recordsView === "batches" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              By Batch
+            </button>
+            <button
+              onClick={() => setRecordsView("all")}
+              className={`px-3 py-1.5 text-xs transition-colors border-l ${recordsView === "all" ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"}`}
+            >
+              All Records
+            </button>
+          </div>
+
+          {recordsView === "batches" ? (
+            <DataTable
+              data={batches}
+              columns={[
+                { key: "createdAt",  label: "Submitted",  sortable: true, render: b => new Date(b.createdAt).toLocaleString() },
+                { key: "month",      label: "Month",      sortable: true },
+                { key: "stationId",  label: "Location",   render: b => b.stationId ? (stations.find(s => s.id === b.stationId)?.name ?? b.stationId) : "All Locations" },
+                { key: "scope",      label: "Scope" },
+                { key: "submittedByName", label: "Submitted By" },
+                { key: "recordCount", label: "Employees", render: b => String(b.recordCount) },
+                { key: "totalNetPay", label: "Total Net", render: b => fmt(b.totalNetPay) },
+                { key: "status",     label: "Status",     render: b => <StatusBadge status={b.status} /> },
+              ] as Column<ApiPayrollBatch>[]}
+              searchKeys={["scope", "submittedByName", "month"]}
+              searchPlaceholder="Search batches…"
+              onView={openBatch}
+              loading={batchesLoading}
+            />
+          ) : (
+          <>
           <DataTable
             data={data}
             columns={columns}
@@ -936,6 +995,8 @@ export default function PayrollTab() {
                 </Button>
               </div>
             </div>
+          )}
+          </>
           )}
         </TabsContent>
 
@@ -996,7 +1057,7 @@ export default function PayrollTab() {
                     {procData.map(r => (
                       <tr key={r.id} className="border-t hover:bg-muted/20">
                         <td className="px-3 py-1.5">
-                          <div className="font-medium">{r.employee?.user?.name ?? "—"}</div>
+                          <div className="font-medium">{r.employee?.user?.name ?? r.employee?.name ?? "—"}</div>
                           <div className="text-muted-foreground text-[10px]">{r.employee?.employeeNumber}</div>
                         </td>
                         <td className="px-3 py-1.5 text-muted-foreground">{r.employee?.department?.name ?? "—"}</td>
@@ -1205,7 +1266,7 @@ export default function PayrollTab() {
                 <SelectTrigger><SelectValue placeholder="Select employee" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="_none_">— Select —</SelectItem>
-                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}
+                  {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber} — {e.employeeNumber}</SelectItem>)}
                 </SelectContent>
               </Select>
               {editing && <p className="text-xs text-muted-foreground mt-1">Employee cannot be changed after creation.</p>}
@@ -1275,6 +1336,35 @@ export default function PayrollTab() {
         </div>
       </ModalForm>
 
+      {/* ── Batch detail — the records processed in a single "Submit Batch" run ──── */}
+      <ModalForm
+        open={!!viewingBatch}
+        onClose={() => setViewingBatch(null)}
+        title={viewingBatch ? `Payroll Batch — ${viewingBatch.month}` : "Payroll Batch"}
+        isView
+      >
+        {viewingBatch && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div><span className="text-muted-foreground">Location:</span> {viewingBatch.stationId ? (stations.find(s => s.id === viewingBatch.stationId)?.name ?? viewingBatch.stationId) : "All Locations"}</div>
+              <div><span className="text-muted-foreground">Scope:</span> {viewingBatch.scope}</div>
+              <div><span className="text-muted-foreground">Submitted By:</span> {viewingBatch.submittedByName}</div>
+              <div><span className="text-muted-foreground">Submitted:</span> {new Date(viewingBatch.createdAt).toLocaleString()}</div>
+              <div><span className="text-muted-foreground">Employees:</span> {viewingBatch.recordCount}</div>
+              <div><span className="text-muted-foreground">Total Net:</span> {fmt(viewingBatch.totalNetPay)}</div>
+              <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={viewingBatch.status} /></div>
+            </div>
+            <DataTable
+              data={viewingBatch.records}
+              columns={columns}
+              searchKeys={["id", "employeeId"]}
+              searchPlaceholder="Search this batch…"
+              onView={item => setViewing(item)}
+            />
+          </div>
+        )}
+      </ModalForm>
+
       {/* ── View / Print Payslip ─────────────────────────────────────────────────── */}
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Payslip" isView>
         {viewing && (
@@ -1295,7 +1385,7 @@ export default function PayrollTab() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employeeId}</div>
+                <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId}</div>
                 <div><span className="text-muted-foreground">Emp No.:</span> {viewing.employee?.employeeNumber ?? "—"}</div>
                 <div><span className="text-muted-foreground">Department:</span> {viewing.employee?.department?.name ?? "—"}</div>
                 <div><span className="text-muted-foreground">Job Title:</span> {viewing.employee?.jobTitle?.title ?? "—"}</div>
@@ -1456,7 +1546,7 @@ export default function PayrollTab() {
                         );
                       }}
                     />
-                    <span>{e.user?.name ?? e.employeeNumber}</span>
+                    <span>{e.user?.name ?? e.name ?? e.employeeNumber}</span>
                     <span className="text-muted-foreground text-xs">{e.employeeNumber}</span>
                   </label>
                 ))}
