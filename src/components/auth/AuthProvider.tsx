@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async function restoreSession() {
       try {
         const res = await fetch(
-          `${import.meta.env.VITE_API_URL || "https://isms-backend-production.up.railway.app/api/v1"}/auth/refresh`,
+          `${import.meta.env.VITE_API_URL || "http://localhost:5002/api/v1"}/auth/refresh`,
           { method: "POST", credentials: "include" },
         );
         if (res.ok) {
