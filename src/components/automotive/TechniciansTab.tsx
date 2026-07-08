@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { autoApi, ApiAutoTechnician } from "@/lib/autoApi";
@@ -81,12 +82,21 @@ export function TechniciansTab() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (t: ApiAutoTechnician) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiAutoTechnician | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (t: ApiAutoTechnician) => setPendingDelete(t);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await autoApi.technicians.delete(t.id, stationId);
+      await autoApi.technicians.delete(pendingDelete.id, stationId);
       toast.success("Technician removed");
+      setPendingDelete(null);
       load();
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const stats = {
@@ -142,6 +152,16 @@ export function TechniciansTab() {
         onView={t => setViewing(t)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Remove technician "${pendingDelete?.name}"?`}
+        description="This technician profile will be permanently removed."
+        confirmLabel="Remove"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

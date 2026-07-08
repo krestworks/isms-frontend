@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -46,9 +47,21 @@ export function ReportTemplatesTab() {
   const openView = (t: ApiReportTemplate) => { setForm({ name: t.name, module: t.module, frequency: t.frequency, sections: t.sections, status: t.status, lastUsed: t.lastUsed ?? "" }); setModal({ mode: "view", item: t }); };
   const openEdit = (t: ApiReportTemplate) => { setForm({ name: t.name, module: t.module, frequency: t.frequency, sections: t.sections, status: t.status, lastUsed: t.lastUsed ?? "" }); setModal({ mode: "edit", item: t }); };
 
-  const handleDelete = async (t: ApiReportTemplate) => {
-    try { await reportsApi.templates.delete(t.id); toast.success("Template deleted"); load(); }
-    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  const [pendingDelete, setPendingDelete] = useState<ApiReportTemplate | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (t: ApiReportTemplate) => setPendingDelete(t);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await reportsApi.templates.delete(pendingDelete.id);
+      toast.success("Template deleted");
+      setPendingDelete(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const handleSave = async () => {
@@ -96,6 +109,16 @@ export function ReportTemplatesTab() {
       </div>
 
       <DataTable data={data} columns={columns} searchKeys={["name", "module", "sections"]} searchPlaceholder="Search templates..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete template "${pendingDelete?.name}"?`}
+        description="This report template will be permanently deleted."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
 
       {modal && (
         <ModalForm open onClose={() => setModal(null)} title={isView ? "Template Details" : modal.mode === "add" ? "New Template" : "Edit Template"} onSubmit={handleSave} isView={isView} submitLabel={saving ? "Saving…" : modal.mode === "edit" ? "Update" : "Create"}>

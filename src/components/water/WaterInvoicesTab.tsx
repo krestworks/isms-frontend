@@ -278,9 +278,9 @@ export function WaterInvoicesTab() {
                   {viewing.items.map((it, i) => (
                     <tr key={i} className="border-t">
                       <td className="p-2">{it.description}</td>
-                      <td className="p-2 text-right">{it.litres.toLocaleString()} L</td>
-                      <td className="p-2 text-right font-mono">Ksh {it.rate}</td>
-                      <td className="p-2 text-right font-mono">Ksh {it.amount.toLocaleString()}</td>
+                      <td className="p-2 text-right">{(it.litres ?? 0).toLocaleString()} L</td>
+                      <td className="p-2 text-right font-mono">Ksh {it.rate ?? 0}</td>
+                      <td className="p-2 text-right font-mono">Ksh {(it.amount ?? 0).toLocaleString()}</td>
                     </tr>
                   ))}
                 </tbody>

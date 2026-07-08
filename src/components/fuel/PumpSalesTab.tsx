@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -154,12 +155,19 @@ export function PumpSalesTab() {
     finally { setSaving(false); }
   };
 
-  const handleVoid = async (s: ApiFuelSale) => {
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiFuelSale | null>(null);
+  const [requestingVoid, setRequestingVoid] = useState(false);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
     try {
-      await fuelApi.sales.void(s.id, stationId);
-      toast.success("Sale voided");
+      await fuelApi.sales.void(pendingVoidSale.id, stationId);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
       load();
-    } catch (e: any) { toast.error(e?.message || "Failed to void sale"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const totals = {
@@ -240,7 +248,17 @@ export function PumpSalesTab() {
         searchPlaceholder="Search sales..."
         filters={filters}
         onView={s => setViewing(s)}
-        onDelete={canVoid ? handleVoid : undefined}
+        onDelete={canVoid ? setPendingVoidSale : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title="Request sale void"
+        description={`This requests approval to void receipt ${pendingVoidSale?.receiptNo}. A different user with permission must approve it before the sale is actually voided and tank stock restored.`}
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       {/* Record Sale */}

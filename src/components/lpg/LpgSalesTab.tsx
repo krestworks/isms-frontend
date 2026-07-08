@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -50,7 +51,7 @@ export function LpgSalesTab() {
     try {
       const [salesRes, cylRes] = await Promise.all([
         lpgApi.sales.list({ from: fromDate, to: toDate }, stationId),
-        lpgApi.cylinders.list({ status: "full" }, stationId),
+        lpgApi.cylinders.list({ status: "available" }, stationId),
       ]);
       setSales(salesRes.data ?? []);
       setCylinders(cylRes.data ?? []);
@@ -60,9 +61,13 @@ export function LpgSalesTab() {
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
-  // Group cylinders by size: count available + average selling price
+  // Group cylinders by size: count available + average selling price.
+  // Must match the backend's stock check (lpgController.createSale), which only
+  // counts cylinders with status === "available" — otherwise this shows sizes
+  // as in-stock (counting sold/with_customer cylinders too) when the backend
+  // would reject the sale.
   const sizeOptions: SizeOption[] = Object.values(
-    cylinders.reduce<Record<string, SizeOption>>((acc, c) => {
+    cylinders.filter(c => c.status === "available").reduce<Record<string, SizeOption>>((acc, c) => {
       if (!acc[c.size]) acc[c.size] = { size: c.size, available: 0, price: 0 };
       acc[c.size].available += 1;
       acc[c.size].price = c.sellingPrice; // last one wins — they should match per size
@@ -124,12 +129,19 @@ export function LpgSalesTab() {
     finally { setSaving(false); }
   };
 
-  const handleVoid = async (s: ApiLpgSale) => {
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiLpgSale | null>(null);
+  const [requestingVoid, setRequestingVoid] = useState(false);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
     try {
-      await lpgApi.sales.void(s.id, stationId);
-      toast.success("Sale voided");
+      await lpgApi.sales.void(pendingVoidSale.id, stationId);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
       load();
-    } catch (e: any) { toast.error(e?.message || "Failed to void"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const totals = {
@@ -204,7 +216,17 @@ export function LpgSalesTab() {
         searchPlaceholder="Search sales..."
         filters={filters}
         onView={s => setViewing(s)}
-        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? handleVoid(s) : undefined) : undefined}
+        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? setPendingVoidSale(s) : undefined) : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title="Request sale void"
+        description={`This requests approval to void receipt ${pendingVoidSale?.receiptNo}. A different user with permission must approve it before the sale is actually voided and the cylinder returned to stock.`}
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record LPG Sale"

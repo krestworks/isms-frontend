@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { carwashApi, ApiCarwashBooking } from "@/lib/carwashApi";
@@ -75,12 +76,21 @@ export function BookingsTab() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (b: ApiCarwashBooking) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiCarwashBooking | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (b: ApiCarwashBooking) => setPendingDelete(b);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await carwashApi.bookings.delete(b.id, stationId);
+      await carwashApi.bookings.delete(pendingDelete.id, stationId);
       toast.success("Booking deleted");
+      setPendingDelete(null);
       load();
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const stats = {
@@ -138,6 +148,16 @@ export function BookingsTab() {
         onView={b => setViewing(b)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete booking "${pendingDelete?.bookingRef}"?`}
+        description="This booking will be permanently deleted."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

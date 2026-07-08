@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -117,12 +118,19 @@ export default function PerformanceTab() {
     } catch (e: any) { toast.error(e?.message || "Save failed"); }
   };
 
-  const handleDelete = async (t: ApiPerformanceTask) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiPerformanceTask | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await hrApi.performance.remove(t.id);
-      setData(d => d.filter(x => x.id !== t.id));
+      await hrApi.performance.remove(pendingDelete.id);
+      setData(d => d.filter(x => x.id !== pendingDelete.id));
       toast.success("Task removed");
+      setPendingDelete(null);
     } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+    finally { setDeleting(false); }
   };
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
@@ -154,7 +162,17 @@ export default function PerformanceTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search tasks…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search tasks…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={t => setPendingDelete(t)} />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete task "${pendingDelete?.title}"?`}
+        description="This performance task will be permanently removed."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Task" : "New Performance Task"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Assign"}>
         <div className="space-y-4">

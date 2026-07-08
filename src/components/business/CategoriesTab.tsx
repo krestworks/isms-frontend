@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizCategory, ApiBizProduct } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
@@ -164,7 +164,7 @@ export function CategoriesTab({ business }: Props) {
         onDelete={canManage ? handleDelete : undefined}
       />
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         description={confirmDlg?.description}

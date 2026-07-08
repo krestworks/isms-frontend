@@ -10,8 +10,13 @@ import StockMovementsTab from "@/components/inventory/StockMovementsTab";
 import InventorySalesTab from "@/components/inventory/InventorySalesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { usePermissions } from "@/lib/permissions";
 
 export default function InventoryPage() {
+  const can = usePermissions();
+  const showAudit = can("audit.view");
+
   return (
     <ModulePageShell
       title="Central Inventory"
@@ -29,6 +34,7 @@ export default function InventoryPage() {
           <TabsTrigger value="sales">Sales</TabsTrigger>
           <TabsTrigger value="staff">Staff</TabsTrigger>
           <TabsTrigger value="shifts">Shifts</TabsTrigger>
+          {showAudit && <TabsTrigger value="audit">History</TabsTrigger>}
         </TabsList>
         <TabsContent value="dashboard"><InventoryDashboardTab /></TabsContent>
         <TabsContent value="products"><ProductsTab /></TabsContent>
@@ -39,6 +45,7 @@ export default function InventoryPage() {
         <TabsContent value="sales"><InventorySalesTab /></TabsContent>
         <TabsContent value="staff"><ModuleStaffTab department="Inventory" /></TabsContent>
         <TabsContent value="shifts"><ShiftScheduleTab department="Inventory" /></TabsContent>
+        {showAudit && <TabsContent value="audit"><ModuleAuditTab module="inventory" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

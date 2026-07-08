@@ -1,18 +1,20 @@
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Outlet } from "react-router-dom";
-import { Search, LogOut } from "lucide-react";
+import { Search, LogOut, Sun, Moon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { HeaderSwitchers } from "./HeaderSwitchers";
 import { NotificationsBell } from "./NotificationsBell";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useSession } from "@/data/sessionStore";
+import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
 
 export function AppLayout() {
   const { logout } = useAuth();
   const { activeLocation } = useSession();
+  const { theme, toggle: toggleTheme } = useTheme();
 
   async function handleLogout() {
     await logout();
@@ -38,6 +40,15 @@ export function AppLayout() {
             <div className="flex items-center gap-2">
               <HeaderSwitchers />
               <NotificationsBell />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleTheme}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
               <Button
                 variant="ghost"
                 size="icon"

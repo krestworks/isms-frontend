@@ -5,6 +5,7 @@ import { ModuleCard } from "@/components/dashboard/ModuleCard";
 import { RevenueChart } from "@/components/dashboard/RevenueChart";
 import { AlertsFeed } from "@/components/dashboard/AlertsFeed";
 import { ApproverInbox } from "@/components/dashboard/ApproverInbox";
+import { ApprovalsInbox } from "@/components/dashboard/ApprovalsInbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -378,6 +379,7 @@ export default function DashboardPage() {
       )}
 
       <ApproverInbox />
+      <ApprovalsInbox />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {canViewFinance && <div className="lg:col-span-2"><RevenueChart /></div>}

@@ -9,6 +9,7 @@ import { ReconciliationTab } from "@/components/fuel/ReconciliationTab";
 import { FuelDeliveriesTab } from "@/components/fuel/FuelDeliveriesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function FuelPage() {
@@ -21,6 +22,7 @@ export default function FuelPage() {
   const showDeliveries = can("fuel.deliveries.view") || can("fuel.inventory.receive");
   const showStaff      = can("hr.staff.view");
   const showShifts     = can("hr.shifts.view");
+  const showAudit      = can("audit.view");
 
   const defaultTab = showSales ? "pump-sales" : showTanks ? "tanks" : "pump-sales";
 
@@ -36,6 +38,7 @@ export default function FuelPage() {
           {showDeliveries && <TabsTrigger value="deliveries"     className="text-xs">Deliveries</TabsTrigger>}
           {showStaff      && <TabsTrigger value="staff"          className="text-xs">Staff</TabsTrigger>}
           {showShifts     && <TabsTrigger value="shifts"         className="text-xs">Shifts</TabsTrigger>}
+          {showAudit      && <TabsTrigger value="audit"          className="text-xs">History</TabsTrigger>}
         </TabsList>
         {showTanks      && <TabsContent value="tanks"><TanksTab /></TabsContent>}
         {showSales      && <TabsContent value="pump-sales"><PumpSalesTab /></TabsContent>}
@@ -45,6 +48,7 @@ export default function FuelPage() {
         {showDeliveries && <TabsContent value="deliveries"><FuelDeliveriesTab /></TabsContent>}
         {showStaff      && <TabsContent value="staff"><ModuleStaffTab department="Fuel" /></TabsContent>}
         {showShifts     && <TabsContent value="shifts"><ShiftScheduleTab department="Fuel" /></TabsContent>}
+        {showAudit      && <TabsContent value="audit"><ModuleAuditTab module="fuel" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

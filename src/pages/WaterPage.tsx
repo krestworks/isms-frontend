@@ -9,6 +9,7 @@ import { DistributionTab } from "@/components/water/DistributionTab";
 import { WaterInvoicesTab } from "@/components/water/WaterInvoicesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function WaterPage() {
@@ -22,6 +23,7 @@ export default function WaterPage() {
   const showInvoices    = can("water.invoices.issue");
   const showStaff       = can("hr.staff.view");
   const showShifts      = can("hr.shifts.view");
+  const showAudit       = can("audit.view");
 
   const defaultTab = showProduction ? "production" : showSales ? "sales" : "production";
 
@@ -37,6 +39,7 @@ export default function WaterPage() {
           {showInvoices   && <TabsTrigger value="invoices"     className="text-xs">Invoices</TabsTrigger>}
           {showStaff      && <TabsTrigger value="staff"        className="text-xs">Staff</TabsTrigger>}
           {showShifts     && <TabsTrigger value="shifts"       className="text-xs">Shifts</TabsTrigger>}
+          {showAudit      && <TabsTrigger value="audit"        className="text-xs">History</TabsTrigger>}
         </TabsList>
         {showProduction && <TabsContent value="production"><ProductionTab /></TabsContent>}
         {showEquipment  && <TabsContent value="equipment"><EquipmentTab /></TabsContent>}
@@ -46,6 +49,7 @@ export default function WaterPage() {
         {showInvoices   && <TabsContent value="invoices"><WaterInvoicesTab /></TabsContent>}
         {showStaff      && <TabsContent value="staff"><ModuleStaffTab department="Water" /></TabsContent>}
         {showShifts     && <TabsContent value="shifts"><ShiftScheduleTab department="Water" /></TabsContent>}
+        {showAudit      && <TabsContent value="audit"><ModuleAuditTab module="water" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

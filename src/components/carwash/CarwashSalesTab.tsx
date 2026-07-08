@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -106,12 +107,19 @@ export function CarwashSalesTab() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (s: ApiCarwashSale) => {
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiCarwashSale | null>(null);
+  const [requestingVoid, setRequestingVoid] = useState(false);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
     try {
-      await carwashApi.sales.delete(s.id, stationId);
-      toast.success("Sale deleted");
+      await carwashApi.sales.delete(pendingVoidSale.id, stationId);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
       load();
-    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const totals = {
@@ -184,7 +192,17 @@ export function CarwashSalesTab() {
         filters={filters}
         onView={s => setViewing(s)}
         onEdit={canManage ? openEdit : undefined}
-        onDelete={canManage ? handleDelete : undefined}
+        onDelete={canManage ? setPendingVoidSale : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title="Request sale void"
+        description={`This requests approval to void receipt ${pendingVoidSale?.receiptNo}. A different user with permission must approve it before the sale is actually voided.`}
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

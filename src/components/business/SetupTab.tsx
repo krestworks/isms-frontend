@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { DataTable, Column } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizTable } from "@/lib/bizApi";
@@ -92,9 +93,19 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
     finally { setSavingTable(false); }
   };
 
-  const handleDeleteTable = async (t: ApiBizTable) => {
-    try { await bizApi.tables.delete(t.id); toast.success("Table removed"); loadTables(); }
-    catch (e: any) { toast.error((e as any)?.message || "Failed to delete"); }
+  const [pendingDeleteTable, setPendingDeleteTable] = useState<ApiBizTable | null>(null);
+  const [deletingTable, setDeletingTable] = useState(false);
+
+  const confirmDeleteTable = async () => {
+    if (!pendingDeleteTable) return;
+    setDeletingTable(true);
+    try {
+      await bizApi.tables.delete(pendingDeleteTable.id);
+      toast.success("Table removed");
+      setPendingDeleteTable(null);
+      loadTables();
+    } catch (e: any) { toast.error((e as any)?.message || "Failed to delete"); }
+    finally { setDeletingTable(false); }
   };
 
   const tableColumns: Column<ApiBizTable>[] = [
@@ -155,11 +166,21 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
               data={tables} columns={tableColumns}
               searchKeys={["tableNo"]} searchPlaceholder="Search tables..."
               onEdit={canManage ? openEditTable : undefined}
-              onDelete={canManage ? handleDeleteTable : undefined}
+              onDelete={canManage ? (t => setPendingDeleteTable(t)) : undefined}
             />
           </CardContent>
         </Card>
       )}
+
+      <DangerConfirmModal
+        open={!!pendingDeleteTable}
+        title={`Remove table "${pendingDeleteTable?.tableNo}"?`}
+        description="This table will be permanently removed."
+        confirmLabel="Remove"
+        loading={deletingTable}
+        onConfirm={confirmDeleteTable}
+        onCancel={() => setPendingDeleteTable(null)}
+      />
 
       <ModalForm open={tableModal} onClose={() => setTableModal(false)}
         title={editingTable ? "Edit Table" : "Add Table"}

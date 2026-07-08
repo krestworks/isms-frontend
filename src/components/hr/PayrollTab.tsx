@@ -745,12 +745,12 @@ export default function PayrollTab() {
     const map = new Map<string, { name: string; empNo: string; dept: string; m1?: ApiPayroll; m2?: ApiPayroll }>();
     for (const p of varData1) {
       const key = p.employeeId;
-      if (!map.has(key)) map.set(key, { name: p.employee?.user.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
+      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
       map.get(key)!.m1 = p;
     }
     for (const p of varData2) {
       const key = p.employeeId;
-      if (!map.has(key)) map.set(key, { name: p.employee?.user.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
+      if (!map.has(key)) map.set(key, { name: p.employee?.user?.name ?? key, empNo: p.employee?.employeeNumber ?? "—", dept: p.employee?.department?.name ?? "—" });
       map.get(key)!.m2 = p;
     }
 

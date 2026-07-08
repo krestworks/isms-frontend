@@ -7,6 +7,7 @@ import BookingsTab from "@/components/carwash/BookingsTab";
 import CarwashSalesTab from "@/components/carwash/CarwashSalesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function CarwashPage() {
@@ -18,6 +19,7 @@ export default function CarwashPage() {
   const showSales    = can("carwash.sales.view");
   const showStaff    = can("hr.staff.view");
   const showShifts   = can("hr.shifts.view");
+  const showAudit    = can("audit.view");
 
   const defaultTab = showSales ? "sales" : showQueue ? "queue" : "sales";
 
@@ -31,6 +33,7 @@ export default function CarwashPage() {
           {showSales    && <TabsTrigger value="sales">Daily Sales</TabsTrigger>}
           {showStaff    && <TabsTrigger value="staff">Staff</TabsTrigger>}
           {showShifts   && <TabsTrigger value="shifts">Shifts</TabsTrigger>}
+          {showAudit    && <TabsTrigger value="audit">History</TabsTrigger>}
         </TabsList>
         {showQueue    && <TabsContent value="queue"><VehicleQueueTab /></TabsContent>}
         {showPackages && <TabsContent value="packages"><WashPackagesTab /></TabsContent>}
@@ -38,6 +41,7 @@ export default function CarwashPage() {
         {showSales    && <TabsContent value="sales"><CarwashSalesTab /></TabsContent>}
         {showStaff    && <TabsContent value="staff"><ModuleStaffTab department="Car Wash" /></TabsContent>}
         {showShifts   && <TabsContent value="shifts"><ShiftScheduleTab department="Car Wash" /></TabsContent>}
+        {showAudit    && <TabsContent value="audit"><ModuleAuditTab module="carwash" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

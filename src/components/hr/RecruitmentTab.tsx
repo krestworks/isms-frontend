@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { toast } from "sonner";
 import {
   hrApi,
@@ -252,14 +253,21 @@ export default function RecruitmentTab() {
     });
   };
 
-  const handleDeleteJob = (job: ApiJob) => {
-    setConfirmDlg({
-      title: `Delete "${job.title}"? This cannot be undone.`,
-      onConfirm: async () => {
-        try { await hrApi.recruitment.jobs.remove(job.id); toast.success("Job deleted"); loadJobs(); }
-        catch (e: any) { toast.error(e.message); }
-      },
-    });
+  const [pendingDeleteJob, setPendingDeleteJob] = useState<ApiJob | null>(null);
+  const [deletingJob, setDeletingJob] = useState(false);
+
+  const handleDeleteJob = (job: ApiJob) => setPendingDeleteJob(job);
+
+  const confirmDeleteJob = async () => {
+    if (!pendingDeleteJob) return;
+    setDeletingJob(true);
+    try {
+      await hrApi.recruitment.jobs.remove(pendingDeleteJob.id);
+      toast.success("Job deleted");
+      setPendingDeleteJob(null);
+      loadJobs();
+    } catch (e: any) { toast.error(e.message); }
+    finally { setDeletingJob(false); }
   };
 
   const openJobApplications = async (job: ApiJob) => {
@@ -830,6 +838,16 @@ export default function RecruitmentTab() {
           open={!!confirmDlg} title={confirmDlg?.title ?? ""} confirmLabel="Confirm"
           onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
           onCancel={() => setConfirmDlg(null)}
+        />
+
+        <DangerConfirmModal
+          open={!!pendingDeleteJob}
+          title={`Delete "${pendingDeleteJob?.title}"?`}
+          description="This job posting cannot be recovered once deleted."
+          confirmLabel="Delete"
+          loading={deletingJob}
+          onConfirm={confirmDeleteJob}
+          onCancel={() => setPendingDeleteJob(null)}
         />
       </div>
     );

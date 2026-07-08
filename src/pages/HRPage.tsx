@@ -14,8 +14,13 @@ import DocumentsTab from "@/components/hr/DocumentsTab";
 import HRReportsTab from "@/components/hr/HRReportsTab";
 import AuditLogTab from "@/components/hr/AuditLogTab";
 import RecruitmentTab from "@/components/hr/RecruitmentTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { usePermissions } from "@/lib/permissions";
 
 export default function HRPage() {
+  const can = usePermissions();
+  const showModuleHistory = can("audit.view");
+
   return (
     <ModulePageShell title="HR Management" description="Central staff hub — onboarding, leave, payroll, attendance, discipline, performance" icon={UserCog}>
       <Tabs defaultValue="onboarding" className="w-full">
@@ -33,6 +38,7 @@ export default function HRPage() {
           <TabsTrigger value="recruitment">Recruitment</TabsTrigger>
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="audit">Audit Log</TabsTrigger>
+          {showModuleHistory && <TabsTrigger value="history">Deletion History</TabsTrigger>}
         </TabsList>
         <TabsContent value="setup"><HRSetupTab /></TabsContent>
         <TabsContent value="onboarding"><StaffOnboardingTab /></TabsContent>
@@ -47,6 +53,7 @@ export default function HRPage() {
         <TabsContent value="recruitment"><RecruitmentTab /></TabsContent>
         <TabsContent value="reports"><HRReportsTab /></TabsContent>
         <TabsContent value="audit"><AuditLogTab /></TabsContent>
+        {showModuleHistory && <TabsContent value="history"><ModuleAuditTab module="hr" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

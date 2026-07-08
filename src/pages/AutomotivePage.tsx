@@ -8,6 +8,7 @@ import { BillingTab } from "@/components/automotive/BillingTab";
 import { AutoInvoicesTab } from "@/components/automotive/AutoInvoicesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
+import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function AutomotivePage() {
@@ -20,6 +21,7 @@ export default function AutomotivePage() {
   const showInvoices = can("auto.invoices.issue") || can("auto.billing.view");
   const showStaff    = can("hr.staff.view");
   const showShifts   = can("hr.shifts.view");
+  const showAudit    = can("audit.view");
 
   const defaultTab = showServices ? "services" : showBilling ? "billing" : "services";
 
@@ -34,6 +36,7 @@ export default function AutomotivePage() {
           {showInvoices && <TabsTrigger value="invoices" className="text-xs">Invoices</TabsTrigger>}
           {showStaff    && <TabsTrigger value="staff"    className="text-xs">Technicians</TabsTrigger>}
           {showShifts   && <TabsTrigger value="shifts"   className="text-xs">Shifts</TabsTrigger>}
+          {showAudit    && <TabsTrigger value="audit"    className="text-xs">History</TabsTrigger>}
         </TabsList>
         {showServices && <TabsContent value="services"><ServiceRecordsTab /></TabsContent>}
         {showPricing  && <TabsContent value="pricing"><ServicePricingTab /></TabsContent>}
@@ -42,6 +45,7 @@ export default function AutomotivePage() {
         {showInvoices && <TabsContent value="invoices"><AutoInvoicesTab /></TabsContent>}
         {showStaff    && <TabsContent value="staff"><ModuleStaffTab department="Automotive" /></TabsContent>}
         {showShifts   && <TabsContent value="shifts"><ShiftScheduleTab department="Automotive" /></TabsContent>}
+        {showAudit    && <TabsContent value="audit"><ModuleAuditTab module="auto" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

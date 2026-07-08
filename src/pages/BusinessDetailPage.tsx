@@ -19,6 +19,8 @@ import { StockMovementsTab } from "@/components/business/StockMovementsTab";
 import { ExpensesTab }       from "@/components/business/ExpensesTab";
 import { ReportsTab }        from "@/components/business/ReportsTab";
 import { SetupTab }          from "@/components/business/SetupTab";
+import { ModuleAuditTab }    from "@/components/shared/ModuleAuditTab";
+import { usePermissions }    from "@/lib/permissions";
 
 const ICONS: Record<string, React.ElementType> = {
   mart: ShoppingCart, pharmacy: Pill, restaurant: UtensilsCrossed, "Tyre Centre": Croissant,
@@ -37,6 +39,8 @@ export default function BusinessDetailPage() {
   const slug     = useBusinessSlug();
   const [business, setBusiness] = useState<ApiBizBusiness | null>(null);
   const [loading,  setLoading]  = useState(true);
+  const can = usePermissions();
+  const showAudit = can("audit.view");
 
   useEffect(() => {
     if (!id) return;
@@ -93,6 +97,7 @@ export default function BusinessDetailPage() {
             <TabsTrigger value="expenses"   className="text-xs px-3">Expenses</TabsTrigger>
             <TabsTrigger value="reports"    className="text-xs px-3">Reports</TabsTrigger>
             <TabsTrigger value="setup"      className="text-xs px-3">Setup</TabsTrigger>
+            {showAudit && <TabsTrigger value="audit" className="text-xs px-3">History</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="pos">        <POSTab             business={business} /></TabsContent>
@@ -105,6 +110,7 @@ export default function BusinessDetailPage() {
           <TabsContent value="expenses">   <ExpensesTab        business={business} /></TabsContent>
           <TabsContent value="reports">    <ReportsTab         business={business} /></TabsContent>
           <TabsContent value="setup">      <SetupTab           business={business} isRestaurant={isRestaurant} onUpdate={setBusiness} /></TabsContent>
+          {showAudit && <TabsContent value="audit"><ModuleAuditTab module="business" /></TabsContent>}
         </Tabs>
       </div>
     </ModulePageShell>
