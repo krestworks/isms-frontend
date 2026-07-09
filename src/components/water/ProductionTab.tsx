@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { waterApi, ApiWaterProduction } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 
 const SHIFTS = ["Morning", "Afternoon", "Night"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -24,6 +25,7 @@ const emptyForm = {
 
 export function ProductionTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canLog = can("water.production.log");
 
@@ -47,7 +49,7 @@ export function ProductionTab() {
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
-  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today(), operator: user.name || "" }); setModalOpen(true); };
   const openEdit = (p: ApiWaterProduction) => {
     setEditing(p);
     setForm({

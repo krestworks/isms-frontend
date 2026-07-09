@@ -7,13 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { rolesApi, allPermissionsApi, ApiRole } from "@/lib/usersApi";
 import { useSession } from "@/data/sessionStore";
 
 type FormMode = "add" | "edit" | "view";
 
-const blank: Omit<ApiRole, "id" | "usersCount"> = { name: "", description: "", permissions: [], status: "active" };
+const blank: Omit<ApiRole, "id" | "usersCount"> = { name: "", description: "", permissions: [], status: "active", requiresOtpLogin: false };
 
 export function RolesTab() {
   const { user } = useSession();
@@ -46,18 +47,18 @@ export function RolesTab() {
   const set = (k: keyof typeof blank, v: any) => setForm(f => ({ ...f, [k]: v }));
 
   const openAdd  = () => { setForm({ ...blank }); setModal({ mode: "add" }); };
-  const openView = (r: ApiRole) => { setForm({ name: r.name, description: r.description ?? "", permissions: r.permissions, status: r.status }); setModal({ mode: "view", id: r.id }); };
-  const openEdit = (r: ApiRole) => { setForm({ name: r.name, description: r.description ?? "", permissions: r.permissions, status: r.status }); setModal({ mode: "edit", id: r.id }); };
+  const openView = (r: ApiRole) => { setForm({ name: r.name, description: r.description ?? "", permissions: r.permissions, status: r.status, requiresOtpLogin: r.requiresOtpLogin ?? false }); setModal({ mode: "view", id: r.id }); };
+  const openEdit = (r: ApiRole) => { setForm({ name: r.name, description: r.description ?? "", permissions: r.permissions, status: r.status, requiresOtpLogin: r.requiresOtpLogin ?? false }); setModal({ mode: "edit", id: r.id }); };
 
   const handleSave = async () => {
     if (!form.name) return toast.error("Role name is required");
     setSaving(true);
     try {
       if (modal?.mode === "add") {
-        await rolesApi.create({ name: form.name, description: form.description || undefined, permissions: form.permissions });
+        await rolesApi.create({ name: form.name, description: form.description || undefined, permissions: form.permissions, requiresOtpLogin: form.requiresOtpLogin });
         toast.success("Role created");
       } else if (modal?.mode === "edit" && modal.id) {
-        await rolesApi.update(modal.id, { name: form.name, description: form.description || undefined, permissions: form.permissions });
+        await rolesApi.update(modal.id, { name: form.name, description: form.description || undefined, permissions: form.permissions, requiresOtpLogin: form.requiresOtpLogin });
         toast.success("Role updated");
       }
       setModal(null);
@@ -90,6 +91,9 @@ export function RolesTab() {
     { key: "description", label: "Description", render: r => r.description || "—" },
     { key: "usersCount",  label: "Users",       sortable: true },
     { key: "permissions", label: "Permissions", render: r => <span className="text-xs text-muted-foreground">{r.permissions.length} permissions</span> },
+    { key: "requiresOtpLogin", label: "Login OTP", render: r => r.requiresOtpLogin
+      ? <span className="text-xs font-medium text-primary">Required</span>
+      : <span className="text-xs text-muted-foreground">Off</span> },
   ];
 
   const isView = modal?.mode === "view";
@@ -119,6 +123,13 @@ export function RolesTab() {
           <div className="space-y-3">
             <div><Label>Role Name</Label><Input value={form.name} onChange={e => set("name", e.target.value)} readOnly={isView} /></div>
             <div><Label>Description</Label><Textarea value={form.description ?? ""} onChange={e => set("description", e.target.value)} readOnly={isView} /></div>
+            <div className="flex items-center justify-between rounded-lg border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium">Require OTP on login</p>
+                <p className="text-xs text-muted-foreground">Users with this role must enter a code sent to their phone after their password, every time they log in.</p>
+              </div>
+              <Switch checked={!!form.requiresOtpLogin} onCheckedChange={v => set("requiresOtpLogin", v)} disabled={isView} />
+            </div>
             <div>
               <div className="flex items-center justify-between mb-2">
                 <Label>Permissions</Label>

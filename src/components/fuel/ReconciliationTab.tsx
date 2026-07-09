@@ -92,11 +92,7 @@ export function ReconciliationTab() {
         deliveries: form.deliveries,
         expectedSales: form.expectedSales,
         actualSales: form.actualSales,
-        closingStockExpected: derived.closingExpected,
         closingStockActual: form.closingStockActual,
-        variance: derived.variance,
-        variancePct: derived.variancePct,
-        status: derived.status,
         notes: form.notes,
       } as any, stationId);
       toast.success("Reconciliation saved");

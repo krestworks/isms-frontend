@@ -46,13 +46,23 @@ export function ShiftScheduleTab({ department }: Props) {
       ]);
 
       const allEmp = empRes.status === "fulfilled" ? (empRes.value.data ?? []) : [];
-      setEmployees(
-        department
-          ? allEmp.filter(e => e.department?.name?.toLowerCase() === department.toLowerCase())
-          : allEmp
-      );
+      // Filter: prefer explicit workModules assignment; fall back to department name
+      // match — same rule as ModuleStaffTab, so "who's staff" and "who can be
+      // scheduled" always agree for a given module.
+      const scopedEmployees = department
+        ? allEmp.filter(e => {
+            if (e.workModules && e.workModules.length > 0) {
+              return e.workModules.some((m: string) => m.toLowerCase() === department.toLowerCase());
+            }
+            return e.department?.name?.toLowerCase() === department.toLowerCase();
+          })
+        : allEmp;
+      setEmployees(scopedEmployees);
       setPatterns(patRes.status === "fulfilled" ? (patRes.value.data ?? []) : []);
-      setAssignments(assRes.status === "fulfilled" ? (assRes.value.data ?? []) : []);
+
+      const allAssignments = assRes.status === "fulfilled" ? (assRes.value.data ?? []) : [];
+      const scopedIds = new Set(scopedEmployees.map(e => e.id));
+      setAssignments(department ? allAssignments.filter(a => scopedIds.has(a.employeeId)) : allAssignments);
     } catch (e: any) {
       toast.error(e?.message || "Failed to load shift data");
     } finally {
@@ -70,7 +80,7 @@ export function ShiftScheduleTab({ department }: Props) {
   }), [assignments, today]);
 
   const columns: Column<ApiShiftAssignment>[] = [
-    { key: "employee",     label: "Employee",  render: a => a.employee?.user.name ?? "—" },
+    { key: "employee",     label: "Employee",  render: a => a.employee?.user?.name ?? a.employee?.name ?? "—" },
     { key: "date",         label: "Date",       sortable: true, render: a => new Date(a.date).toLocaleDateString() },
     { key: "shiftPattern", label: "Shift",      render: a => <Badge variant="outline">{a.shiftPattern?.name ?? "—"}</Badge> },
     { key: "startTime",    label: "Start",      render: a => a.shiftPattern?.startTime ?? "—" },
@@ -178,7 +188,7 @@ export function ShiftScheduleTab({ department }: Props) {
               <SelectContent>
                 {employees.map(e => (
                   <SelectItem key={e.id} value={e.id}>
-                    {e.user.name} — {e.jobTitle?.title ?? e.user.activeRole}
+                    {e.user?.name ?? e.name ?? e.employeeNumber} — {e.jobTitle?.title ?? e.user?.activeRole ?? "—"}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -108,7 +108,7 @@ export function NotificationsBell() {
     setActing(true);
     try {
       await hrApi.leaves.approve(r.id, action, approvalNote || undefined);
-      toast.success(action === "approve" ? `Approved leave for ${r.employee?.user.name ?? "employee"}` : "Leave rejected");
+      toast.success(action === "approve" ? `Approved leave for ${r.employee?.user?.name ?? r.employee?.name ?? "employee"}` : "Leave rejected");
       setActiveId(null); setApprovalNote("");
       loadPending();
     } catch (e: any) { toast.error(e?.message || "Action failed"); }
@@ -186,7 +186,7 @@ export function NotificationsBell() {
               </p>
               {pendingLeaves.slice(0, 6).map(r => {
                 const isActive  = activeId === r.id;
-                const empName   = r.employee?.user.name ?? "Employee";
+                const empName   = r.employee?.user?.name ?? r.employee?.name ?? "Employee";
                 const leaveName = r.leaveType?.name ?? "Leave";
                 return (
                   <div key={r.id} className="px-4 py-3 text-xs space-y-2">

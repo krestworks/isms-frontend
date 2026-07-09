@@ -239,6 +239,13 @@ export function UsersTab() {
     catch (e: any) { toast.error(e?.message || "Failed to update status"); }
   };
 
+  const handleForceLogout = async (u: ApiUser) => {
+    try {
+      const res = await usersApi.forceLogout(u.id);
+      toast.success(res.message || "Sessions revoked");
+    } catch (e: any) { toast.error(e?.message || "Failed to force logout"); }
+  };
+
   const toggleRole = (role: string) => {
     set("roles", form.roles.includes(role)
       ? form.roles.filter(r => r !== role)
@@ -290,7 +297,10 @@ export function UsersTab() {
         filters={filters}
         onView={openView}
         onEdit={openEdit}
-        extraActions={[{ label: "Toggle Status", onClick: handleStatusToggle }]}
+        extraActions={[
+          { label: "Toggle Status", onClick: handleStatusToggle },
+          { label: "Force Logout", onClick: handleForceLogout },
+        ]}
       />
 
       {/* ── View / Edit modal ─────────────────────────────────────────────── */}

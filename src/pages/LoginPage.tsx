@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { authService } from "@/lib/authService";
 import { useTheme } from "@/lib/theme";
+import { OtpInput } from "@/components/shared/OtpInput";
 import { toast } from "sonner";
 
 const loginSchema = z.object({
@@ -37,10 +38,15 @@ const resetSchema = z.object({
   path: ["confirmPassword"],
 });
 
+const otpSchema = z.object({
+  otp: z.string().regex(/^\d{6}$/, "Enter the 6-digit code"),
+});
+
 type LoginValues  = z.infer<typeof loginSchema>;
 type ForgotValues = z.infer<typeof forgotSchema>;
 type ResetValues  = z.infer<typeof resetSchema>;
-type View = "login" | "forgot" | "reset";
+type OtpValues    = z.infer<typeof otpSchema>;
+type View = "login" | "forgot" | "reset" | "otp";
 
 const metricCards = [
   { label: "Live Monitoring",  value: "Real-time",     icon: Zap        },
@@ -88,7 +94,7 @@ const A = {
 };
 
 export default function LoginPage() {
-  const { login, error, clearError } = useAuth();
+  const { login, completeOtpLogin, error, clearError } = useAuth();
   const navigate   = useNavigate();
   const location   = useLocation();
   const { theme, toggle } = useTheme();
@@ -97,21 +103,60 @@ export default function LoginPage() {
   const [view, setView]                 = useState<View>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting]     = useState(false);
+  const [otpChallenge, setOtpChallenge] = useState<string | null>(null);
+  const [emailUnverified, setEmailUnverified] = useState<string | null>(null);
+  const [trustDevice, setTrustDevice] = useState(false);
 
   const loginForm  = useForm<LoginValues>({ resolver: zodResolver(loginSchema) });
   const forgotForm = useForm<ForgotValues>({ resolver: zodResolver(forgotSchema) });
   const resetForm  = useForm<ResetValues>({ resolver: zodResolver(resetSchema) });
+  const otpForm    = useForm<OtpValues>({ resolver: zodResolver(otpSchema) });
 
   async function handleLogin(values: LoginValues) {
     clearError();
+    setEmailUnverified(null);
     setSubmitting(true);
     try {
-      await login(values.email, values.password);
+      const outcome = await login(values.email, values.password);
+      if (outcome.requiresOtp) {
+        setOtpChallenge(outcome.otpChallenge ?? null);
+        if (outcome.devOtp) toast.info(`DEV — login OTP: ${outcome.devOtp}`, { duration: 60000 });
+        toast.success("Enter the code sent to your registered email");
+        setView("otp");
+        return;
+      }
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      // ApiError.data carries the parsed response body, including `code`
+      if (err?.data?.code === "EMAIL_NOT_VERIFIED") {
+        setEmailUnverified(values.email);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleOtpSubmit(values: OtpValues) {
+    if (!otpChallenge) { setView("login"); return; }
+    setSubmitting(true);
+    try {
+      await completeOtpLogin(otpChallenge, values.otp, trustDevice);
       navigate(from, { replace: true });
     } catch {
       // error displayed via AuthContext
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleResendVerification() {
+    if (!emailUnverified) return;
+    try {
+      const res = await authService.resendEmailVerification(emailUnverified);
+      toast.success("If that account needs verification, a new link has been sent to its email address");
+      if ((res as any).dev_email) toast.info("DEV — verification link logged to server console", { duration: 8000 });
+    } catch {
+      toast.error("Failed to resend verification email");
     }
   }
 
@@ -351,6 +396,16 @@ export default function LoginPage() {
                         <AlertDescription className="text-xs" style={{ color: "#f87171" }}>{error}</AlertDescription>
                       </Alert>
                     )}
+                    {emailUnverified && (
+                      <Alert className="border-amber-300 bg-amber-50 dark:border-amber-800/60 dark:bg-amber-950/40 py-2.5">
+                        <AlertDescription className="text-amber-800 dark:text-amber-300 text-xs">
+                          Please verify your email before logging in.{" "}
+                          <button type="button" onClick={handleResendVerification} className="underline font-medium hover:no-underline">
+                            Resend verification email
+                          </button>
+                        </AlertDescription>
+                      </Alert>
+                    )}
 
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold uppercase tracking-wider" style={{ color: rp.labelColor }}>
@@ -435,6 +490,67 @@ export default function LoginPage() {
                       Your session is encrypted and secured with role-based access control
                     </span>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Login OTP card ── */}
+            {view === "otp" && (
+              <div className="rounded-2xl overflow-hidden shadow-2xl transition-colors duration-300
+                              border border-slate-200 bg-white
+                              dark:border-slate-700/60 dark:bg-slate-800/70 dark:backdrop-blur-sm dark:shadow-black/40">
+                <div className="h-[3px] bg-primary/80" />
+                <div className="p-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-xl bg-primary/15 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                      <ShieldCheck className="w-5 h-5 text-primary" />
+                    </div>
+                    <div>
+                      <h2 className="text-slate-900 dark:text-white text-xl font-bold">Verification code</h2>
+                      <p className="text-slate-500 dark:text-slate-400 text-xs">Your role requires a code sent to your registered email</p>
+                    </div>
+                  </div>
+
+                  <form onSubmit={otpForm.handleSubmit(handleOtpSubmit)} className="space-y-4">
+                    {error && (
+                      <Alert className="border-red-300 bg-red-50 dark:border-red-800/60 dark:bg-red-950/40 py-2.5">
+                        <AlertDescription className="text-red-700 dark:text-red-300 text-xs">{error}</AlertDescription>
+                      </Alert>
+                    )}
+                    <div className="space-y-1.5">
+                      <Label className="text-slate-600 dark:text-slate-300 text-xs font-semibold uppercase tracking-wider">
+                        6-digit code
+                      </Label>
+                      <OtpInput
+                        length={6}
+                        autoFocus
+                        value={otpForm.watch("otp") || ""}
+                        onChange={v => otpForm.setValue("otp", v, { shouldValidate: true })}
+                        error={!!otpForm.formState.errors.otp}
+                      />
+                      {otpForm.formState.errors.otp && (
+                        <p className="text-xs text-red-500 dark:text-red-400">{otpForm.formState.errors.otp.message}</p>
+                      )}
+                    </div>
+                    <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 cursor-pointer">
+                      <input type="checkbox" className="rounded" checked={trustDevice}
+                        onChange={e => setTrustDevice(e.target.checked)} />
+                      Trust this device for 30 days — skip this step on future logins here
+                    </label>
+                    <div className="flex gap-2 pt-1">
+                      <Button type="button" variant="outline"
+                        className="flex-1 h-11 rounded-lg
+                                   border-slate-300 text-slate-700 hover:bg-slate-100
+                                   dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700"
+                        onClick={() => { clearError(); setOtpChallenge(null); setView("login"); }}>
+                        Back
+                      </Button>
+                      <Button type="submit" className="flex-1 h-11 rounded-lg font-semibold" disabled={submitting}>
+                        {submitting && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                        Verify & sign in
+                      </Button>
+                    </div>
+                  </form>
                 </div>
               </div>
             )}

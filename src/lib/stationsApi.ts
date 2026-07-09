@@ -1,5 +1,12 @@
 import { api } from "./api";
 
+export interface ApiStationModule {
+  id: string;
+  stationId: string;
+  module: string;
+  isEnabled: boolean;
+}
+
 export interface ApiStationFull {
   id: string;
   name: string;
@@ -55,4 +62,11 @@ export const stationsApi = {
 
   purge: (id: string) =>
     api.delete<{ success: boolean; message: string }>(`/stations/${id}/purge`),
+
+  modules: {
+    list: (stationId: string) =>
+      api.get<{ success: boolean; data: ApiStationModule[] }>(`/stations/${stationId}/modules`),
+    toggle: (stationId: string, module: string, isEnabled: boolean) =>
+      api.put<{ success: boolean; data: ApiStationModule }>(`/stations/${stationId}/modules/${module}`, { isEnabled }),
+  },
 };

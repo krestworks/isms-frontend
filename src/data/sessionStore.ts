@@ -20,6 +20,8 @@ export interface SessionUser {
   status?: string;
   lastLogin?: string | null;
   createdAt?: string;
+  hasPin?: boolean;   // quick-unlock PIN set for the POS lock screen
+  workModules?: string[]; // from the linked Employee record — modules/businesses this person was assigned to
 }
 
 const STORAGE_KEY = "isms.session";

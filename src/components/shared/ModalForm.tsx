@@ -14,6 +14,8 @@ interface ModalFormProps {
   onSubmit?: () => void;
   submitLabel?: string;
   submitVariant?: "default" | "destructive" | "outline" | "secondary" | "ghost" | "link";
+  submitDisabled?: boolean;
+  loading?: boolean;
   isView?: boolean;
   footerExtra?: React.ReactNode;
   children: React.ReactNode;
@@ -21,7 +23,7 @@ interface ModalFormProps {
 
 export function ModalForm({
   open, onClose, title, description, onSubmit,
-  submitLabel = "Save", submitVariant = "default", isView, footerExtra, children,
+  submitLabel = "Save", submitVariant = "default", submitDisabled, loading, isView, footerExtra, children,
 }: ModalFormProps) {
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
@@ -41,7 +43,7 @@ export function ModalForm({
             {!isView ? (
               <>
                 <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-                <Button type="button" variant={submitVariant} onClick={onSubmit}>{submitLabel}</Button>
+                <Button type="button" variant={submitVariant} onClick={onSubmit} disabled={submitDisabled || loading}>{submitLabel}</Button>
               </>
             ) : (
               <Button type="button" variant="outline" onClick={onClose}>Close</Button>

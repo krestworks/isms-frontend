@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { toast } from "sonner";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { reportsApi, ApiScheduledReport } from "@/lib/reportsApi";
@@ -47,9 +48,21 @@ export function ScheduledReportsTab() {
   const openEdit = (item: ApiScheduledReport) => { setForm({ name: item.name, type: item.type, frequency: item.frequency, modules: item.modules, recipients: item.recipients, lastRun: item.lastRun ?? "", nextRun: item.nextRun ?? "", status: item.status }); setModal({ mode: "edit", item }); };
   const openView = (item: ApiScheduledReport) => { setForm({ name: item.name, type: item.type, frequency: item.frequency, modules: item.modules, recipients: item.recipients, lastRun: item.lastRun ?? "", nextRun: item.nextRun ?? "", status: item.status }); setModal({ mode: "view", item }); };
 
-  const handleDelete = async (item: ApiScheduledReport) => {
-    try { await reportsApi.scheduled.delete(item.id); toast.success("Deleted"); load(); }
-    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  const [pendingDelete, setPendingDelete] = useState<ApiScheduledReport | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (item: ApiScheduledReport) => setPendingDelete(item);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      await reportsApi.scheduled.delete(pendingDelete.id);
+      toast.success("Deleted");
+      setPendingDelete(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const handleSubmit = async () => {
@@ -97,6 +110,16 @@ export function ScheduledReportsTab() {
       </div>
 
       <DataTable data={data} columns={columns} searchKeys={["name", "recipients"]} searchPlaceholder="Search reports..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete scheduled report "${pendingDelete?.name}"?`}
+        description="This scheduled report will be permanently deleted."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
 
       {modal && (
         <ModalForm open title={isView ? "Report Details" : modal.mode === "add" ? "Schedule Report" : "Edit Report"} onClose={() => setModal(null)} onSubmit={handleSubmit} isView={isView} submitLabel={saving ? "Saving…" : modal.mode === "edit" ? "Update" : "Create"}>

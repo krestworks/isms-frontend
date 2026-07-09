@@ -130,5 +130,7 @@ export const lpgApi = {
       api.put<R<ApiLpgInvoice>>(`/lpg/invoices/${id}`, data, sh(stationId)),
     delete: (id: string, stationId?: string | null) =>
       api.delete<R<void>>(`/lpg/invoices/${id}`, sh(stationId)),
+    email: (id: string, data: { email: string; name?: string }, stationId?: string | null) =>
+      api.post<R<{ dev?: boolean }>>(`/lpg/invoices/${id}/email`, data, sh(stationId)),
   },
 };

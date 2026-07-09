@@ -1,18 +1,24 @@
+import { useState } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { Outlet } from "react-router-dom";
-import { Search, LogOut } from "lucide-react";
+import { Search, LogOut, Sun, Moon, Lock, ShieldCheck } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { HeaderSwitchers } from "./HeaderSwitchers";
 import { NotificationsBell } from "./NotificationsBell";
 import { useAuth } from "@/components/auth/AuthProvider";
+import { LockScreen } from "@/components/auth/LockScreen";
+import { SecuritySettingsModal } from "@/components/auth/SecuritySettingsModal";
 import { useSession } from "@/data/sessionStore";
+import { useTheme } from "@/lib/theme";
 import { toast } from "sonner";
 
 export function AppLayout() {
-  const { logout } = useAuth();
-  const { activeLocation } = useSession();
+  const { logout, lock, isLocked } = useAuth();
+  const { activeLocation, user } = useSession();
+  const { theme, toggle: toggleTheme } = useTheme();
+  const [securityOpen, setSecurityOpen] = useState(false);
 
   async function handleLogout() {
     await logout();
@@ -41,6 +47,34 @@ export function AppLayout() {
               <Button
                 variant="ghost"
                 size="icon"
+                onClick={toggleTheme}
+                title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSecurityOpen(true)}
+                title="Security settings"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ShieldCheck className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={lock}
+                title={user.hasPin ? "Lock screen" : "Set a PIN in Security settings to enable locking"}
+                disabled={!user.hasPin}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-30"
+              >
+                <Lock className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={handleLogout}
                 title="Sign out"
                 className="text-muted-foreground hover:text-foreground"
@@ -54,6 +88,8 @@ export function AppLayout() {
           </main>
         </div>
       </div>
+      {isLocked && <LockScreen />}
+      <SecuritySettingsModal open={securityOpen} onClose={() => setSecurityOpen(false)} />
     </SidebarProvider>
   );
 }

@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { toast } from "sonner";
 import { autoApi, ApiAutoServicePrice } from "@/lib/autoApi";
 import { useActiveStation } from "@/lib/useActiveStation";
@@ -74,12 +75,21 @@ export function ServicePricingTab() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (p: ApiAutoServicePrice) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiAutoServicePrice | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (p: ApiAutoServicePrice) => setPendingDelete(p);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await autoApi.pricing.delete(p.id, stationId);
+      await autoApi.pricing.delete(pendingDelete.id, stationId);
       toast.success("Pricing deleted");
+      setPendingDelete(null);
       load();
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const columns: Column<ApiAutoServicePrice>[] = [
@@ -116,6 +126,16 @@ export function ServicePricingTab() {
         onView={p => setViewing(p)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete pricing for "${pendingDelete?.serviceName}"?`}
+        description="This service price will be permanently deleted."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

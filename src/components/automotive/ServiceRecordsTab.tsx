@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,48 +10,82 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { autoApi, ApiAutoServiceRecord } from "@/lib/autoApi";
+import { autoApi, ApiAutoServiceRecord, ApiAutoServicePrice, ApiAutoTechnician } from "@/lib/autoApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 
-const SERVICE_TYPES = ["Full Service", "Brake Repair", "Tyre Change", "Diagnostics", "Oil Change", "Electrical", "Body Work", "Other"];
 const STATUSES = ["pending", "in-progress", "completed", "invoiced"];
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
   date: today(), vehicleReg: "", vehicleMake: "", customerName: "", customerPhone: "",
-  serviceType: "Full Service", description: "", technician: "", estimatedCost: 0,
+  serviceType: "", description: "", technician: "", estimatedCost: 0,
   actualCost: 0, status: "pending", startTime: "", endTime: "",
 };
 
 export function ServiceRecordsTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canManage = can("auto.services.record");
 
-  const [records, setRecords]   = useState<ApiAutoServiceRecord[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing]   = useState<ApiAutoServiceRecord | null>(null);
-  const [viewing, setViewing]   = useState<ApiAutoServiceRecord | null>(null);
-  const [form, setForm]         = useState(emptyForm);
-  const [saving, setSaving]     = useState(false);
+  const [records, setRecords]         = useState<ApiAutoServiceRecord[]>([]);
+  const [pricing, setPricing]         = useState<ApiAutoServicePrice[]>([]);
+  const [technicians, setTechnicians] = useState<ApiAutoTechnician[]>([]);
+  const [loading, setLoading]         = useState(true);
+  const [modalOpen, setModalOpen]     = useState(false);
+  const [editing, setEditing]         = useState<ApiAutoServiceRecord | null>(null);
+  const [viewing, setViewing]         = useState<ApiAutoServiceRecord | null>(null);
+  const [form, setForm]               = useState(emptyForm);
+  const [saving, setSaving]           = useState(false);
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await autoApi.serviceRecords.list({}, stationId);
-      setRecords(res.data ?? []);
+      const [recRes, priceRes, techRes] = await Promise.all([
+        autoApi.serviceRecords.list({}, stationId),
+        autoApi.pricing.list({ status: "active" }, stationId),
+        autoApi.technicians.list({ status: "active" }, stationId),
+      ]);
+      setRecords(recRes.data ?? []);
+      setPricing(priceRes.data ?? []);
+      setTechnicians(techRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load service records"); }
     finally { setLoading(false); }
   }, [stationId]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
+  const noPricing = pricing.length === 0;
+  const noTechs   = technicians.length === 0;
+
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
-  const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const handleServiceTypeChange = (serviceName: string) => {
+    const price = pricing.find(p => p.serviceName === serviceName);
+    setForm(f => ({
+      ...f,
+      serviceType: serviceName,
+      estimatedCost: price?.totalPrice ?? f.estimatedCost,
+    }));
+  };
+
+  const openNew = () => {
+    setEditing(null);
+    const defaultTech = technicians[0];
+    const defaultSvc  = pricing[0];
+    setForm({
+      ...emptyForm,
+      date: today(),
+      technician: defaultTech?.name ?? (user.name || ""),
+      serviceType: defaultSvc?.serviceName ?? "",
+      estimatedCost: defaultSvc?.totalPrice ?? 0,
+    });
+    setModalOpen(true);
+  };
+
   const openEdit = (r: ApiAutoServiceRecord) => {
     setEditing(r);
     setForm({
@@ -65,7 +99,8 @@ export function ServiceRecordsTab() {
   };
 
   const handleSave = async () => {
-    if (!form.vehicleReg || !form.customerName || !form.serviceType) return toast.error("Vehicle reg, customer name, and service type are required");
+    if (!form.vehicleReg || !form.customerName || !form.serviceType)
+      return toast.error("Vehicle reg, customer name, and service type are required");
     setSaving(true);
     try {
       const payload = {
@@ -119,7 +154,7 @@ export function ServiceRecordsTab() {
 
   const filters: FilterOption[] = [
     { key: "status",      label: "Status",  options: STATUSES.map(s => ({ label: s.charAt(0).toUpperCase() + s.slice(1), value: s })) },
-    { key: "serviceType", label: "Service", options: SERVICE_TYPES.map(t => ({ label: t, value: t })) },
+    { key: "serviceType", label: "Service", options: pricing.map(p => ({ label: p.serviceName, value: p.serviceName })) },
   ];
 
   return (
@@ -138,6 +173,14 @@ export function ServiceRecordsTab() {
           <p className="text-xs text-muted-foreground">Completed</p>
         </CardContent></Card>
       </div>
+
+      {(noPricing || noTechs) && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {noPricing && "No service types configured — add them in the Pricing tab. "}
+          {noTechs && "No active technicians configured — add them in the Technicians tab."}
+        </div>
+      )}
 
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Vehicle service and repair records</p>
@@ -166,21 +209,53 @@ export function ServiceRecordsTab() {
           <div><Label>Make/Model</Label><Input value={form.vehicleMake} onChange={e => set("vehicleMake", e.target.value)} placeholder="Toyota Hilux" /></div>
           <div><Label>Customer Name *</Label><Input value={form.customerName} onChange={e => set("customerName", e.target.value)} /></div>
           <div><Label>Customer Phone</Label><Input value={form.customerPhone} onChange={e => set("customerPhone", e.target.value)} /></div>
-          <div><Label>Service Type *</Label>
-            <Select value={form.serviceType} onValueChange={v => set("serviceType", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{SERVICE_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
-            </Select>
+          <div>
+            <Label>Service Type *</Label>
+            {pricing.length > 0 ? (
+              <Select value={form.serviceType} onValueChange={handleServiceTypeChange}>
+                <SelectTrigger><SelectValue placeholder="Select service" /></SelectTrigger>
+                <SelectContent>
+                  {pricing.map(p => (
+                    <SelectItem key={p.id} value={p.serviceName}>
+                      {p.serviceName} — Ksh {p.totalPrice.toLocaleString()}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={form.serviceType} onChange={e => set("serviceType", e.target.value)} placeholder="e.g. Full Service" />
+            )}
           </div>
           <div className="col-span-2"><Label>Description</Label><Textarea value={form.description} onChange={e => set("description", e.target.value)} /></div>
-          <div><Label>Technician</Label><Input value={form.technician} onChange={e => set("technician", e.target.value)} /></div>
-          <div><Label>Status</Label>
+          <div>
+            <Label>Technician</Label>
+            {technicians.length > 0 ? (
+              <Select value={form.technician} onValueChange={v => set("technician", v)}>
+                <SelectTrigger><SelectValue placeholder="Assign technician" /></SelectTrigger>
+                <SelectContent>
+                  {technicians.map(t => (
+                    <SelectItem key={t.id} value={t.name}>
+                      {t.name}{t.specialization ? ` (${t.specialization})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input value={form.technician} onChange={e => set("technician", e.target.value)} />
+            )}
+          </div>
+          <div>
+            <Label>Status</Label>
             <Select value={form.status} onValueChange={v => set("status", v)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>{STATUSES.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div><Label>Estimated Cost (Ksh)</Label><Input type="number" value={form.estimatedCost || ""} onChange={e => set("estimatedCost", +e.target.value)} /></div>
+          <div>
+            <Label>Estimated Cost (Ksh)</Label>
+            <Input type="number" value={form.estimatedCost || ""} onChange={e => set("estimatedCost", +e.target.value)} />
+            {form.serviceType && pricing.length > 0 && <p className="text-xs text-muted-foreground mt-1">Auto-filled from service pricing</p>}
+          </div>
           <div><Label>Actual Cost (Ksh)</Label><Input type="number" value={form.actualCost || ""} onChange={e => set("actualCost", +e.target.value)} /></div>
           <div><Label>Start Time</Label><Input type="time" value={form.startTime} onChange={e => set("startTime", e.target.value)} /></div>
           <div><Label>End Time</Label><Input type="time" value={form.endTime} onChange={e => set("endTime", e.target.value)} /></div>

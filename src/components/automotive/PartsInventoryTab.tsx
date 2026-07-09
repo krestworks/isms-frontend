@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { autoApi, ApiAutoPart } from "@/lib/autoApi";
@@ -76,12 +77,21 @@ export function PartsInventoryTab() {
     finally { setSaving(false); }
   };
 
-  const handleDelete = async (p: ApiAutoPart) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiAutoPart | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = (p: ApiAutoPart) => setPendingDelete(p);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await autoApi.parts.delete(p.id, stationId);
+      await autoApi.parts.delete(pendingDelete.id, stationId);
       toast.success("Part removed");
+      setPendingDelete(null);
       load();
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeleting(false); }
   };
 
   const stats = {
@@ -137,6 +147,16 @@ export function PartsInventoryTab() {
         onView={p => setViewing(p)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete part "${pendingDelete?.name}"?`}
+        description="This part will be permanently removed from inventory."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

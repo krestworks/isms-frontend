@@ -24,7 +24,7 @@ function tankToAlert(t: ApiFuelTank): AlertItem {
 }
 
 function leaveToAlert(r: ApiLeaveRequest): AlertItem {
-  const name = (r.employee as any)?.user?.name ?? "An employee";
+  const name = (r.employee as any)?.user?.name ?? (r.employee as any)?.name ?? "An employee";
   return {
     id: r.id,
     type: "info",

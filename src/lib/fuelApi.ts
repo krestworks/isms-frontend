@@ -56,6 +56,13 @@ export interface ApiFuelProduct {
   isActive: boolean; createdAt: string; updatedAt: string;
 }
 
+export interface ApiFuelPump {
+  id: string; stationId: string; pumpNumber: number; name: string;
+  tankId?: string | null; nozzles: number; status: string;
+  tank?: { id: string; name: string; fuelType: string; currentLevel: number } | null;
+  createdAt: string; updatedAt: string;
+}
+
 export interface ApiFuelSummary {
   todayRevenue: number; todayLitres: number; todayTransactions: number;
   totalTanks: number; alertTanks: number;
@@ -126,5 +133,16 @@ export const fuelApi = {
       api.put<R<ApiFuelProduct>>("/fuel/products", data, sh(stationId)),
     delete: (id: string, stationId?: string | null) =>
       api.delete<R<void>>(`/fuel/products/${id}`, sh(stationId)),
+  },
+
+  pumps: {
+    list: (stationId?: string | null) =>
+      api.get<R<ApiFuelPump[]>>("/fuel/pumps", sh(stationId)),
+    create: (data: { pumpNumber: number; name: string; tankId?: string; nozzles?: number; status?: string }, stationId?: string | null) =>
+      api.post<R<ApiFuelPump>>("/fuel/pumps", data, sh(stationId)),
+    update: (id: string, data: Partial<Pick<ApiFuelPump, "pumpNumber"|"name"|"tankId"|"nozzles"|"status">>, stationId?: string | null) =>
+      api.put<R<ApiFuelPump>>(`/fuel/pumps/${id}`, data, sh(stationId)),
+    delete: (id: string, stationId?: string | null) =>
+      api.delete<R<void>>(`/fuel/pumps/${id}`, sh(stationId)),
   },
 };

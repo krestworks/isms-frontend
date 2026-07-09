@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft } from "lucide-react";
+import { useBusinessSlug } from "@/hooks/useAppPaths";
+import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft, Power, PowerOff, ShieldAlert } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness } from "@/lib/bizApi";
+import { canAccessBusiness } from "@/lib/permissions";
 
 import { POSTab }            from "@/components/business/POSTab";
 import { ProductsTab }       from "@/components/business/ProductsTab";
@@ -18,6 +21,8 @@ import { StockMovementsTab } from "@/components/business/StockMovementsTab";
 import { ExpensesTab }       from "@/components/business/ExpensesTab";
 import { ReportsTab }        from "@/components/business/ReportsTab";
 import { SetupTab }          from "@/components/business/SetupTab";
+import { ModuleAuditTab }    from "@/components/shared/ModuleAuditTab";
+import { usePermissions }    from "@/lib/permissions";
 
 const ICONS: Record<string, React.ElementType> = {
   mart: ShoppingCart, pharmacy: Pill, restaurant: UtensilsCrossed, "Tyre Centre": Croissant,
@@ -33,16 +38,33 @@ const TYPE_COLORS: Record<string, string> = {
 export default function BusinessDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const slug     = useBusinessSlug();
   const [business, setBusiness] = useState<ApiBizBusiness | null>(null);
   const [loading,  setLoading]  = useState(true);
+  const [toggling, setToggling] = useState(false);
+  const can = usePermissions();
+  const showAudit = can("audit.view");
+  const canManage = can("business.setup.manage");
+
+  const handleToggleStatus = async () => {
+    if (!business) return;
+    const nextStatus = business.status === "active" ? "inactive" : "active";
+    setToggling(true);
+    try {
+      const res = await bizApi.businesses.update(business.id, { status: nextStatus });
+      setBusiness(res.data);
+      toast.success(`${business.name} ${nextStatus === "active" ? "activated" : "deactivated"}`);
+    } catch (e: any) { toast.error(e?.message || "Failed to update status"); }
+    finally { setToggling(false); }
+  };
 
   useEffect(() => {
     if (!id) return;
     bizApi.businesses.get(id)
       .then(r => setBusiness(r.data))
-      .catch(e => { toast.error(e?.message || "Failed to load business"); navigate("/business"); })
+      .catch(e => { toast.error(e?.message || "Failed to load business"); navigate(`/${slug}/business`); })
       .finally(() => setLoading(false));
-  }, [id, navigate]);
+  }, [id, navigate, slug]);
 
   if (loading) {
     return (
@@ -53,6 +75,20 @@ export default function BusinessDetailPage() {
   }
 
   if (!business) return null;
+
+  if (!canAccessBusiness(business.name)) {
+    return (
+      <Card className="max-w-md mx-auto mt-12">
+        <CardContent className="p-8 text-center space-y-3">
+          <div className="h-12 w-12 rounded-full bg-destructive/10 mx-auto flex items-center justify-center">
+            <ShieldAlert className="h-6 w-6 text-destructive" />
+          </div>
+          <h2 className="text-lg font-semibold">Access Denied</h2>
+          <p className="text-sm text-muted-foreground">You aren&apos;t assigned to {business.name}. Contact your administrator if you believe this is a mistake.</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const Icon        = ICONS[business.type] ?? Store;
   const isRestaurant = business.type === "restaurant";
@@ -67,7 +103,7 @@ export default function BusinessDetailPage() {
       <div className="space-y-4">
         {/* Back + status badge */}
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate("/business")}>
+          <Button variant="ghost" size="sm" className="-ml-1 text-muted-foreground" onClick={() => navigate(`/${slug}/business`)}>
             <ArrowLeft className="h-4 w-4 mr-1" />All Businesses
           </Button>
           <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-medium ${colorCls}`}>
@@ -76,6 +112,18 @@ export default function BusinessDetailPage() {
             <Badge variant={business.status === "active" ? "default" : "secondary"} className="text-[10px] h-4 px-1.5">
               {business.status}
             </Badge>
+            {canManage && (
+              <Button
+                variant="ghost" size="sm"
+                className={`h-6 px-2 -my-1 text-[11px] ${business.status === "active" ? "text-destructive hover:text-destructive" : "text-emerald-600 hover:text-emerald-600"}`}
+                onClick={handleToggleStatus}
+                disabled={toggling}
+              >
+                {business.status === "active"
+                  ? <><PowerOff className="h-3 w-3 mr-1" />Deactivate</>
+                  : <><Power className="h-3 w-3 mr-1" />Activate</>}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -91,6 +139,7 @@ export default function BusinessDetailPage() {
             <TabsTrigger value="expenses"   className="text-xs px-3">Expenses</TabsTrigger>
             <TabsTrigger value="reports"    className="text-xs px-3">Reports</TabsTrigger>
             <TabsTrigger value="setup"      className="text-xs px-3">Setup</TabsTrigger>
+            {showAudit && <TabsTrigger value="audit" className="text-xs px-3">History</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="pos">        <POSTab             business={business} /></TabsContent>
@@ -103,6 +152,7 @@ export default function BusinessDetailPage() {
           <TabsContent value="expenses">   <ExpensesTab        business={business} /></TabsContent>
           <TabsContent value="reports">    <ReportsTab         business={business} /></TabsContent>
           <TabsContent value="setup">      <SetupTab           business={business} isRestaurant={isRestaurant} onUpdate={setBusiness} /></TabsContent>
+          {showAudit && <TabsContent value="audit"><ModuleAuditTab module="business" /></TabsContent>}
         </Tabs>
       </div>
     </ModulePageShell>

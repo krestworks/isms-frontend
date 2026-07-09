@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizSale, ApiBizSaleItem } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
@@ -50,7 +50,8 @@ export function SalesTab({ business }: Props) {
   const [fromDate,  setFromDate]  = useState(firstOfMonth());
   const [toDate,    setToDate]    = useState(today());
   const [viewing,   setViewing]   = useState<ApiBizSale | null>(null);
-  const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiBizSale | null>(null);
+  const [requestingVoid, setRequestingVoid]   = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -63,18 +64,18 @@ export function SalesTab({ business }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  const handleVoid = (s: ApiBizSale) => {
-    setConfirmDlg({
-      title: `Void sale ${s.saleRef}?`,
-      description: "This will mark the sale as void and restore stock quantities.",
-      onConfirm: async () => {
-        try {
-          await bizApi.sales.void(s.id);
-          toast.success("Sale voided — stock restored");
-          load();
-        } catch (e: any) { toast.error(e?.message || "Failed to void sale"); }
-      },
-    });
+  const handleVoid = (s: ApiBizSale) => setPendingVoidSale(s);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
+    try {
+      await bizApi.sales.void(pendingVoidSale.id);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const activeSales  = records.filter(s => s.status !== "void");
@@ -155,13 +156,14 @@ export function SalesTab({ business }: Props) {
         }] : []}
       />
 
-      <ConfirmDialog
-        open={!!confirmDlg}
-        title={confirmDlg?.title ?? ""}
-        description={confirmDlg?.description}
-        confirmLabel="Void Sale"
-        onConfirm={() => { confirmDlg?.onConfirm(); setConfirmDlg(null); }}
-        onCancel={() => setConfirmDlg(null)}
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title={`Request void for sale ${pendingVoidSale?.saleRef}?`}
+        description="This requests approval to void the sale and restore stock. A different user with permission must approve it before it takes effect."
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       {/* View Sale Modal */}

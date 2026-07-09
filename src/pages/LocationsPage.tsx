@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, MapPin, ArrowRight, RefreshCw, RotateCcw, Trash2, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, MapPin, ArrowRight, RefreshCw, RotateCcw, Trash2, AlertTriangle, ChevronLeft, ChevronRight, Settings2 } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
@@ -13,8 +14,20 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { usePermissions } from "@/lib/permissions";
-import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
+import { stationsApi, ApiStationFull, ApiStationModule } from "@/lib/stationsApi";
 import { toast } from "sonner";
+
+const MODULE_LABELS: Record<string, string> = {
+  hr:         "HR & Payroll",
+  fuel:       "Fuel Management",
+  lpg:        "LPG",
+  water:      "Water Production",
+  carwash:    "Car Wash",
+  auto:       "Automotive Services",
+  pos:        "Business / POS",
+  finance:    "Finance",
+  compliance: "Compliance",
+};
 
 const TYPES    = ["Branch", "Headquarters", "Franchise", "Depot", "Region", "Outlet"];
 const STATUSES = ["Active", "Inactive", "Maintenance"];
@@ -51,6 +64,35 @@ export default function LocationsPage() {
   // Purge confirmation state
   const [purgeTarget, setPurgeTarget]       = useState<ApiStationFull | null>(null);
   const [purging, setPurging]               = useState(false);
+
+  // Module management state
+  const [moduleTarget, setModuleTarget]   = useState<ApiStationFull | null>(null);
+  const [modules, setModules]             = useState<ApiStationModule[]>([]);
+  const [modulesLoading, setModulesLoading] = useState(false);
+
+  const openModules = async (s: ApiStationFull) => {
+    setModuleTarget(s);
+    setModulesLoading(true);
+    try {
+      const res = await stationsApi.modules.list(s.id);
+      setModules(res.data ?? []);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to load modules");
+    } finally {
+      setModulesLoading(false);
+    }
+  };
+
+  const handleToggleModule = async (mod: ApiStationModule) => {
+    if (!moduleTarget) return;
+    try {
+      const res = await stationsApi.modules.toggle(moduleTarget.id, mod.module, !mod.isEnabled);
+      setModules(prev => prev.map(m => m.module === mod.module ? res.data : m));
+      toast.success(`${MODULE_LABELS[mod.module] ?? mod.module} ${!mod.isEnabled ? "enabled" : "disabled"}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update module");
+    }
+  };
 
   // Card pagination
   const CARDS_PER_PAGE = 4;
@@ -269,6 +311,15 @@ export default function LocationsPage() {
                         >
                           {isActive ? "Currently viewing" : <>Switch <ArrowRight className="h-3.5 w-3.5 ml-1" /></>}
                         </Button>
+                        {canManage && (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="w-full text-xs text-muted-foreground hover:text-foreground"
+                            onClick={() => openModules(loc)}
+                          >
+                            <Settings2 className="h-3 w-3 mr-1.5" /> Manage Modules
+                          </Button>
+                        )}
                       </CardContent>
                     </Card>
                   );
@@ -464,6 +515,37 @@ export default function LocationsPage() {
                 This will <strong>permanently and irreversibly</strong> delete <strong>{purgeTarget.name}</strong> and
                 all data attached to it. This action cannot be undone.
               </span>
+            </div>
+          )}
+        </ModalForm>
+
+        {/* Module management modal */}
+        <ModalForm
+          open={!!moduleTarget}
+          onClose={() => setModuleTarget(null)}
+          title={`Modules — ${moduleTarget?.name ?? ""}`}
+          description="Enable or disable modules for this station. Staff only see enabled modules."
+          isView
+        >
+          {modulesLoading ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Loading modules…</p>
+          ) : (
+            <div className="space-y-3">
+              {modules.map(mod => (
+                <div key={mod.module} className="flex items-center justify-between rounded-lg border p-3">
+                  <div>
+                    <p className="text-sm font-medium">{MODULE_LABELS[mod.module] ?? mod.module}</p>
+                    <p className="text-xs text-muted-foreground capitalize">{mod.module}</p>
+                  </div>
+                  <Switch
+                    checked={mod.isEnabled}
+                    onCheckedChange={() => handleToggleModule(mod)}
+                  />
+                </div>
+              ))}
+              {modules.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No module records found.</p>
+              )}
             </div>
           )}
         </ModalForm>

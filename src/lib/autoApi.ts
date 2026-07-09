@@ -84,6 +84,8 @@ export const autoApi = {
       api.put<R<ApiAutoInvoice>>(`/auto/invoices/${id}`, data, sh(stationId)),
     delete: (id: string, stationId?: string | null) =>
       api.delete<R<void>>(`/auto/invoices/${id}`, sh(stationId)),
+    email: (id: string, data: { email: string; name?: string }, stationId?: string | null) =>
+      api.post<R<{ dev?: boolean }>>(`/auto/invoices/${id}/email`, data, sh(stationId)),
   },
   parts: {
     list: (params: { status?: string; category?: string } = {}, stationId?: string | null) =>

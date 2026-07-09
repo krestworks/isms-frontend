@@ -107,10 +107,14 @@ export function ProductsTab({ business }: Props) {
 
   const openEdit = (p: ApiBizProduct) => {
     setEditing(p);
+    const taxFactor = 1 + business.taxRate / 100;
     setForm({
       name: p.name, sku: p.sku ?? "", barcode: p.barcode ?? "", description: p.description ?? "",
       categoryId: p.categoryId ?? "",
-      markedPrice: p.markedPrice ?? 0, price: p.price, costPrice: p.costPrice, unit: p.unit,
+      // Back-calculate pre-tax price so admin sees what they originally entered
+      markedPrice: p.markedPrice > 0 ? Math.round(p.markedPrice / taxFactor) : 0,
+      price: Math.round(p.price / taxFactor),
+      costPrice: p.costPrice, unit: p.unit,
       stockQty: p.stockQty, reorderLevel: p.reorderLevel, imageUrl: p.imageUrl ?? "",
       expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, status: p.status,
     });
@@ -126,6 +130,10 @@ export function ProductsTab({ business }: Props) {
     e.target.value = "";
   };
 
+  const taxFactor = 1 + business.taxRate / 100;
+  const inclPrice = form.price > 0 ? Math.ceil(form.price * taxFactor) : 0;
+  const inclMrp   = form.markedPrice > 0 ? Math.ceil(form.markedPrice * taxFactor) : 0;
+
   const handleSave = async () => {
     if (!form.name) return toast.error("Product name is required");
     if (!form.price) return toast.error("Selling price is required");
@@ -136,7 +144,9 @@ export function ProductsTab({ business }: Props) {
         ...form,
         businessId: business.id,
         categoryName: cat?.name ?? "",
-        markedPrice: form.markedPrice || 0,
+        // Store tax-inclusive prices
+        price: inclPrice,
+        markedPrice: inclMrp,
         imageUrl: form.imageUrl || null,
       };
       if (!payload.categoryId)  delete payload.categoryId;
@@ -384,22 +394,23 @@ export function ProductsTab({ business }: Props) {
             </p>
           </div>
           <div>
-            <Label>MRP / Marked Price (Ksh)</Label>
+            <Label>MRP / Marked Price (base, excl. tax)</Label>
             <Input type="number" value={form.markedPrice || ""} onChange={e => set("markedPrice", +e.target.value)} placeholder="0 = no marked price" />
-            <p className="text-[10px] text-muted-foreground mt-0.5">Shown as strikethrough in POS</p>
+            {inclMrp > 0 && <p className="text-[10px] text-primary mt-0.5">Stored as Ksh {inclMrp.toLocaleString()} (incl. {business.taxRate}% VAT)</p>}
           </div>
           <div>
-            <Label>Selling Price (Ksh) *</Label>
+            <Label>Selling Price (base, excl. tax) *</Label>
             <Input type="number" value={form.price || ""} onChange={e => set("price", +e.target.value)} />
+            {inclPrice > 0 && <p className="text-[10px] text-primary mt-0.5">Customer pays Ksh {inclPrice.toLocaleString()} (incl. {business.taxRate}% VAT)</p>}
           </div>
           <div>
             <Label>Cost / Buying Price (Ksh)</Label>
             <Input type="number" value={form.costPrice || ""} onChange={e => set("costPrice", +e.target.value)} />
           </div>
           <div className="flex items-end pb-1">
-            {form.price > 0 && form.costPrice > 0 && (
+            {inclPrice > 0 && form.costPrice > 0 && (
               <p className="text-xs text-green-600 font-medium">
-                Margin: Ksh {(form.price - form.costPrice).toLocaleString()} ({Math.round(((form.price - form.costPrice) / form.price) * 100)}%)
+                Margin: Ksh {(inclPrice - form.costPrice).toLocaleString()} ({Math.round(((inclPrice - form.costPrice) / inclPrice) * 100)}%)
               </p>
             )}
           </div>

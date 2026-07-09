@@ -6,14 +6,33 @@ import { brandingStore } from "@/data/brandingStore";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import type { Role } from "@/data/sessionStore";
 import type { SessionUser } from "@/data/sessionStore";
-import { ApiError, setAccessToken, setActiveStationId } from "@/lib/api";
+import { ApiError, setAccessToken, setActiveStationId, refreshAccessToken } from "@/lib/api";
+
+export interface LoginOutcome {
+  requiresOtp: boolean;
+  otpChallenge?: string;
+  devOtp?: string;
+}
+
+// Access tokens live 15 minutes — refresh proactively at roughly 2/3 of that so
+// an in-flight POS action (e.g. the checkout submit itself) never races an
+// expiry. This is in addition to, not instead of, the reactive 401-retry in api.ts.
+const PROACTIVE_REFRESH_MS = 10 * 60 * 1000;
+
+// Auto-lock the screen after this long with no mouse/keyboard/touch activity —
+// only takes effect once the user has set a quick-unlock PIN (see LockScreen).
+const IDLE_LOCK_MS = 10 * 60 * 1000;
 
 interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  isLocked: boolean;
+  login: (email: string, password: string) => Promise<LoginOutcome>;
+  completeOtpLogin: (otpChallenge: string, otp: string, trustDevice?: boolean) => Promise<void>;
   logout: () => Promise<void>;
   switchRole: (role: Role) => Promise<void>;
+  lock: () => void;
+  unlockWithPin: (pin: string) => Promise<void>;
   error: string | null;
   clearError: () => void;
 }
@@ -65,6 +84,7 @@ async function loadBranding() {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLocked, setIsLocked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLogout = useCallback(async (silent = false) => {
@@ -77,7 +97,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     stationsCache.clear();
     brandingStore.reset();
     setIsAuthenticated(false);
+    setIsLocked(false);
   }, []);
+
+  const lock = useCallback(() => {
+    if (!sessionStore.user().hasPin) return; // nothing to unlock with — don't strand the user
+    setIsLocked(true);
+  }, []);
+
+  const unlockWithPin = useCallback(async (pin: string) => {
+    await authService.verifyPin(pin); // throws on wrong/missing PIN — caller shows the error
+    setIsLocked(false);
+  }, []);
+
+  // Proactive access-token refresh — runs on a fixed timer the whole time the
+  // user is authenticated, independent of the lock screen (the underlying
+  // session must stay alive even while locked, or unlocking would fail).
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const id = setInterval(() => { refreshAccessToken(); }, PROACTIVE_REFRESH_MS);
+    return () => clearInterval(id);
+  }, [isAuthenticated]);
+
+  // Idle auto-lock — only meaningful once a PIN exists to unlock with again.
+  // hasPin is read fresh from the store on every fired timeout (not captured in
+  // the effect closure) so setting a PIN mid-session takes effect immediately.
+  useEffect(() => {
+    if (!isAuthenticated || isLocked) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const tryLock = () => { if (sessionStore.user().hasPin) lock(); };
+    const reset = () => { clearTimeout(timer); timer = setTimeout(tryLock, IDLE_LOCK_MS); };
+    const events: (keyof WindowEventMap)[] = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"];
+    events.forEach(e => window.addEventListener(e, reset, { passive: true }));
+    reset();
+    return () => { clearTimeout(timer); events.forEach(e => window.removeEventListener(e, reset)); };
+  }, [isAuthenticated, isLocked, lock]);
 
   // Attempt silent refresh on mount to restore session
   useEffect(() => {
@@ -115,21 +169,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("auth:logout", handler);
   }, [handleLogout]);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const finishSession = useCallback(async (user: SessionUser) => {
+    sessionStore.setUser(user);
+    const stations = await loadStations();
+    enforceLocationScope(user, stations);
+    await loadBranding();
+    setIsAuthenticated(true);
+  }, []);
+
+  const login = useCallback(async (email: string, password: string): Promise<LoginOutcome> => {
     setError(null);
     try {
       const res = await authService.login(email, password);
-      sessionStore.setUser(res.data.user);
-      const stations = await loadStations();
-      enforceLocationScope(res.data.user, stations);
-      await loadBranding();
-      setIsAuthenticated(true);
+      if ("requiresOtp" in res && res.requiresOtp) {
+        return { requiresOtp: true, otpChallenge: res.data.otpChallenge, devOtp: res.data.dev_otp };
+      }
+      await finishSession(res.data.user);
+      return { requiresOtp: false };
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : "Login failed. Please try again.";
       setError(msg);
       throw err;
     }
-  }, []);
+  }, [finishSession]);
+
+  const completeOtpLogin = useCallback(async (otpChallenge: string, otp: string, trustDevice?: boolean) => {
+    setError(null);
+    try {
+      const res = await authService.verifyLoginOtp(otpChallenge, otp, trustDevice);
+      await finishSession(res.data.user);
+    } catch (err) {
+      const msg = err instanceof ApiError ? err.message : "Failed to verify code. Please try again.";
+      setError(msg);
+      throw err;
+    }
+  }, [finishSession]);
 
   const logout = useCallback(() => handleLogout(false), [handleLogout]);
 
@@ -151,9 +225,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     <AuthContext.Provider value={{
       isAuthenticated,
       isLoading,
+      isLocked,
       login,
+      completeOtpLogin,
       logout,
       switchRole,
+      lock,
+      unlockWithPin,
       error,
       clearError: () => setError(null),
     }}>

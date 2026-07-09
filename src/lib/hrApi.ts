@@ -63,8 +63,9 @@ export interface ApiEmployee {
   bankDetails?: { bankName: string; bankCode?: string; accountNo: string; branchCode?: string; paymentMethod?: string } | null;
   kraPin?: string; shaNo?: string; nssfNo?: string; paymentMethod?: string;
   salaryGrade?: string; basicSalary?: number;
+  workModules?: string[] | null;
   status: string; terminatedAt?: string; terminationNote?: string;
-  user: { id: string; name: string; email: string; phone?: string; activeRole: string; status: string; };
+  user: { id: string; name: string; email: string; phone?: string; activeRole: string; status: string; } | null;
   department?: { id: string; name: string } | null;
   jobTitle?: { id: string; title: string; grade?: string } | null;
   departmentId?: string; jobTitleId?: string;
@@ -96,6 +97,7 @@ export interface ApiLeaveSlip {
 export interface ApiLeaveBalance {
   leaveType: { id: string; name: string; isPaid: boolean; daysAllowed: number };
   year: number; total: number; used: number; pending: number; available: number;
+  employee?: { id: string; employeeNumber: string; user: { id: string; name: string; email: string }; department?: { id: string; name: string } | null };
 }
 
 export interface ApiAttendance {
@@ -154,15 +156,30 @@ export interface ApiDisciplinaryRecord {
   };
 }
 
+export interface ApiPayrollBatch {
+  id: string;
+  stationId?: string | null;
+  month: string;
+  scope: string;
+  status: string;
+  submittedBy: string;
+  submittedByName: string;
+  recordCount: number;
+  totalNetPay: number;
+  createdAt: string;
+}
+
 export interface ApiPayroll {
   id: string;
   stationId: string;
   employeeId: string;
+  batchId?: string | null;
   month: string;
   basicSalary: number;
   houseAllowance: number;
   transportAllowance: number;
   overtimePay: number;
+  benefitInKind: number;
   grossPay: number;
   nhif: number;
   nssf: number;
@@ -175,11 +192,38 @@ export interface ApiPayroll {
   createdAt: string;
   updatedAt: string;
   employee?: {
-    id: string; employeeNumber: string;
+    id: string; employeeNumber: string; kraPin?: string | null; name?: string | null;
     user: { id: string; name: string };
     department?: { id: string; name: string } | null;
     jobTitle?: { id: string; title: string } | null;
   };
+}
+
+export interface ApiPayrollRunRow {
+  employeeId: string;
+  employeeNumber: string;
+  name: string;
+  department: string;
+  jobTitle: string;
+  stationId: string;
+  month: string;
+  basicSalary: number;
+  houseAllowance: number;
+  transportAllowance: number;
+  overtimePay: number;
+  benefitInKind: number;
+  grossPay: number;
+  nhif: number;
+  nssf: number;
+  paye: number;
+  otherDeductions: number;
+  totalDeductions: number;
+  netPay: number;
+  absenceDeduction: number;
+  absentDays: number;
+  unpaidLeaveDays: number;
+  noSalary: boolean;
+  willSkip: boolean;
 }
 
 export interface ApiPerformanceTask {
@@ -211,6 +255,16 @@ export interface ApiNotification {
 }
 
 // ── Recruitment types ─────────────────────────────────────────────────────────
+
+export interface ApiCareersApiKey {
+  id: string;
+  name: string;
+  allowedOrigin: string;
+  expiresAt: string;
+  lastUsedAt?: string | null;
+  revoked: boolean;
+  createdAt: string;
+}
 
 export interface ApiJob {
   id: string; jobCode: string; stationId: string;
@@ -361,7 +415,7 @@ export const hrApi = {
   // ── Employees ───────────────────────────────────────────────────────────────
 
   employees: {
-    list: (params?: { stationId?: string; status?: string; departmentId?: string; page?: number; limit?: number }) =>
+    list: (params?: { stationId?: string; status?: string; departmentId?: string; module?: string; page?: number; limit?: number }) =>
       api.get<{ success: boolean; data: ApiEmployee[]; meta: PageMeta }>(`/hr/employees${qs(params as any)}`),
     create: (data: {
       email?: string; password?: string; name?: string; phone?: string;
@@ -378,8 +432,12 @@ export const hrApi = {
     get:    (id: string) => api.get<{ success: boolean; data: ApiEmployee }>(`/hr/employees/${id}`),
     update: (id: string, data: Record<string, unknown>) =>
       api.put<{ success: boolean; data: ApiEmployee }>(`/hr/employees/${id}`, data),
-    terminate: (id: string, data: { note?: string; terminatedAt?: string }) =>
+    terminate:   (id: string, data: { note?: string; terminatedAt?: string }) =>
       api.post<{ success: boolean }>(`/hr/employees/${id}/terminate`, data),
+    reactivate:  (id: string) =>
+      api.post<{ success: boolean }>(`/hr/employees/${id}/reactivate`, {}),
+    remove:      (id: string) =>
+      api.delete<{ success: boolean }>(`/hr/employees/${id}`),
     disciplinary: {
       listAll: (params?: { employeeId?: string; stage?: string; category?: string }) =>
         api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>(`/hr/disciplinary${qs(params as any)}`),
@@ -437,6 +495,26 @@ export const hrApi = {
       api.put<{ success: boolean; data: ApiPayroll }>(`/hr/payroll/${id}`, data),
     remove: (id: string) =>
       api.delete<{ success: boolean }>(`/hr/payroll/${id}`),
+    run: (data: {
+      month: string; dryRun?: boolean;
+      stationIds?: string[]; departmentIds?: string[]; employeeIds?: string[];
+      includeAttendance?: boolean; includeLeave?: boolean;
+    }) =>
+      api.post<{ success: boolean; data: ApiPayrollRunRow[] | { created: number; skipped: number; failed: number }; meta?: { total: number; toCreate: number; toSkip: number; noSalary: number }; message?: string }>("/hr/payroll/run", data),
+    bulkCreate: (data: { month: string; rows: ApiPayrollRunRow[]; scope?: string }) =>
+      api.post<{ success: boolean; message: string; data: { created: number; skipped: number; failed: number; month: string; batchId: string | null; errors: string[] } }>("/hr/payroll/bulk-create", data),
+    batches: {
+      list: (params?: { month?: string; page?: number; limit?: number }) =>
+        api.get<{ success: boolean; data: ApiPayrollBatch[]; meta: PageMeta }>(`/hr/payroll/batches${qs(params as any)}`),
+      get: (id: string) =>
+        api.get<{ success: boolean; data: ApiPayrollBatch & { records: ApiPayroll[] } }>(`/hr/payroll/batches/${id}`),
+    },
+    bulkUpdateStatus: (data: { month?: string; status: string; payDate?: string; ids?: string[]; stationIds?: string[]; departmentIds?: string[] }) =>
+      api.put<{ success: boolean; data: { updated: number }; message: string }>("/hr/payroll/bulk-status", data),
+    sendPayslip: (id: string) =>
+      api.post<{ success: boolean; message: string; dev?: boolean }>(`/hr/payroll/${id}/send-payslip`, {}),
+    bulkSendPayslips: (data: { month: string; employeeIds?: string[] }) =>
+      api.post<{ success: boolean; message: string; sent: number; failed: number }>("/hr/payroll/bulk-send-payslips", data),
   },
 
   // ── Performance ─────────────────────────────────────────────────────────────
@@ -472,6 +550,8 @@ export const hrApi = {
       submit:   (data: { leaveTypeId: string; startDate: string; endDate: string; reason?: string }) =>
         api.post<{ success: boolean; data: ApiLeaveRequest }>("/hr/self/leaves", data),
       cancel:   (id: string) => api.put<{ success: boolean }>(`/hr/self/leaves/${id}/cancel`, {}),
+      adjust:   (id: string, data: { returnDate: string; note?: string }) =>
+        api.put<{ success: boolean; data: ApiLeaveRequest }>(`/hr/self/leaves/${id}/adjust`, data),
     },
     shifts: {
       list: (params?: { from?: string; to?: string; page?: number; limit?: number }) =>
@@ -533,6 +613,12 @@ export const hrApi = {
         api.post<{ success: boolean; data: ApiJobApplication; ai: ApiAiScreening }>(`/hr/recruitment/applications/${id}/screen`, {}),
       questions: (id: string) =>
         api.post<{ success: boolean; data: ApiInterviewQuestions }>(`/hr/recruitment/applications/${id}/questions`, {}),
+    },
+    apiKeys: {
+      list: () => api.get<{ success: boolean; data: ApiCareersApiKey[] }>("/hr/recruitment/api-keys"),
+      create: (data: { name: string; allowedOrigin: string; expiresAt: string }) =>
+        api.post<{ success: boolean; message: string; data: ApiCareersApiKey & { key: string } }>("/hr/recruitment/api-keys", data),
+      revoke: (id: string) => api.delete<{ success: boolean; message: string }>(`/hr/recruitment/api-keys/${id}`),
     },
   },
 

@@ -11,6 +11,37 @@ export interface LoginResponse {
   };
 }
 
+export interface OtpRequiredResponse {
+  success: boolean;
+  requiresOtp: true;
+  message: string;
+  data: {
+    otpChallenge: string;
+    dev_otp?: string;
+    dev_email?: unknown;
+  };
+}
+
+export type LoginResult = LoginResponse | OtpRequiredResponse;
+
+export interface SessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  current: boolean;
+}
+
+export interface AllSessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  expiresAt: string;
+  user: { id: string; name: string; email: string; activeRole: string };
+}
+
 export interface AuthUser extends SessionUser {
   status: string;
   createdAt?: string;
@@ -22,12 +53,24 @@ export interface ApiUserResponse {
 }
 
 export const authService = {
-  async login(email: string, password: string): Promise<LoginResponse> {
-    const res = await api.post<LoginResponse>("/auth/login", { email, password }, { skipAuth: true });
+  async login(email: string, password: string): Promise<LoginResult> {
+    const res = await api.post<LoginResult>("/auth/login", { email, password }, { skipAuth: true });
+    if ("accessToken" in res.data && res.data.accessToken) {
+      setAccessToken(res.data.accessToken);
+    }
+    return res;
+  },
+
+  async verifyLoginOtp(otpChallenge: string, otp: string, trustDevice?: boolean): Promise<LoginResponse> {
+    const res = await api.post<LoginResponse>("/auth/login/otp", { otpChallenge, otp, trustDevice }, { skipAuth: true });
     if (res.data?.accessToken) {
       setAccessToken(res.data.accessToken);
     }
     return res;
+  },
+
+  async resendEmailVerification(email: string): Promise<{ message: string; dev_email?: unknown }> {
+    return api.post("/auth/verify-email/resend", { email }, { skipAuth: true });
   },
 
   async logout(): Promise<void> {
@@ -77,5 +120,29 @@ export const authService = {
   async updateMyAccount(data: Partial<AccountBranding>): Promise<AccountBranding> {
     const res = await api.put<{ success: boolean; data: AccountBranding }>("/auth/my-account", data);
     return res.data;
+  },
+
+  // ── Quick-unlock PIN (POS lock screen) ───────────────────────────────────────
+  async setPin(pin: string, currentPassword: string): Promise<void> {
+    await api.put("/auth/pin", { pin, currentPassword });
+  },
+  async clearPin(): Promise<void> {
+    await api.delete("/auth/pin");
+  },
+  async verifyPin(pin: string): Promise<void> {
+    await api.post("/auth/pin/verify", { pin });
+  },
+
+  // ── Active sessions (self-service) ───────────────────────────────────────────
+  async listSessions(): Promise<SessionInfo[]> {
+    const res = await api.get<{ success: boolean; data: SessionInfo[] }>("/auth/sessions");
+    return res.data;
+  },
+  async listAllSessions(): Promise<AllSessionInfo[]> {
+    const res = await api.get<{ success: boolean; data: AllSessionInfo[] }>("/auth/sessions/all");
+    return res.data;
+  },
+  async revokeSession(id: string): Promise<void> {
+    await api.delete(`/auth/sessions/${id}`);
   },
 };

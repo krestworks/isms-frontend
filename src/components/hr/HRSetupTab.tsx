@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Plus, Network, ToggleLeft, ToggleRight, CalendarDays, RefreshCw } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -166,7 +166,7 @@ function DepartmentsSubTab({ stationId }: { stationId: string }) {
         </div>
       </ModalForm>
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         description={confirmDlg?.description}
@@ -279,7 +279,7 @@ function JobTitlesSubTab({ stationId }: { stationId: string }) {
         </div>
       </ModalForm>
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         description={confirmDlg?.description}
@@ -486,7 +486,7 @@ function LeaveTypesSubTab({ stationId }: { stationId: string }) {
         </div>
       </ModalForm>
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         description={confirmDlg?.description}
@@ -579,7 +579,7 @@ function ShiftsSubTab({ stationId }: { stationId: string }) {
         </div>
       </ModalForm>
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         description={confirmDlg?.description}
@@ -752,7 +752,7 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
         </div>
       </ModalForm>
 
-      <ConfirmDialog
+      <DangerConfirmModal
         open={!!confirmDlg}
         title={confirmDlg?.title ?? ""}
         confirmLabel="Remove"

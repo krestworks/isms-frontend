@@ -9,12 +9,14 @@ import { canSwitchLocation } from "@/lib/permissions";
 import { setActiveStationId } from "@/lib/api";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { useAppPaths } from "@/hooks/useAppPaths";
 
 export function HeaderSwitchers() {
   const { user, activeLocation } = useSession();
   const stations   = useStations();
   const { switchRole } = useAuth();
   const navigate  = useNavigate();
+  const paths     = useAppPaths();
   const canSwitch = canSwitchLocation();
 
   // Admins see "All Locations" + every real station. Non-admins see only their home station.
@@ -41,7 +43,10 @@ export function HeaderSwitchers() {
         <DropdownMenuContent align="end" className="w-56">
           <DropdownMenuLabel className="text-xs">Switch role</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {user.roles.map(r => (
+          {/* "Employee" is auto-assigned to every account as a permissions floor —
+              only offer it as a switchable role for users who actually have an
+              HR employee record, otherwise it's a dead end with nothing to see. */}
+          {user.roles.filter(r => r !== "Employee" || user.isEmployee).map(r => (
             <DropdownMenuItem
               key={r}
               onClick={() => {
@@ -51,10 +56,9 @@ export function HeaderSwitchers() {
                   .then(() => {
                     // Navigate to the right landing page for the new role
                     if (r === "Employee") {
-                      navigate("/employee-portal");
+                      navigate(paths.employeePortal);
                     } else if (prevRole === "Employee") {
-                      // Leaving Employee role — go to dashboard (avoids staying on /employee-portal which would block)
-                      navigate("/");
+                      navigate(paths.dashboard);
                     }
                   })
                   .catch((e: any) => toast.error(e?.message || "Role switch failed — you may not be assigned that role"));

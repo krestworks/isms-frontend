@@ -6,12 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { waterApi, ApiWaterSale } from "@/lib/waterApi";
+import { waterApi, ApiWaterSale, ApiWaterSummary } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import { exportToCsv } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
@@ -24,6 +26,7 @@ const emptyForm = {
 
 export function WaterSalesTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canRecord = can("water.sales.record");
   const canVoid   = can("water.sales.record");
@@ -36,6 +39,7 @@ export function WaterSalesTab() {
   const [viewing, setViewing]   = useState<ApiWaterSale | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [availableWater, setAvailableWater] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -51,10 +55,21 @@ export function WaterSalesTab() {
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
-  const openNew = () => { setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
+  const openNew = async () => {
+    setForm({ ...emptyForm, date: today(), attendant: user.name || "" });
+    setModalOpen(true);
+    try {
+      const res = await waterApi.summary(stationId);
+      setAvailableWater(res.data?.availableWater ?? null);
+    } catch { /* non-critical */ }
+  };
+
+  const insufficientWater = availableWater !== null && form.litres > availableWater;
 
   const handleSave = async () => {
     if (!form.litres || !form.pricePerLitre) return toast.error("Litres and price are required");
+    if (insufficientWater)
+      return toast.error(`Insufficient water: only ${availableWater!.toFixed(0)}L available. Log production first.`);
     setSaving(true);
     try {
       const totalAmount = form.litres * form.pricePerLitre - form.discount;
@@ -71,12 +86,19 @@ export function WaterSalesTab() {
     finally { setSaving(false); }
   };
 
-  const handleVoid = async (s: ApiWaterSale) => {
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiWaterSale | null>(null);
+  const [requestingVoid, setRequestingVoid] = useState(false);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
     try {
-      await waterApi.sales.void(s.id, stationId);
-      toast.success("Sale voided");
+      await waterApi.sales.void(pendingVoidSale.id, stationId);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
       load();
-    } catch (e: any) { toast.error(e?.message || "Failed to void"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const totals = {
@@ -143,12 +165,30 @@ export function WaterSalesTab() {
         searchPlaceholder="Search sales..."
         filters={filters}
         onView={s => setViewing(s)}
-        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? handleVoid(s) : undefined) : undefined}
+        onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? setPendingVoidSale(s) : undefined) : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title="Request sale void"
+        description={`This requests approval to void receipt ${pendingVoidSale?.receiptNo}. A different user with permission must approve it before the sale is actually voided.`}
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Water Sale"
-        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}
+        submitDisabled={insufficientWater}>
         <div className="grid grid-cols-2 gap-4">
+          {availableWater !== null && (
+            <div className={`col-span-2 text-xs px-3 py-2 rounded-md ${insufficientWater ? "bg-destructive/10 text-destructive font-medium" : "bg-muted text-muted-foreground"}`}>
+              {insufficientWater
+                ? `⚠ Only ${availableWater.toFixed(0)}L in stock — log more production before selling`
+                : `Stock available: ${availableWater.toFixed(0)}L`}
+            </div>
+          )}
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
           <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} placeholder="Walk-in" /></div>
           <div><Label>Litres *</Label><Input type="number" value={form.litres || ""} onChange={e => set("litres", +e.target.value)} /></div>

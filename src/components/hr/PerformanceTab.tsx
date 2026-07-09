@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -70,7 +71,7 @@ export default function PerformanceTab() {
 
   const columns: Column<ApiPerformanceTask>[] = [
     { key: "id", label: "Task ID" },
-    { key: "employeeId", label: "Employee", render: t => t.employee?.user.name ?? t.employeeId },
+    { key: "employeeId", label: "Employee", render: t => t.employee?.user?.name ?? t.employee?.name ?? t.employeeId },
     { key: "title", label: "Task", render: t => <span className="line-clamp-1">{t.title}</span> },
     { key: "category", label: "Category", render: t => <Badge variant="secondary">{t.category}</Badge> },
     { key: "dueDate", label: "Due", sortable: true, render: t => t.dueDate ?? "—" },
@@ -117,12 +118,19 @@ export default function PerformanceTab() {
     } catch (e: any) { toast.error(e?.message || "Save failed"); }
   };
 
-  const handleDelete = async (t: ApiPerformanceTask) => {
+  const [pendingDelete, setPendingDelete] = useState<ApiPerformanceTask | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      await hrApi.performance.remove(t.id);
-      setData(d => d.filter(x => x.id !== t.id));
+      await hrApi.performance.remove(pendingDelete.id);
+      setData(d => d.filter(x => x.id !== pendingDelete.id));
       toast.success("Task removed");
+      setPendingDelete(null);
     } catch (e: any) { toast.error(e?.message || "Delete failed"); }
+    finally { setDeleting(false); }
   };
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
@@ -154,7 +162,17 @@ export default function PerformanceTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search tasks…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search tasks…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={t => setPendingDelete(t)} />
+
+      <DangerConfirmModal
+        open={!!pendingDelete}
+        title={`Delete task "${pendingDelete?.title}"?`}
+        description="This performance task will be permanently removed."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Task" : "New Performance Task"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Assign"}>
         <div className="space-y-4">
@@ -173,7 +191,7 @@ export default function PerformanceTab() {
               <SelectContent>
                 <SelectItem value="_none_">— Select —</SelectItem>
                 {employees.filter(e => !deptFilter || e.departmentId === deptFilter || e.department?.id === deptFilter).map(e => (
-                  <SelectItem key={e.id} value={e.id}>{e.user.name} — {e.employeeNumber}{e.department ? ` (${e.department.name})` : ""}</SelectItem>
+                  <SelectItem key={e.id} value={e.id}>{e.user?.name ?? e.name ?? e.employeeNumber} — {e.employeeNumber}{e.department ? ` (${e.department.name})` : ""}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -213,7 +231,7 @@ export default function PerformanceTab() {
               <Badge variant="outline">{viewing.id}</Badge>
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor[viewing.status] ?? ""}`}>{viewing.status}</span>
             </div>
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user.name ?? viewing.employeeId}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId}</div>
             <div><span className="text-muted-foreground">Task:</span> {viewing.title}</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
             <div><span className="text-muted-foreground">Priority:</span> {viewing.priority}</div>

@@ -1,38 +1,42 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { fuelApi, ApiFuelSale, ApiFuelTank } from "@/lib/fuelApi";
+import { fuelApi, ApiFuelSale, ApiFuelTank, ApiFuelPump, ApiFuelProduct } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { useSession } from "@/data/sessionStore";
 import { exportToCsv } from "@/lib/exportCsv";
 
-const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
-  date: today(), tankId: "", pumpNumber: 1, fuelType: "Super",
+  date: today(), tankId: "", pumpId: "", pumpNumber: 0, fuelType: "Super",
   litres: 0, pricePerLitre: 0, discount: 0, netAmount: 0,
   attendant: "", paymentMethod: "Cash", paymentStatus: "paid", customer: "",
 };
 
 export function PumpSalesTab() {
   const { stationId } = useActiveStation();
+  const { user } = useSession();
   const can = usePermissions();
   const canRecord = can("fuel.sales.record");
   const canVoid   = can("fuel.sales.void");
 
   const [sales, setSales]       = useState<ApiFuelSale[]>([]);
   const [tanks, setTanks]       = useState<ApiFuelTank[]>([]);
+  const [pumps, setPumps]       = useState<ApiFuelPump[]>([]);
+  const [products, setProducts] = useState<ApiFuelProduct[]>([]);
   const [loading, setLoading]   = useState(true);
   const [fromDate, setFromDate] = useState(today());
   const [toDate, setToDate]     = useState(today());
@@ -45,45 +49,93 @@ export function PumpSalesTab() {
     if (!stationId) return;
     setLoading(true);
     try {
-      const [salesRes, tanksRes] = await Promise.all([
+      const [salesRes, tanksRes, pumpsRes, prodsRes] = await Promise.all([
         fuelApi.sales.list({ from: fromDate, to: toDate }, stationId),
         fuelApi.tanks.list(stationId),
+        fuelApi.pumps.list(stationId),
+        fuelApi.products.list(stationId),
       ]);
       setSales(salesRes.data ?? []);
       setTanks(tanksRes.data ?? []);
+      setPumps(pumpsRes.data ?? []);
+      setProducts(prodsRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load sales"); }
     finally { setLoading(false); }
   }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
+  const activePumps = pumps.filter(p => p.status === "active");
+  const activeTanks = tanks.filter(t => t.status !== "inactive");
+
   const updateForm = (k: string, v: any) => {
     setForm(f => {
       const next = { ...f, [k]: v };
-      const amount = next.litres * next.pricePerLitre;
-      next.netAmount = amount - next.discount;
+      next.netAmount = next.litres * next.pricePerLitre - next.discount;
+      return next;
+    });
+  };
+
+  const handleTankChange = (tankId: string) => {
+    const tank = tanks.find(t => t.id === tankId);
+    const product = tank ? products.find(p => p.fuelType === tank.fuelType && p.isActive) : null;
+    setForm(f => {
+      const next = { ...f, tankId, fuelType: tank?.fuelType ?? f.fuelType, pricePerLitre: product?.sellingPrice ?? f.pricePerLitre };
+      next.netAmount = next.litres * next.pricePerLitre - next.discount;
+      return next;
+    });
+  };
+
+  const handlePumpChange = (pumpId: string) => {
+    const pump = pumps.find(p => p.id === pumpId);
+    if (!pump) return;
+    setForm(f => {
+      let next = { ...f, pumpId, pumpNumber: pump.pumpNumber };
+      // auto-select tank if pump has one linked
+      if (pump.tankId && !f.tankId) {
+        const tank = tanks.find(t => t.id === pump.tankId);
+        const product = tank ? products.find(p => p.fuelType === tank.fuelType && p.isActive) : null;
+        next = { ...next, tankId: pump.tankId, fuelType: tank?.fuelType ?? next.fuelType, pricePerLitre: product?.sellingPrice ?? next.pricePerLitre };
+      }
+      next.netAmount = next.litres * next.pricePerLitre - next.discount;
       return next;
     });
   };
 
   const openNew = () => {
-    const defaultTank = tanks[0];
+    const defaultPump = activePumps[0];
+    const defaultTank = defaultPump?.tankId ? tanks.find(t => t.id === defaultPump.tankId) : activeTanks[0];
+    const product = defaultTank ? products.find(p => p.fuelType === defaultTank.fuelType && p.isActive) : null;
     setForm({
       ...emptyForm,
       date: today(),
+      pumpId: defaultPump?.id ?? "",
+      pumpNumber: defaultPump?.pumpNumber ?? 0,
       tankId: defaultTank?.id ?? "",
       fuelType: defaultTank?.fuelType ?? "Super",
+      pricePerLitre: product?.sellingPrice ?? 0,
+      attendant: user.name || "",
     });
     setModalOpen(true);
   };
 
+  const selectedTank = tanks.find(t => t.id === form.tankId);
+  const insufficientStock = !!selectedTank && form.litres > selectedTank.currentLevel;
+  const noPumps = activePumps.length === 0;
+  const noTanks = activeTanks.length === 0;
+  const canOpenSale = !noPumps && !noTanks;
+
   const handleSave = async () => {
-    if (!form.date || !form.litres || !form.pricePerLitre)
-      return toast.error("Date, litres, and price are required");
+    if (!form.pumpId)        return toast.error("Select a pump");
+    if (!form.tankId)        return toast.error("Select a tank");
+    if (!form.litres)        return toast.error("Enter litres");
+    if (!form.pricePerLitre) return toast.error("Price per litre is required");
+    if (insufficientStock)
+      return toast.error(`Insufficient stock: tank has ${selectedTank!.currentLevel.toFixed(2)}L`);
     setSaving(true);
     try {
       await fuelApi.sales.create({
-        tankId: form.tankId || undefined,
+        tankId: form.tankId,
         pumpNumber: form.pumpNumber,
         fuelType: form.fuelType,
         litres: form.litres,
@@ -103,12 +155,19 @@ export function PumpSalesTab() {
     finally { setSaving(false); }
   };
 
-  const handleVoid = async (s: ApiFuelSale) => {
+  const [pendingVoidSale, setPendingVoidSale] = useState<ApiFuelSale | null>(null);
+  const [requestingVoid, setRequestingVoid] = useState(false);
+
+  const requestVoid = async () => {
+    if (!pendingVoidSale) return;
+    setRequestingVoid(true);
     try {
-      await fuelApi.sales.void(s.id, stationId);
-      toast.success("Sale voided");
+      await fuelApi.sales.void(pendingVoidSale.id, stationId);
+      toast.success("Void requested — a different user must approve it before it takes effect");
+      setPendingVoidSale(null);
       load();
-    } catch (e: any) { toast.error(e?.message || "Failed to void sale"); }
+    } catch (e: any) { toast.error(e?.message || "Failed to request void"); }
+    finally { setRequestingVoid(false); }
   };
 
   const totals = {
@@ -130,7 +189,6 @@ export function PumpSalesTab() {
   ];
 
   const filters: FilterOption[] = [
-    { key: "fuelType",     label: "Fuel",    options: FUEL_TYPES.map(f => ({ label: f, value: f })) },
     { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
@@ -145,9 +203,24 @@ export function PumpSalesTab() {
             <Download className="h-4 w-4 mr-1.5" />Export
           </Button>
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
-          {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
+          {canRecord && (
+            <Button size="sm" onClick={openNew} disabled={!canOpenSale} title={noPumps ? "Set up pumps in the Inventory tab first" : noTanks ? "Set up tanks first" : ""}>
+              <Plus className="h-4 w-4 mr-1.5" />Record Sale
+            </Button>
+          )}
         </div>
       </div>
+
+      {(noPumps || noTanks) && (
+        <div className="flex items-center gap-2 rounded-md bg-amber-50 border border-amber-200 text-amber-800 text-sm p-3">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {noPumps && noTanks
+            ? "No tanks or pumps configured. Go to Inventory → Pump Setup and Tanks to set up before recording sales."
+            : noPumps
+            ? "No pumps configured. Go to Inventory → Pump Setup to add pumps before recording sales."
+            : "No active tanks configured. Add tanks in the Tanks tab before recording sales."}
+        </div>
+      )}
 
       <div className="flex gap-3 items-end flex-wrap">
         <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
@@ -157,7 +230,7 @@ export function PumpSalesTab() {
 
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: "Revenue",      value: `Ksh ${totals.revenue.toLocaleString()}`,    color: "text-primary" },
+          { label: "Revenue",      value: `Ksh ${totals.revenue.toLocaleString()}`, color: "text-primary" },
           { label: "Litres Sold",  value: `${totals.litres.toLocaleString()} L` },
           { label: "Transactions", value: String(totals.count) },
         ].map(s => (
@@ -175,39 +248,68 @@ export function PumpSalesTab() {
         searchPlaceholder="Search sales..."
         filters={filters}
         onView={s => setViewing(s)}
-        onDelete={canVoid ? handleVoid : undefined}
+        onDelete={canVoid ? setPendingVoidSale : undefined}
+      />
+
+      <DangerConfirmModal
+        open={!!pendingVoidSale}
+        title="Request sale void"
+        description={`This requests approval to void receipt ${pendingVoidSale?.receiptNo}. A different user with permission must approve it before the sale is actually voided and tank stock restored.`}
+        confirmLabel="Request Void"
+        loading={requestingVoid}
+        onConfirm={requestVoid}
+        onCancel={() => setPendingVoidSale(null)}
       />
 
       {/* Record Sale */}
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Fuel Sale"
-        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}>
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : "Record Sale"}
+        submitDisabled={insufficientStock}>
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
           <div>
-            <Label>Tank</Label>
-            <Select value={form.tankId} onValueChange={v => { set("tankId", v); const t = tanks.find(x => x.id === v); if (t) set("fuelType", t.fuelType); }}>
-              <SelectTrigger><SelectValue placeholder="Select tank" /></SelectTrigger>
+            <Label>Pump *</Label>
+            <Select value={form.pumpId} onValueChange={handlePumpChange}>
+              <SelectTrigger><SelectValue placeholder="Select pump" /></SelectTrigger>
               <SelectContent>
-                {tanks.map(t => <SelectItem key={t.id} value={t.id}>{t.name} ({t.fuelType})</SelectItem>)}
+                {activePumps.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    Pump {p.pumpNumber} — {p.name}{p.tank ? ` (${p.tank.fuelType})` : ""}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
           <div>
-            <Label>Pump Number</Label>
-            <Select value={String(form.pumpNumber)} onValueChange={v => set("pumpNumber", +v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{[1,2,3,4,5,6].map(n => <SelectItem key={n} value={String(n)}>Pump {n}</SelectItem>)}</SelectContent>
+            <Label>Tank *</Label>
+            <Select value={form.tankId} onValueChange={handleTankChange}>
+              <SelectTrigger><SelectValue placeholder="Select tank" /></SelectTrigger>
+              <SelectContent>
+                {activeTanks.map(t => (
+                  <SelectItem key={t.id} value={t.id}>
+                    {t.name} ({t.fuelType}) — {t.currentLevel.toLocaleString()}L avail.
+                  </SelectItem>
+                ))}
+              </SelectContent>
             </Select>
+            {selectedTank && (
+              <p className={`text-xs mt-1 ${insufficientStock ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                {insufficientStock
+                  ? `⚠ Only ${selectedTank.currentLevel.toFixed(2)}L available — cannot sell ${form.litres}L`
+                  : `Available: ${selectedTank.currentLevel.toFixed(2)}L / ${selectedTank.capacity}L`}
+              </p>
+            )}
           </div>
           <div>
             <Label>Fuel Type</Label>
-            <Select value={form.fuelType} onValueChange={v => set("fuelType", v)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{FUEL_TYPES.map(f => <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
-            </Select>
+            <Input value={form.fuelType} disabled className="bg-muted/50 text-muted-foreground" />
           </div>
           <div><Label>Litres *</Label><Input type="number" value={form.litres || ""} onChange={e => set("litres", +e.target.value)} /></div>
-          <div><Label>Price/Litre (Ksh) *</Label><Input type="number" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} /></div>
+          <div>
+            <Label>Price/Litre (Ksh) *</Label>
+            <Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} />
+            {form.pricePerLitre > 0 && <p className="text-xs text-muted-foreground mt-1">Auto-filled from pricing config</p>}
+          </div>
           <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
           <div><Label>Net Amount (Ksh)</Label><Input value={`Ksh ${form.netAmount.toLocaleString()}`} disabled className="font-mono" /></div>
           <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>

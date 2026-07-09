@@ -33,7 +33,8 @@ function computeSessionSales(sales: ApiBizSale[], openedAt: string, closedAt?: s
   const to   = closedAt ? new Date(closedAt).getTime() : Date.now();
 
   const sessionSales = sales.filter(s => {
-    const t = new Date(s.date).getTime();
+    // Use createdAt (full datetime) to avoid UTC-midnight vs local-time mismatch with date-only strings
+    const t = new Date(s.createdAt ?? s.date).getTime();
     return t >= from && t <= to && s.status !== "void";
   });
 

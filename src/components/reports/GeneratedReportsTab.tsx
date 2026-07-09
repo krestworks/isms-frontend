@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
+import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { RefreshCw, Sliders, History, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveStation } from "@/lib/useActiveStation";
@@ -105,9 +106,21 @@ export function GeneratedReportsTab() {
     finally { setSaving(false); }
   };
 
-  const handleDeleteHistory = async (r: ApiGeneratedReport) => {
-    try { await reportsApi.generated.delete(r.id); toast.success("Deleted"); loadHistory(); }
-    catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+  const [pendingDeleteHistory, setPendingDeleteHistory] = useState<ApiGeneratedReport | null>(null);
+  const [deletingHistory, setDeletingHistory] = useState(false);
+
+  const handleDeleteHistory = (r: ApiGeneratedReport) => setPendingDeleteHistory(r);
+
+  const confirmDeleteHistory = async () => {
+    if (!pendingDeleteHistory) return;
+    setDeletingHistory(true);
+    try {
+      await reportsApi.generated.delete(pendingDeleteHistory.id);
+      toast.success("Deleted");
+      setPendingDeleteHistory(null);
+      loadHistory();
+    } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
+    finally { setDeletingHistory(false); }
   };
 
   const histColumns: Column<ApiGeneratedReport>[] = [
@@ -280,6 +293,16 @@ export function GeneratedReportsTab() {
             searchKeys={["title", "module", "period"]}
             searchPlaceholder="Search history…"
             onDelete={handleDeleteHistory}
+          />
+
+          <DangerConfirmModal
+            open={!!pendingDeleteHistory}
+            title={`Delete report "${pendingDeleteHistory?.title}"?`}
+            description="This saved report will be permanently deleted."
+            confirmLabel="Delete"
+            loading={deletingHistory}
+            onConfirm={confirmDeleteHistory}
+            onCancel={() => setPendingDeleteHistory(null)}
           />
         </div>
       )}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Store, Plus, RefreshCw, ShoppingCart, Pill, UtensilsCrossed, Croissant, Trash2, CheckCircle2, Lock } from "lucide-react";
+import { useAppPaths } from "@/hooks/useAppPaths";
+import { Store, Plus, RefreshCw, ShoppingCart, Pill, UtensilsCrossed, Croissant, Trash2, CheckCircle2, Lock, Power, PowerOff } from "lucide-react";
 import { ModulePageShell } from "@/components/layout/ModulePageShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +12,7 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, BizType } from "@/lib/bizApi";
-import { usePermissions } from "@/lib/permissions";
+import { usePermissions, canAccessBusiness } from "@/lib/permissions";
 import { useActiveStation } from "@/lib/useActiveStation";
 
 const BIZ_TYPES: { type: BizType; label: string; icon: React.ElementType; desc: string; color: string; bg: string }[] = [
@@ -25,6 +26,7 @@ const emptyForm = { name: "", taxRate: 16, receiptHeader: "", receiptFooter: "" 
 
 export default function BusinessPage() {
   const navigate  = useNavigate();
+  const paths     = useAppPaths();
   const { stationId } = useActiveStation();
   const can       = usePermissions();
   const canManage = can("business.setup.manage");
@@ -35,6 +37,19 @@ export default function BusinessPage() {
   const [form, setForm]             = useState(emptyForm);
   const [saving, setSaving]         = useState(false);
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  const handleToggleStatus = async (biz: ApiBizBusiness, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const nextStatus = biz.status === "active" ? "inactive" : "active";
+    setTogglingId(biz.id);
+    try {
+      await bizApi.businesses.update(biz.id, { status: nextStatus });
+      toast.success(`${biz.name} ${nextStatus === "active" ? "activated" : "deactivated"}`);
+      load();
+    } catch (e: any) { toast.error(e?.message || "Failed to update status"); }
+    finally { setTogglingId(null); }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,12 +123,17 @@ export default function BusinessPage() {
               const biz     = enabledMap.get(meta.type);
               const enabled = !!biz;
 
+              // Operational roles (Attendant, etc.) only see businesses they were
+              // individually assigned to during onboarding — hide the rest outright
+              // rather than showing a locked card for something not their job.
+              if (enabled && biz && !canAccessBusiness(biz.name)) return null;
+
               if (enabled && biz) {
                 return (
                   <Card
                     key={meta.type}
                     className="cursor-pointer hover:shadow-md transition-all hover:border-primary/40 group"
-                    onClick={() => navigate(`/business/${biz.id}`)}
+                    onClick={() => navigate(paths.businessById(biz.id))}
                   >
                     <CardContent className="p-5 flex flex-col gap-3">
                       <div className="flex items-start justify-between">
@@ -126,13 +146,24 @@ export default function BusinessPage() {
                             {biz.status}
                           </Badge>
                           {canManage && (
-                            <Button
-                              variant="ghost" size="icon"
-                              className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
-                              onClick={e => handleDelete(biz, e)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            <>
+                              <Button
+                                variant="ghost" size="icon"
+                                className={`h-7 w-7 opacity-0 group-hover:opacity-100 ${biz.status === "active" ? "text-destructive hover:text-destructive" : "text-emerald-600 hover:text-emerald-600"}`}
+                                title={biz.status === "active" ? "Deactivate" : "Activate"}
+                                disabled={togglingId === biz.id}
+                                onClick={e => handleToggleStatus(biz, e)}
+                              >
+                                {biz.status === "active" ? <PowerOff className="h-3.5 w-3.5" /> : <Power className="h-3.5 w-3.5" />}
+                              </Button>
+                              <Button
+                                variant="ghost" size="icon"
+                                className="h-7 w-7 opacity-0 group-hover:opacity-100 text-destructive hover:text-destructive"
+                                onClick={e => handleDelete(biz, e)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
@@ -141,7 +172,7 @@ export default function BusinessPage() {
                         <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
                         <p className="text-xs text-muted-foreground mt-2">Tax: {biz.taxRate}% · {biz.currency}</p>
                       </div>
-                      <Button size="sm" variant="outline" className="w-full mt-auto" onClick={e => { e.stopPropagation(); navigate(`/business/${biz.id}`); }}>
+                      <Button size="sm" variant="outline" className="w-full mt-auto" onClick={e => { e.stopPropagation(); navigate(paths.businessById(biz.id)); }}>
                         Open
                       </Button>
                     </CardContent>

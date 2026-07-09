@@ -65,6 +65,14 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+// Exposed so AuthProvider can refresh proactively on a timer (well before the
+// 15-minute access token actually expires) instead of only reacting to a 401 —
+// keeps a POS terminal's critical requests (e.g. the checkout submit itself)
+// from ever racing an expiry in the first place.
+export async function refreshAccessToken(): Promise<boolean> {
+  return silentRefresh();
+}
+
 async function silentRefresh(): Promise<boolean> {
   try {
     const res = await fetch(`${BASE_URL}/auth/refresh`, {
