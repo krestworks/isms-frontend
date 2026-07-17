@@ -36,6 +36,7 @@ export interface ApiBizProduct {
   stockQty: number; reorderLevel: number;
   imageUrl?: string | null;
   expiryDate?: string | null; requiresPrescription: boolean;
+  vatExempt: boolean;
   status: string; createdAt: string; updatedAt: string;
 }
 
@@ -59,6 +60,7 @@ export interface ApiBizPurchaseOrder {
 
 export interface ApiBizSaleItem {
   productId?: string; name: string; qty: number; unitPrice: number; discount: number; totalPrice: number;
+  vatExempt?: boolean;
 }
 
 export type BizSaleStatus = "paid" | "pending_payment" | "void" | "refunded";
@@ -168,8 +170,8 @@ export const bizApi = {
   },
 
   purchaseOrders: {
-    list:    (businessId: string, status?: string) =>
-               api.get<R<ApiBizPurchaseOrder[]>>(`/biz/purchase-orders${qs({ businessId, status })}`),
+    list:    (businessId: string, status?: string, from?: string, to?: string) =>
+               api.get<R<ApiBizPurchaseOrder[]>>(`/biz/purchase-orders${qs({ businessId, status, from, to })}`),
     create:  (data: Partial<ApiBizPurchaseOrder>) => api.post<R<ApiBizPurchaseOrder>>("/biz/purchase-orders", data),
     update:  (id: string, data: Partial<ApiBizPurchaseOrder>) => api.put<R<ApiBizPurchaseOrder>>(`/biz/purchase-orders/${id}`, data),
     receive: (id: string)    => api.post<R<{ id: string; status: string }>>(`/biz/purchase-orders/${id}/receive`, {}),

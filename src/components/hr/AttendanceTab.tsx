@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, LogIn, LogOut, RefreshCw } from "lucide-react";
+import { LogIn, LogOut, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { hrApi, ApiAttendance, ApiEmployee, ApiStation } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const STATUSES = [
   { value: "Present",  label: "Present"  },
@@ -46,6 +47,7 @@ export default function AttendanceTab() {
     catch { return { employeeId: "", date: today, checkIn: "", checkOut: "", status: "Present", note: "" }; }
   });
   const [saving, setSaving] = useState(false);
+  const [visibleAttendance, setVisibleAttendance] = useState<ApiAttendance[]>([]);
 
   const can = usePermissions();
   const canCheckInOut = can("hr.attendance.view");
@@ -75,10 +77,10 @@ export default function AttendanceTab() {
   }, [canManual]);
 
   const stats = {
-    total: attendance.length,
-    present: attendance.filter(a => a.status === "Present").length,
-    absent: attendance.filter(a => a.status === "Absent").length,
-    late: attendance.filter(a => a.status === "Late").length,
+    total: visibleAttendance.length,
+    present: visibleAttendance.filter(a => a.status === "Present").length,
+    absent: visibleAttendance.filter(a => a.status === "Absent").length,
+    late: visibleAttendance.filter(a => a.status === "Late").length,
   };
 
   const handleCheckIn = async () => {
@@ -132,6 +134,16 @@ export default function AttendanceTab() {
     { key: "status", label: "Status", render: a => <StatusBadge status={a.status} /> },
   ];
 
+  const exportColumns: ExportColumn<ApiAttendance>[] = [
+    { label: "Employee",  value: a => (a.employee?.user?.name ?? a.employee?.name) || "—" },
+    { label: "Date",      value: a => a.date },
+    { label: "Check In",  value: a => a.checkIn ? a.checkIn.slice(11, 16) : "—" },
+    { label: "Check Out", value: a => a.checkOut ? a.checkOut.slice(11, 16) : "—" },
+    { label: "Hours",     value: a => calcHours(a.checkIn, a.checkOut) },
+    { label: "Status",    value: a => a.status },
+    { label: "Note",      value: a => a.note || "—" },
+  ];
+
   const displayData = filterStatus === "__all__"
     ? attendance
     : attendance.filter(a => a.status === filterStatus);
@@ -153,9 +165,13 @@ export default function AttendanceTab() {
           {canManual && (
             <Button onClick={() => setManualOpen(true)}>Manual Entry</Button>
           )}
-          <Button variant="outline" onClick={() => exportToCsv(`attendance-${today}.csv`, attendance)}>
-            <Download className="h-4 w-4 mr-2" /> Export
-          </Button>
+          <ExportMenu
+            filename={`attendance_${fromDate}_to_${toDate}`}
+            title="Attendance"
+            rows={visibleAttendance}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
@@ -216,9 +232,10 @@ export default function AttendanceTab() {
       <DataTable
         data={displayData}
         columns={columns}
-        searchKeys={["date"]}
-        searchPlaceholder="Search by date..."
+        searchKeys={["date", "employee.user.name", "employee.name"]}
+        searchPlaceholder="Search by date or employee..."
         onView={item => setViewing(item)}
+        onFilteredChange={setVisibleAttendance}
       />
 
       {/* Manual Entry */}

@@ -11,6 +11,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizPurchaseOrder, ApiBizSupplier, ApiBizProduct, ApiBizPOItem } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 interface Props { business: ApiBizBusiness; }
 
@@ -32,12 +35,15 @@ export function PurchaseOrdersTab({ business }: Props) {
   const [items,     setItems]     = useState<ApiBizPOItem[]>([]);
   const [saving,    setSaving]    = useState(false);
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; confirmLabel?: string; onConfirm: () => void } | null>(null);
+  const [visibleRecords, setVisibleRecords] = useState<ApiBizPurchaseOrder[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const [oRes, sRes, pRes] = await Promise.all([
-        bizApi.purchaseOrders.list(business.id),
+        bizApi.purchaseOrders.list(business.id, undefined, fromDate || undefined, toDate || undefined),
         bizApi.suppliers.list(business.id),
         bizApi.products.list(business.id),
       ]);
@@ -46,9 +52,11 @@ export function PurchaseOrdersTab({ business }: Props) {
       setProducts(pRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load"); }
     finally { setLoading(false); }
-  }, [business.id]);
+  }, [business.id, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  const pendingDeleteIds = usePendingDeleteIds("BizPurchaseOrder", business.stationId, records.length);
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -140,14 +148,35 @@ export function PurchaseOrdersTab({ business }: Props) {
     ]},
   ];
 
+  const exportColumns: ExportColumn<ApiBizPurchaseOrder>[] = [
+    { label: "Order Ref", value: o => o.orderRef },
+    { label: "Date",      value: o => o.orderDate },
+    { label: "Supplier",  value: o => o.supplierName || "—" },
+    { label: "Total",     value: o => o.totalAmount },
+    { label: "Status",    value: o => o.status },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">Supplier purchase orders</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`purchase-orders${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Purchase Orders"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Order</Button>
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -156,6 +185,8 @@ export function PurchaseOrdersTab({ business }: Props) {
         onView={o => setViewing(o)}
         onEdit={openEdit}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
         extraActions={[{
           label: "Receive Order",
           icon: PackageCheck,

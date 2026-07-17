@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { carwashApi, ApiCarwashBooking } from "@/lib/carwashApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PACKAGES = ["Basic Rinse", "Full Wash", "Premium Detail", "Interior Clean"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -33,16 +35,19 @@ export function BookingsTab() {
   const [viewing, setViewing]   = useState<ApiCarwashBooking | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiCarwashBooking[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await carwashApi.bookings.list({}, stationId);
+      const res = await carwashApi.bookings.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load bookings"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -94,9 +99,9 @@ export function BookingsTab() {
   };
 
   const stats = {
-    pending:   records.filter(r => r.status === "pending").length,
-    confirmed: records.filter(r => r.status === "confirmed").length,
-    completed: records.filter(r => r.status === "completed").length,
+    pending:   visibleRecords.filter(r => r.status === "pending").length,
+    confirmed: visibleRecords.filter(r => r.status === "confirmed").length,
+    completed: visibleRecords.filter(r => r.status === "completed").length,
   };
 
   const columns: Column<ApiCarwashBooking>[] = [
@@ -113,6 +118,17 @@ export function BookingsTab() {
   const filters: FilterOption[] = [
     { key: "status", label: "Status", options: [{ label: "Pending", value: "pending" }, { label: "Confirmed", value: "confirmed" }, { label: "Completed", value: "completed" }, { label: "Cancelled", value: "cancelled" }] },
     { key: "washPackage", label: "Package", options: PACKAGES.map(p => ({ label: p, value: p })) },
+  ];
+
+  const exportColumns: ExportColumn<ApiCarwashBooking>[] = [
+    { label: "Ref #",   value: b => b.bookingRef },
+    { label: "Date",    value: b => b.date.split("T")[0] },
+    { label: "Time",    value: b => b.time || "—" },
+    { label: "Client",  value: b => b.client },
+    { label: "Phone",   value: b => b.phone || "—" },
+    { label: "Vehicle", value: b => b.vehicleReg },
+    { label: "Package", value: b => b.washPackage },
+    { label: "Status",  value: b => b.status },
   ];
 
   return (
@@ -132,12 +148,25 @@ export function BookingsTab() {
         </CardContent></Card>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Scheduled wash appointments</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`carwash-bookings${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Car Wash Bookings"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Booking</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -148,6 +177,7 @@ export function BookingsTab() {
         onView={b => setViewing(b)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
       />
 
       <DangerConfirmModal

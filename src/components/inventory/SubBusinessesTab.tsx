@@ -53,7 +53,6 @@ export default function SubBusinessesTab() {
   };
 
   const columns: Column<ApiBizBusiness>[] = [
-    { key: "id", label: "ID" },
     { key: "name", label: "Name", sortable: true },
     { key: "type", label: "Type", render: i => <Badge variant="outline">{TYPE_LABELS[i.type] ?? i.type}</Badge> },
     { key: "currency", label: "Currency" },
@@ -132,7 +131,7 @@ export default function SubBusinessesTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["name", "id"]} searchPlaceholder="Search sub-businesses…" filters={filters} onView={i => setViewing(i)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["name"]} searchPlaceholder="Search sub-businesses…" filters={filters} onView={i => setViewing(i)} onEdit={openEdit} onDelete={handleDelete} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Sub-Business" : "Add Sub-Business"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Create"}>
         <div className="space-y-4">
@@ -164,7 +163,7 @@ export default function SubBusinessesTab() {
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sub-Business" isView>
         {viewing && (
           <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between"><Badge variant="outline">{viewing.id}</Badge><StatusBadge status={viewing.status} /></div>
+            <div className="flex items-center justify-between"><span className="font-semibold">{viewing.name}</span><StatusBadge status={viewing.status} /></div>
             <div><span className="text-muted-foreground">Name:</span> {viewing.name}</div>
             <div><span className="text-muted-foreground">Type:</span> {TYPE_LABELS[viewing.type] ?? viewing.type}</div>
             <div><span className="text-muted-foreground">Tax Rate:</span> {viewing.taxRate}%</div>

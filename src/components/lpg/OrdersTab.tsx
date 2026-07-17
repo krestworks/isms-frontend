@@ -13,6 +13,9 @@ import { toast } from "sonner";
 import { lpgApi, ApiLpgOrder } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const SIZES = ["6kg", "13kg", "22.5kg", "25kg", "50kg"];
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
@@ -32,7 +35,11 @@ export function OrdersTab() {
   const canManage = can("lpg.orders.manage");
 
   const [records, setRecords]   = useState<ApiLpgOrder[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("LpgOrder", stationId, records.length);
+  const [visibleRecords, setVisibleRecords] = useState<ApiLpgOrder[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiLpgOrder | null>(null);
   const [viewing, setViewing]   = useState<ApiLpgOrder | null>(null);
@@ -43,11 +50,11 @@ export function OrdersTab() {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await lpgApi.orders.list({}, stationId);
+      const res = await lpgApi.orders.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load orders"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -100,9 +107,9 @@ export function OrdersTab() {
   };
 
   const stats = {
-    pending:    records.filter(r => r.orderStatus === "pending").length,
-    inProgress: records.filter(r => ["processing", "dispatched"].includes(r.orderStatus)).length,
-    delivered:  records.filter(r => r.orderStatus === "delivered").length,
+    pending:    visibleRecords.filter(r => r.orderStatus === "pending").length,
+    inProgress: visibleRecords.filter(r => ["processing", "dispatched"].includes(r.orderStatus)).length,
+    delivered:  visibleRecords.filter(r => r.orderStatus === "delivered").length,
   };
 
   const columns: Column<ApiLpgOrder>[] = [
@@ -123,6 +130,22 @@ export function OrdersTab() {
     { key: "cylinderSize", label: "Size",    options: SIZES.map(s => ({ label: s, value: s })) },
   ];
 
+  const exportColumns: ExportColumn<ApiLpgOrder>[] = [
+    { label: "Order #",        value: o => o.orderNo },
+    { label: "Date",           value: o => o.date.split("T")[0] },
+    { label: "Client",         value: o => o.client },
+    { label: "Phone",          value: o => o.clientPhone || "—" },
+    { label: "Size",           value: o => o.cylinderSize },
+    { label: "Qty",            value: o => o.quantity },
+    { label: "Unit Price (Ksh)",value: o => o.unitPrice },
+    { label: "Total (Ksh)",    value: o => o.totalAmount },
+    { label: "Order Status",   value: o => o.orderStatus },
+    { label: "Payment Status", value: o => o.paymentStatus },
+    { label: "Payment Method", value: o => o.paymentMethod },
+    { label: "Processed By",   value: o => o.processedBy || "—" },
+    { label: "Delivered By",   value: o => o.deliveredBy || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
@@ -140,12 +163,25 @@ export function OrdersTab() {
         </CardContent></Card>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Client orders, processing, and delivery tracking</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`lpg-orders${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="LPG Orders"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Order</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -156,6 +192,8 @@ export function OrdersTab() {
         onView={o => setViewing(o)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

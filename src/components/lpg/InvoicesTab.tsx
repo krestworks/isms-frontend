@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw, Download, Printer, Mail } from "lucide-react";
+import { Plus, RefreshCw, Printer, Mail, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,35 +13,20 @@ import { BrandedDocHeader } from "@/components/shared/BrandedDocHeader";
 import { lpgApi, ApiLpgInvoice, ApiLpgInvoiceItem } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
-import { exportToCsv } from "@/lib/exportCsv";
-import { brandingStore } from "@/data/brandingStore";
-import { sessionStore } from "@/data/sessionStore";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const today = () => new Date().toISOString().split("T")[0];
 
-function buildBrandHeader(docTitle: string, docRef: string, docDate: string): string {
-  const b = brandingStore.get();
-  const loc = sessionStore.activeLocation();
-  const branch = loc !== "All Locations" ? loc : "";
-  return `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #333;padding-bottom:14px;margin-bottom:20px">
-      <div style="display:flex;align-items:center;gap:12px">
-        ${b?.logo ? `<img src="${b.logo}" style="height:56px;width:56px;object-fit:contain;border-radius:6px">` : ""}
-        <div>
-          <div style="font-size:17px;font-weight:700;color:#111">${b?.name ?? "ISMS"}</div>
-          ${b?.tagline ? `<div style="font-size:11px;color:#666;margin-top:2px">${b.tagline}</div>` : ""}
-          ${b?.address ? `<div style="font-size:11px;color:#666">${b.address}</div>` : ""}
-          ${b?.contactPhone || b?.contactEmail ? `<div style="font-size:11px;color:#666">${[b?.contactPhone, b?.contactEmail].filter(Boolean).join(" · ")}</div>` : ""}
-        </div>
-      </div>
-      <div style="text-align:right">
-        <div style="font-size:20px;font-weight:700;letter-spacing:1px;color:#111">${docTitle}</div>
-        ${branch ? `<div style="font-size:12px;color:#555;margin-top:4px">${branch}</div>` : ""}
-        <div style="font-size:11px;color:#777;margin-top:2px">${docDate}</div>
-        <div style="font-size:11px;color:#999">Ref: ${docRef}</div>
-      </div>
-    </div>`.replace(/\s{2,}/g, " ").trim();
+/** An invoice reads as overdue once its due date has passed and it's still unpaid — computed, never stored, so it can't drift from "today". */
+function isOverdue(inv: ApiLpgInvoice): boolean {
+  return inv.paymentStatus === "pending" && !!inv.dueDate && inv.dueDate.split("T")[0] < today();
+}
+function displayStatus(inv: ApiLpgInvoice): string {
+  return isOverdue(inv) ? "overdue" : inv.paymentStatus;
 }
 
 const emptyItem = (): ApiLpgInvoiceItem => ({ description: "", qty: 1, unitPrice: 0, total: 0 });
@@ -65,7 +50,11 @@ export function InvoicesTab() {
   const canManage = can("lpg.invoices.manage");
 
   const [records, setRecords]   = useState<ApiLpgInvoice[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("LpgInvoice", stationId, records.length);
+  const [visibleRecords, setVisibleRecords] = useState<ApiLpgInvoice[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiLpgInvoice | null>(null);
   const [viewing, setViewing]   = useState<ApiLpgInvoice | null>(null);
@@ -91,28 +80,20 @@ export function InvoicesTab() {
     finally { setSendingEmail(false); }
   };
 
-  const handlePrint = () => {
-    if (!viewRef.current || !viewing) return;
-    const win = window.open("", "_blank");
-    if (!win) return;
-    const title = viewing.type === "receipt" ? "RECEIPT" : "TAX INVOICE";
-    const header = buildBrandHeader(title, viewing.invoiceNo, viewing.date.split("T")[0]);
-    win.document.write(`<html><head><title>${viewing.invoiceNo}</title>
-      <style>body{font-family:sans-serif;padding:24px;color:#111}table{width:100%;border-collapse:collapse;margin-bottom:12px}td,th{padding:6px 10px;border:1px solid #ddd}th{background:#f5f5f5}</style>
-    </head><body>${header}${viewRef.current.innerHTML}</body></html>`);
-    win.document.close();
-    win.print();
-  };
+  const handlePrint = (inv: ApiLpgInvoice) => openPdfInNewTab(`/lpg/invoices/${inv.id}/pdf`)
+    .catch((e: any) => toast.error(e?.message || "Failed to open invoice PDF"));
+  const handleDownload = (inv: ApiLpgInvoice) => downloadPdf(`/lpg/invoices/${inv.id}/pdf`, `${inv.invoiceNo}.pdf`)
+    .catch((e: any) => toast.error(e?.message || "Failed to download invoice PDF"));
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await lpgApi.invoices.list({}, stationId);
+      const res = await lpgApi.invoices.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load invoices"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -186,7 +167,9 @@ export function InvoicesTab() {
     } catch (e: any) { toast.error(e?.message || "Failed to delete"); }
   };
 
-  const columns: Column<ApiLpgInvoice>[] = [
+  const rows = records.map(r => ({ ...r, displayStatus: displayStatus(r) }));
+
+  const columns: Column<typeof rows[number]>[] = [
     { key: "invoiceNo",    label: "Invoice #",    sortable: true, render: i => <span className="font-mono text-xs">{i.invoiceNo}</span> },
     { key: "date",         label: "Date",          render: i => i.date.split("T")[0], sortable: true },
     { key: "client",       label: "Client",        sortable: true },
@@ -194,36 +177,63 @@ export function InvoicesTab() {
     { key: "subtotal",     label: "Subtotal (Ksh)",render: i => i.subtotal.toLocaleString() },
     { key: "vatAmount",    label: "VAT (Ksh)",     render: i => i.vatAmount.toLocaleString() },
     { key: "totalAmount",  label: "Total (Ksh)",   sortable: true, render: i => <span className="font-mono font-bold">Ksh {i.totalAmount.toLocaleString()}</span> },
-    { key: "paymentStatus",label: "Status",        render: i => <StatusBadge status={i.paymentStatus} /> },
+    { key: "displayStatus",label: "Status",        render: i => <StatusBadge status={i.displayStatus} /> },
     { key: "paymentMethod",label: "Payment" },
   ];
 
   const filters: FilterOption[] = [
-    { key: "paymentStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }] },
+    { key: "displayStatus", label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Overdue", value: "overdue" }] },
     { key: "type",          label: "Type",   options: [{ label: "Invoice", value: "invoice" }, { label: "Receipt", value: "receipt" }] },
+  ];
+
+  const exportColumns: ExportColumn<typeof rows[number]>[] = [
+    { label: "Invoice #",     value: i => i.invoiceNo },
+    { label: "Date",          value: i => i.date.split("T")[0] },
+    { label: "Due Date",      value: i => i.dueDate?.split("T")[0] || "—" },
+    { label: "Client",        value: i => i.client },
+    { label: "Type",          value: i => i.type },
+    { label: "Subtotal (Ksh)",value: i => i.subtotal },
+    { label: "VAT (Ksh)",     value: i => i.vatAmount },
+    { label: "Discount (Ksh)",value: i => i.discount },
+    { label: "Total (Ksh)",   value: i => i.totalAmount },
+    { label: "Status",        value: i => i.displayStatus },
+    { label: "Payment Method",value: i => i.paymentMethod },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Receipts and invoices for all LPG transactions</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`lpg-invoices-${today()}.csv`, records)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`lpg-invoices${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="LPG Invoices"
+            rows={visibleRecords.map(r => ({ ...r, displayStatus: displayStatus(r) }))}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Create Invoice</Button>}
         </div>
       </div>
 
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
       <DataTable
-        data={records} columns={columns}
+        data={rows} columns={columns}
         searchKeys={["invoiceNo", "client"]}
         searchPlaceholder="Search invoices..."
         filters={filters}
         onView={i => setViewing(i)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        extraActions={[{ label: "Download", icon: Download, onClick: handleDownload }]}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       {/* Create / Edit modal */}
@@ -292,7 +302,8 @@ export function InvoicesTab() {
       {/* View modal */}
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title={viewing?.type === "receipt" ? "Receipt" : "Invoice"} isView
         footerExtra={<>
-          <Button variant="outline" size="sm" onClick={handlePrint}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && handlePrint(viewing)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && handleDownload(viewing)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
           <Button variant="outline" size="sm" onClick={() => viewing && openEmail(viewing)}><Mail className="h-3.5 w-3.5 mr-1.5" />Email</Button>
         </>}>
         {viewing && (
@@ -303,7 +314,7 @@ export function InvoicesTab() {
               docRef={viewing.invoiceNo}
               docDate={viewing.date.split("T")[0]}
             />
-            <div className="flex justify-end -mt-4"><StatusBadge status={viewing.paymentStatus} /></div>
+            <div className="flex justify-end -mt-4"><StatusBadge status={displayStatus(viewing)} /></div>
             <Separator />
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>

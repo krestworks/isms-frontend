@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search, ScanBarcode, Plus, Minus, Trash2, ShoppingCart, CreditCard,
-  Printer, X, CheckCircle2, Tag, ChevronUp,
+  Printer, Download, X, CheckCircle2, Tag, ChevronUp,
   Smartphone, Loader2, QrCode, AlertCircle, Monitor,
   LayoutGrid, List, Package, Filter,
 } from "lucide-react";
@@ -21,6 +21,7 @@ import { useSession } from "@/data/sessionStore";
 import { brandingStore } from "@/data/brandingStore";
 import { POSSessionManager } from "./POSSessionManager";
 import { posSessionStore } from "@/data/posSessionStore";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ interface CartItem {
   markedPrice: number;
   discount: number;
   totalPrice: number;
+  vatExempt: boolean;
 }
 
 type PayPhase = "idle" | "initiating" | "awaiting" | "completed" | "failed";
@@ -173,7 +175,7 @@ export function POSTab({ business }: Props) {
       return [...prev, {
         productId: p.id, name: p.name, qty: 1,
         unitPrice: p.price, markedPrice: p.markedPrice ?? 0,
-        discount: 0, totalPrice: p.price,
+        discount: 0, totalPrice: p.price, vatExempt: p.vatExempt,
       }];
     });
   };
@@ -209,10 +211,13 @@ export function POSTab({ business }: Props) {
 
   // ── Totals (prices are tax-inclusive; extract VAT from total) ──────────────
 
-  const subtotal   = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const subtotal        = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const taxableSubtotal = cart.filter(i => !i.vatExempt).reduce((s, i) => s + i.totalPrice, 0);
   const baseAmount = Math.max(0, subtotal - orderDiscount);
-  // VAT is embedded in the selling price — extract it for display only
-  const taxAmount  = Math.round(baseAmount * business.taxRate / (100 + business.taxRate) * 100) / 100;
+  // VAT is embedded in the selling price — extract it for display only.
+  // Order-level discount is allocated proportionally so VAT-exempt items don't contribute to the extracted tax.
+  const taxableBase = subtotal > 0 ? Math.max(0, taxableSubtotal - orderDiscount * (taxableSubtotal / subtotal)) : 0;
+  const taxAmount  = Math.round(taxableBase * business.taxRate / (100 + business.taxRate) * 100) / 100;
   const total      = baseAmount; // tax already included — do NOT add on top
   const paid       = parseFloat(amountPaid) || 0;
   const change     = Math.max(0, paid - total);
@@ -300,6 +305,7 @@ export function POSTab({ business }: Props) {
       const saleItems: ApiBizSaleItem[] = cart.map(i => ({
         productId: i.productId, name: i.name, qty: i.qty,
         unitPrice: i.unitPrice, discount: i.discount, totalPrice: i.totalPrice,
+        vatExempt: i.vatExempt,
       }));
       const res = await bizApi.sales.create({
         businessId: business.id,
@@ -330,6 +336,7 @@ export function POSTab({ business }: Props) {
       const saleItems: ApiBizSaleItem[] = cart.map(i => ({
         productId: i.productId, name: i.name, qty: i.qty,
         unitPrice: i.unitPrice, discount: i.discount, totalPrice: i.totalPrice,
+        vatExempt: i.vatExempt,
       }));
       const res = await bizApi.payments.initiate({
         businessId: business.id,
@@ -348,88 +355,17 @@ export function POSTab({ business }: Props) {
     }
   };
 
-  // ── Print receipt ──────────────────────────────────────────────────────────
+  // ── Print / download receipt ─────────────────────────────────────────────
 
   const handlePrint = () => {
     if (!lastSale) return;
-    const b = brandingStore.get();
-    const branch = activeLocation !== "All Locations" ? activeLocation : "";
-    const logoHtml = b?.logo ? `<img src="${b.logo}" style="height:36px;width:36px;object-fit:contain;border-radius:4px;margin-right:8px">` : "";
-    const generatedAt = new Date().toLocaleString("en-KE");
-
-    const itemRows = (lastSale.items ?? []).map((item: ApiBizSaleItem) =>
-      `<tr>
-        <td style="border-right:1px dashed #999;padding-right:4px;vertical-align:top">${item.name}</td>
-        <td style="text-align:center;padding:0 4px;white-space:nowrap;vertical-align:top;width:30px">${item.qty}</td>
-        <td style="text-align:right;padding-left:4px;white-space:nowrap;font-weight:700;vertical-align:top">${fmt(item.totalPrice)}</td>
-      </tr>`
-    ).join("");
-
-    const taxLine = lastSale.taxAmount > 0
-      ? `<div style="display:flex;justify-content:space-between;color:#666"><span>VAT (${lastSale.taxRate}%, incl.):</span><span>Ksh ${fmt(lastSale.taxAmount)}</span></div>`
-      : "";
-    const discountLine = lastSale.discount > 0
-      ? `<div style="display:flex;justify-content:space-between"><span>Discount:</span><span>-Ksh ${fmt(lastSale.discount)}</span></div>`
-      : "";
-
-    const win = window.open("", "_blank", "width=380,height=720");
-    if (!win) { toast.error("Popup blocked — allow popups to print receipts"); return; }
-    win.document.write(`<html><head><title>Receipt</title><style>
-      *{box-sizing:border-box;margin:0;padding:0}
-      body{font-family:'Courier New',monospace;font-size:12px;padding:16px;max-width:320px;margin:auto;color:#111}
-      .row{display:flex;justify-content:space-between;margin:2px 0}
-      table{width:100%;border-collapse:collapse} td,th{padding:2px 0;vertical-align:top}
-      th{font-weight:normal;font-size:10px;color:#666;border-bottom:1px solid #ddd}
-      .dashed{border-top:1px dashed #555;margin:6px 0}
-    </style></head><body>
-      <div style="display:flex;align-items:center;justify-content:space-between;padding-bottom:6px;border-bottom:1px dashed #555;margin-bottom:6px">
-        <div style="display:flex;align-items:center">
-          ${logoHtml}
-          <div>
-            <div style="font-size:14px;font-weight:700">${b?.name ?? business.name}</div>
-            ${b?.tagline ? `<div style="font-size:10px;color:#666">${b.tagline}</div>` : ""}
-            ${b?.address ? `<div style="font-size:10px;color:#666">${b.address}</div>` : ""}
-            ${business.kraPin ? `<div style="font-size:10px;color:#666">KRA PIN: ${business.kraPin}</div>` : ""}
-          </div>
-        </div>
-        ${branch ? `<div style="font-size:10px;color:#555;text-align:right">${branch}</div>` : ""}
-      </div>
-      ${business.receiptHeader ? `<div style="text-align:center;font-size:10px;color:#666;margin-bottom:4px">${business.receiptHeader}</div>` : ""}
-      <div class="row"><span>Receipt:</span><span>${lastSale.saleRef}</span></div>
-      <div class="row"><span>Date:</span><span>${lastSale.date}</span></div>
-      ${lastSale.cashier ? `<div class="row"><span>Cashier:</span><span>${lastSale.cashier}</span></div>` : ""}
-      ${lastSale.customerPhone ? `<div class="row"><span>M-Pesa:</span><span>${lastSale.customerPhone}</span></div>` : ""}
-      ${lastSale.notes ? `<div class="row"><span>Note:</span><span>${lastSale.notes}</span></div>` : ""}
-      <div class="dashed" style="margin-top:8px"></div>
-      <table>
-        <thead>
-          <tr>
-            <th style="text-align:left;border-right:1px dashed #aaa;padding-right:4px">Item</th>
-            <th style="text-align:center;padding:0 4px;width:30px">Qty</th>
-            <th style="text-align:right;padding-left:4px">Amount</th>
-          </tr>
-        </thead>
-        <tbody>${itemRows}</tbody>
-      </table>
-      <div class="dashed" style="margin-top:8px"></div>
-      <div style="margin-top:4px">
-        <div class="row"><span>Subtotal:</span><span>Ksh ${fmt(lastSale.subtotal)}</span></div>
-        ${discountLine}
-        ${taxLine}
-        <div class="row" style="font-weight:700;font-size:13px;border-top:1px dashed #555;margin-top:4px;padding-top:4px"><span>TOTAL:</span><span>Ksh ${fmt(lastSale.totalAmount)}</span></div>
-        <div class="row"><span>Paid (${lastSale.paymentMethod}):</span><span>Ksh ${fmt(lastSale.amountPaid)}</span></div>
-        ${lastSale.change > 0 ? `<div class="row"><span>Change:</span><span>Ksh ${fmt(lastSale.change)}</span></div>` : ""}
-      </div>
-      <div class="dashed" style="margin-top:8px"></div>
-      ${business.receiptFooter ? `<p style="text-align:center;margin:4px 0">${business.receiptFooter}</p>` : ""}
-      <p style="text-align:center;color:#666">Thank you for your business!</p>
-      <p style="text-align:center;color:#999;font-size:10px;margin-top:4px">Generated: ${generatedAt}</p>
-    </body></html>`);
-    win.document.close();
-    win.focus();
-    // Let the page render (images etc.) before triggering print, close after user dismisses dialog
-    win.onafterprint = () => win.close();
-    setTimeout(() => win.print(), 400);
+    openPdfInNewTab(`/biz/sales/${lastSale.id}/receipt.pdf`)
+      .catch((e: any) => toast.error(e?.message || "Failed to open receipt PDF"));
+  };
+  const handleDownloadReceipt = () => {
+    if (!lastSale) return;
+    downloadPdf(`/biz/sales/${lastSale.id}/receipt.pdf`, `receipt-${lastSale.saleRef}.pdf`)
+      .catch((e: any) => toast.error(e?.message || "Failed to download receipt PDF"));
   };
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -443,10 +379,10 @@ export function POSTab({ business }: Props) {
     <div className="flex flex-col">
       <POSSessionManager business={business} sales={sales} />
 
-    <div className="flex gap-4 h-[calc(100vh-260px)] min-h-[540px]">
+    <div className="flex gap-4 items-start min-h-[540px]">
 
       {/* ── Product Panel ── */}
-      <div className="flex-1 flex flex-col gap-3 min-w-0">
+      <div className="flex-1 flex flex-col gap-3 min-w-0 max-h-[calc(100vh-2rem)]">
 
         {/* Toolbar row */}
         <div className="flex gap-2 flex-wrap">
@@ -538,7 +474,7 @@ export function POSTab({ business }: Props) {
             </div>
           ) : viewMode === "grid" ? (
             /* ── Grid View ── */
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 pb-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 pb-2">
               {visible.map(p => {
                 const inCart     = cart.find(i => i.productId === p.id);
                 const hasMarkup  = p.markedPrice > 0 && p.markedPrice > p.price;
@@ -561,7 +497,7 @@ export function POSTab({ business }: Props) {
                       </div>
                     )}
                     {/* Product image */}
-                    <div className="h-20 w-full overflow-hidden">
+                    <div className="h-28 w-full overflow-hidden">
                       <ProductImage product={p} />
                     </div>
                     <div className="p-2.5">
@@ -649,7 +585,7 @@ export function POSTab({ business }: Props) {
       </div>
 
       {/* ── Cart Panel ── */}
-      <div className="w-[300px] xl:w-80 shrink-0 flex flex-col rounded-xl border bg-card shadow-sm">
+      <div className="w-[300px] xl:w-80 shrink-0 flex flex-col rounded-xl border bg-card shadow-sm sticky top-4 max-h-[calc(100vh-2rem)] overflow-hidden">
         <div className="p-4 border-b flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ShoppingCart className="h-4 w-4 text-primary" />
@@ -675,7 +611,10 @@ export function POSTab({ business }: Props) {
                 <div key={item.productId} className="rounded-lg border bg-background">
                   <div className="flex items-center gap-2 p-2.5">
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium truncate leading-tight">{item.name}</p>
+                      <p className="text-xs font-medium truncate leading-tight flex items-center gap-1">
+                        {item.name}
+                        {item.vatExempt && <Badge variant="outline" className="text-[9px] py-0 h-3.5 px-1">VAT-exempt</Badge>}
+                      </p>
                       <p className="text-[11px] text-muted-foreground">
                         Ksh {fmt(item.unitPrice)} × {item.qty}
                         {item.discount > 0 && <span className="text-green-600 ml-1">−{fmt(item.discount)}</span>}
@@ -1016,7 +955,10 @@ export function POSTab({ business }: Props) {
               </div>
               <div className="flex gap-2 mt-2">
                 <Button variant="outline" className="flex-1" onClick={handlePrint}>
-                  <Printer className="h-4 w-4 mr-2" />Print Receipt
+                  <Printer className="h-4 w-4 mr-2" />Print
+                </Button>
+                <Button variant="outline" className="flex-1" onClick={handleDownloadReceipt}>
+                  <Download className="h-4 w-4 mr-2" />Download
                 </Button>
                 <Button className="flex-1" onClick={() => setReceiptOpen(false)}>
                   New Sale

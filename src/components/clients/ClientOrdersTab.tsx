@@ -12,6 +12,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { clientsApi, ApiClientOrder } from "@/lib/clientsApi";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const MODULES         = ["Fuel", "LPG", "Water", "Car Wash", "Automotive", "Mini Mart", "Pharmacy", "Restaurant", "Tyre Centre"];
 const PAYMENT_METHODS = ["Cash", "M-Pesa", "Card", "Credit", "Bank Transfer"];
@@ -39,6 +42,17 @@ const filters: FilterOption[] = [
   { key: "paymentMethod", label: "Payment", options: PAYMENT_METHODS.map(p => ({ label: p, value: p })) },
 ];
 
+const exportColumns: ExportColumn<ApiClientOrder>[] = [
+  { label: "Ref",         value: r => r.orderRef },
+  { label: "Date",        value: r => r.orderDate },
+  { label: "Client",      value: r => r.clientName },
+  { label: "Module",      value: r => r.module },
+  { label: "Description", value: r => r.description },
+  { label: "Amount",      value: r => r.amount },
+  { label: "Payment",     value: r => r.paymentMethod },
+  { label: "Status",      value: r => r.status },
+];
+
 export default function ClientOrdersTab() {
   const [data, setData]       = useState<ApiClientOrder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,23 +60,28 @@ export default function ClientOrdersTab() {
   const [editing, setEditing] = useState<ApiClientOrder | null>(null);
   const [viewing, setViewing] = useState<ApiClientOrder | null>(null);
   const [form, setForm]       = useState(emptyForm);
+  const [visibleData, setVisibleData] = useState<ApiClientOrder[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await clientsApi.orders.list(null, { limit: 500 } as any);
+      const res = await clientsApi.orders.list(null, { limit: 500, from: fromDate || undefined, to: toDate || undefined } as any);
       setData((res as any).data ?? []);
     } catch { /* non-critical */ }
     finally { setLoading(false); }
-  }, []);
+  }, [fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
+  const pendingDeleteIds = usePendingDeleteIds("ClientOrder", null, data.length);
+
   const stats = {
-    total:     data.length,
-    pending:   data.filter(d => d.status === "pending").length,
-    completed: data.filter(d => d.status === "completed").length,
-    revenue:   data.filter(d => d.status === "completed").reduce((s, d) => s + d.amount, 0),
+    total:     visibleData.length,
+    pending:   visibleData.filter(d => d.status === "pending").length,
+    completed: visibleData.filter(d => d.status === "completed").length,
+    revenue:   visibleData.filter(d => d.status === "completed").reduce((s, d) => s + d.amount, 0),
   };
 
   const openNew = () => {
@@ -116,11 +135,24 @@ export default function ClientOrdersTab() {
           <p className="text-sm text-muted-foreground">Track and manage client orders across all modules</p>
         </div>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`client-orders${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Client Orders"
+            rows={visibleData}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={load} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
           <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> New Order</Button>
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -134,7 +166,7 @@ export default function ClientOrdersTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["orderRef", "clientName", "description"]} searchPlaceholder="Search orders…" filters={filters} onView={r => setViewing(r)} onEdit={openEdit} onDelete={handleDelete} />
+      <DataTable data={data} columns={columns} searchKeys={["orderRef", "clientName", "description"]} searchPlaceholder="Search orders…" filters={filters} onView={r => setViewing(r)} onEdit={openEdit} onDelete={handleDelete} onFilteredChange={setVisibleData} pendingDeleteIds={pendingDeleteIds} />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? "Edit Order" : "New Order"} onSubmit={handleSave} submitLabel={editing ? "Update" : "Create"}>
         <div className="space-y-4">

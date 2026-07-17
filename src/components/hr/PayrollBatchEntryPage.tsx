@@ -97,7 +97,7 @@ export default function PayrollBatchEntryPage({
     setOverrides(prev => {
       const next = { ...prev };
       for (const r of rows)
-        next[r.employeeId] = { ...(prev[r.employeeId] || { note: "" }), houseAllow: h, transportAllow: t, bonus: b, extraDeduction: d };
+        next[r.employeeId] = { benefitInKind: 0, ...(prev[r.employeeId] || { note: "" }), houseAllow: h, transportAllow: t, bonus: b, extraDeduction: d };
       return next;
     });
     toast.success("Applied to all employees");
@@ -167,7 +167,7 @@ export default function PayrollBatchEntryPage({
     setSubmitting(true);
     try {
       const apiRows = eligible.map(r => {
-        const ov    = overrides[r.employeeId] || {};
+        const ov: Partial<EmpOverride> = overrides[r.employeeId] || {};
         const house = ov.houseAllow     || 0;
         const tran  = ov.transportAllow || 0;
         const ot    = ov.bonus          || 0;
@@ -462,7 +462,7 @@ export default function PayrollBatchEntryPage({
                       <th className="px-2 py-2 text-right">OT / Bonus</th>
                       <th className="px-2 py-2 text-right">Extra Deduct</th>
                       <th className="px-2 py-2 text-right text-amber-600">BIK</th>
-                      <th className="px-2 py-2 text-right text-muted-foreground">SHA</th>
+                      <th className="px-2 py-2 text-right text-muted-foreground">SHIF</th>
                       <th className="px-2 py-2 text-right text-muted-foreground">NSSF</th>
                       <th className="px-2 py-2 text-right text-muted-foreground">PAYE</th>
                       <th className="px-2 py-2 text-right font-semibold">Est. Net Pay</th>
@@ -591,7 +591,7 @@ export default function PayrollBatchEntryPage({
                   <th className="px-2 py-2 text-right">OT/Bonus</th>
                   <th className="px-2 py-2 text-right text-amber-600">BIK</th>
                   <th className="px-2 py-2 text-right">Gross</th>
-                  <th className="px-2 py-2 text-right text-muted-foreground">SHA</th>
+                  <th className="px-2 py-2 text-right text-muted-foreground">SHIF</th>
                   <th className="px-2 py-2 text-right text-muted-foreground">NSSF</th>
                   <th className="px-2 py-2 text-right text-muted-foreground">PAYE</th>
                   <th className="px-2 py-2 text-right">Extra Ded.</th>

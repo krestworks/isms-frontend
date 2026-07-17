@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +13,10 @@ import { toast } from "sonner";
 import { fuelApi, ApiFuelSale, ApiFuelTank, ApiFuelPump, ApiFuelProduct } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 
@@ -34,6 +36,7 @@ export function PumpSalesTab() {
   const canVoid   = can("fuel.sales.void");
 
   const [sales, setSales]       = useState<ApiFuelSale[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("FuelSale", stationId, sales.length);
   const [tanks, setTanks]       = useState<ApiFuelTank[]>([]);
   const [pumps, setPumps]       = useState<ApiFuelPump[]>([]);
   const [products, setProducts] = useState<ApiFuelProduct[]>([]);
@@ -44,6 +47,7 @@ export function PumpSalesTab() {
   const [viewing, setViewing]   = useState<ApiFuelSale | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [visibleSales, setVisibleSales] = useState<ApiFuelSale[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -171,9 +175,9 @@ export function PumpSalesTab() {
   };
 
   const totals = {
-    revenue: sales.reduce((s, r) => s + r.netAmount, 0),
-    litres:  sales.reduce((s, r) => s + r.litres, 0),
-    count:   sales.length,
+    revenue: visibleSales.reduce((s, r) => s + r.netAmount, 0),
+    litres:  visibleSales.reduce((s, r) => s + r.litres, 0),
+    count:   visibleSales.length,
   };
 
   const columns: Column<ApiFuelSale>[] = [
@@ -192,6 +196,22 @@ export function PumpSalesTab() {
     { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
+  const exportColumns: ExportColumn<ApiFuelSale>[] = [
+    { label: "Receipt",        value: s => s.receiptNo },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Pump",           value: s => `Pump ${s.pumpNumber}` },
+    { label: "Fuel Type",      value: s => s.fuelType },
+    { label: "Litres",         value: s => s.litres },
+    { label: "Price/L (Ksh)",  value: s => s.pricePerLitre },
+    { label: "Gross (Ksh)",    value: s => s.amount },
+    { label: "Discount (Ksh)", value: s => s.discount },
+    { label: "Net Amount (Ksh)",value: s => s.netAmount },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Status",         value: s => s.paymentStatus },
+    { label: "Customer",       value: s => s.customer || "Walk-in" },
+    { label: "Attendant",      value: s => s.attendant || "—" },
+  ];
+
   const set = (k: string, v: any) => updateForm(k, v);
 
   return (
@@ -199,9 +219,13 @@ export function PumpSalesTab() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Record and track pump sales</p>
         <div className="flex gap-2 flex-wrap">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`fuel-sales-${today()}.csv`, sales)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`fuel-sales_${fromDate}_to_${toDate}`}
+            title="Fuel Pump Sales"
+            rows={visibleSales}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canRecord && (
             <Button size="sm" onClick={openNew} disabled={!canOpenSale} title={noPumps ? "Set up pumps in the Inventory tab first" : noTanks ? "Set up tanks first" : ""}>
@@ -248,7 +272,9 @@ export function PumpSalesTab() {
         searchPlaceholder="Search sales..."
         filters={filters}
         onView={s => setViewing(s)}
-        onDelete={canVoid ? setPendingVoidSale : undefined}
+        onDelete={canVoid ? (s => setPendingVoidSale(s)) : undefined}
+        onFilteredChange={rows => setVisibleSales(rows)}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <DangerConfirmModal

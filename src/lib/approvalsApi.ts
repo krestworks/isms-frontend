@@ -29,6 +29,9 @@ const qs = (params: Record<string, string | undefined>) => {
   return s ? `?${s}` : "";
 };
 
+const sh = (stationId?: string | null) =>
+  stationId ? { headers: { "x-station-id": stationId } } : undefined;
+
 export const approvalsApi = {
   /** Pending requests the current user can act on (excludes their own requests). */
   listActionable: (module?: string) =>
@@ -36,6 +39,9 @@ export const approvalsApi = {
   /** The current user's own requests, optionally filtered by status. */
   listMine: (params: { module?: string; status?: string } = {}) =>
     api.get<R<ApiApprovalRequest[]>>(`/approvals${qs({ scope: "mine", ...params })}`),
+  /** entityIds of a given entityType with a pending delete-approval request — for list-view "Pending Deletion" badges. */
+  pendingIds: (entityType: string, stationId?: string | null) =>
+    api.get<R<string[]>>(`/approvals/pending-ids${qs({ entityType })}`, sh(stationId)),
   approve: (id: string) => api.post<R<{ request: ApiApprovalRequest; result: unknown }>>(`/approvals/${id}/approve`),
   reject: (id: string, reason?: string) => api.post<R<ApiApprovalRequest>>(`/approvals/${id}/reject`, { reason }),
 };

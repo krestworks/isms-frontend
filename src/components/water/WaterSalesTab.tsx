@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,18 +10,20 @@ import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { waterApi, ApiWaterSale, ApiWaterSummary } from "@/lib/waterApi";
+import { waterApi, ApiWaterSale, ApiWaterSummary, ApiWaterPricePackage } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
   date: today(), customer: "", litres: 0, pricePerLitre: 0, discount: 0,
-  paymentMethod: "Cash", paymentStatus: "paid", attendant: "",
+  paymentMethod: "Cash", paymentStatus: "paid", attendant: "", packageId: "",
 };
 
 export function WaterSalesTab() {
@@ -40,6 +42,9 @@ export function WaterSalesTab() {
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
   const [availableWater, setAvailableWater] = useState<number | null>(null);
+  const [visibleSales, setVisibleSales] = useState<ApiWaterSale[]>([]);
+  const [packages, setPackages] = useState<ApiWaterPricePackage[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("WaterSale", stationId, sales.length);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -59,9 +64,18 @@ export function WaterSalesTab() {
     setForm({ ...emptyForm, date: today(), attendant: user.name || "" });
     setModalOpen(true);
     try {
-      const res = await waterApi.summary(stationId);
-      setAvailableWater(res.data?.availableWater ?? null);
+      const [summaryRes, pkgRes] = await Promise.all([
+        waterApi.summary(stationId),
+        waterApi.pricePackages.list({ status: "active" }, stationId),
+      ]);
+      setAvailableWater(summaryRes.data?.availableWater ?? null);
+      setPackages(pkgRes.data ?? []);
     } catch { /* non-critical */ }
+  };
+
+  const handlePackageChange = (packageId: string) => {
+    const pkg = packages.find(p => p.id === packageId);
+    setForm(f => ({ ...f, packageId, pricePerLitre: pkg ? Math.round((pkg.price / pkg.litres) * 100) / 100 : f.pricePerLitre }));
   };
 
   const insufficientWater = availableWater !== null && form.litres > availableWater;
@@ -102,9 +116,9 @@ export function WaterSalesTab() {
   };
 
   const totals = {
-    revenue:     sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
-    litresSold:  sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.litres, 0),
-    count:       sales.filter(s => s.paymentStatus !== "voided").length,
+    revenue:     visibleSales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
+    litresSold:  visibleSales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.litres, 0),
+    count:       visibleSales.filter(s => s.paymentStatus !== "voided").length,
   };
 
   const totalAmount = form.litres * form.pricePerLitre - form.discount;
@@ -125,14 +139,31 @@ export function WaterSalesTab() {
     { key: "paymentMethod", label: "Method", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
+  const exportColumns: ExportColumn<ApiWaterSale>[] = [
+    { label: "Receipt",        value: s => s.receiptNo },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Customer",       value: s => s.customer || "Walk-in" },
+    { label: "Litres (L)",     value: s => s.litres },
+    { label: "Price/L (Ksh)",  value: s => s.pricePerLitre },
+    { label: "Discount (Ksh)", value: s => s.discount },
+    { label: "Total (Ksh)",    value: s => s.totalAmount },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Status",         value: s => s.paymentStatus },
+    { label: "Attendant",      value: s => s.attendant || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Record and track water sales</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`water-sales-${today()}.csv`, sales)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`water-sales_${fromDate}_to_${toDate}`}
+            title="Water Sales"
+            rows={visibleSales}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Sale</Button>}
         </div>
@@ -166,6 +197,8 @@ export function WaterSalesTab() {
         filters={filters}
         onView={s => setViewing(s)}
         onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? setPendingVoidSale(s) : undefined) : undefined}
+        onFilteredChange={setVisibleSales}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <DangerConfirmModal
@@ -192,7 +225,24 @@ export function WaterSalesTab() {
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
           <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} placeholder="Walk-in" /></div>
           <div><Label>Litres *</Label><Input type="number" value={form.litres || ""} onChange={e => set("litres", +e.target.value)} /></div>
-          <div><Label>Price/Litre (Ksh) *</Label><Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} /></div>
+          <div>
+            <Label>Package</Label>
+            <Select value={form.packageId} onValueChange={handlePackageChange}>
+              <SelectTrigger><SelectValue placeholder={packages.length ? "Select package" : "No packages set up"} /></SelectTrigger>
+              <SelectContent>
+                {packages.map(p => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} — Ksh {(p.price / p.litres).toFixed(2)}/L
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Price/Litre (Ksh) *</Label>
+            <Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} />
+            {form.packageId && <p className="text-xs text-muted-foreground mt-1">Auto-filled from package pricing — edit if needed</p>}
+          </div>
           <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
           <div><Label>Total (Ksh)</Label><Input value={`Ksh ${totalAmount.toLocaleString()}`} disabled className="font-mono" /></div>
           <div><Label>Payment Method</Label>

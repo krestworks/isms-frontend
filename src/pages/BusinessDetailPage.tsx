@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useBusinessSlug } from "@/hooks/useAppPaths";
-import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft, Power, PowerOff, ShieldAlert } from "lucide-react";
+import { Store, ShoppingCart, Pill, UtensilsCrossed, Croissant, ArrowLeft, Power, PowerOff, ShieldAlert, type LucideIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -24,7 +24,7 @@ import { SetupTab }          from "@/components/business/SetupTab";
 import { ModuleAuditTab }    from "@/components/shared/ModuleAuditTab";
 import { usePermissions }    from "@/lib/permissions";
 
-const ICONS: Record<string, React.ElementType> = {
+const ICONS: Record<string, LucideIcon> = {
   mart: ShoppingCart, pharmacy: Pill, restaurant: UtensilsCrossed, "Tyre Centre": Croissant,
 };
 

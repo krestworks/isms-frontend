@@ -70,8 +70,7 @@ export default function PerformanceTab() {
   };
 
   const columns: Column<ApiPerformanceTask>[] = [
-    { key: "id", label: "Task ID" },
-    { key: "employeeId", label: "Employee", render: t => t.employee?.user?.name ?? t.employee?.name ?? t.employeeId },
+    { key: "employee", label: "Employee", render: t => t.employee?.user?.name ?? t.employee?.name ?? "—" },
     { key: "title", label: "Task", render: t => <span className="line-clamp-1">{t.title}</span> },
     { key: "category", label: "Category", render: t => <Badge variant="secondary">{t.category}</Badge> },
     { key: "dueDate", label: "Due", sortable: true, render: t => t.dueDate ?? "—" },
@@ -162,7 +161,7 @@ export default function PerformanceTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["title", "id"]} searchPlaceholder="Search tasks…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={t => setPendingDelete(t)} />
+      <DataTable data={data} columns={columns} searchKeys={["title", "employee.user.name", "employee.name"]} searchPlaceholder="Search tasks or employee…" filters={filters} onView={t => setViewing(t)} onEdit={openEdit} onDelete={t => setPendingDelete(t)} />
 
       <DangerConfirmModal
         open={!!pendingDelete}
@@ -228,10 +227,10 @@ export default function PerformanceTab() {
         {viewing && (
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <Badge variant="outline">{viewing.id}</Badge>
+              <Badge variant="secondary">{viewing.category}</Badge>
               <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusColor[viewing.status] ?? ""}`}>{viewing.status}</span>
             </div>
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId}</div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? "—"}</div>
             <div><span className="text-muted-foreground">Task:</span> {viewing.title}</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
             <div><span className="text-muted-foreground">Priority:</span> {viewing.priority}</div>

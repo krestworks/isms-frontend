@@ -181,7 +181,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
     try {
       const res = await authService.login(email, password);
-      if ("requiresOtp" in res && res.requiresOtp) {
+      if ("requiresOtp" in res) {
         return { requiresOtp: true, otpChallenge: res.data.otpChallenge, devOtp: res.data.dev_otp };
       }
       await finishSession(res.data.user);

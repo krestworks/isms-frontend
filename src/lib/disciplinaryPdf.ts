@@ -2,6 +2,13 @@ import jsPDF from "jspdf";
 import type { DisciplinaryCase } from "@/components/hr/DisciplinaryTab";
 import { documentsStore } from "@/data/documentsStore";
 import { DISCIPLINARY_STAGES } from "@/components/hr/DisciplinaryTab";
+import { brandingStore } from "@/data/brandingStore";
+
+function logoFormat(dataUrl: string): "PNG" | "JPEG" | null {
+  if (dataUrl.startsWith("data:image/png")) return "PNG";
+  if (dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")) return "JPEG";
+  return null;
+}
 
 export function generateDisciplinaryPdf(c: DisciplinaryCase) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -27,7 +34,30 @@ export function generateDisciplinaryPdf(c: DisciplinaryCase) {
   doc.text("Disciplinary Case Report", margin, 32);
   doc.setFont("helvetica", "normal"); doc.setFontSize(10);
   doc.text(`Case ${c.id} · Generated ${new Date().toLocaleString()}`, margin, 50);
-  y = 100;
+  y = 90;
+
+  // Business branding block — same info shown on receipts/invoices, so this
+  // report is traceable to the business/account that produced it.
+  const branding = brandingStore.get();
+  if (branding) {
+    const logoSize = 28;
+    let leftX = margin;
+    const fmt = branding.logo ? logoFormat(branding.logo) : null;
+    if (branding.logo && fmt) {
+      try { doc.addImage(branding.logo, fmt, leftX, y, logoSize, logoSize); } catch { /* corrupt/unsupported image — skip silently */ }
+      leftX += logoSize + 8;
+    }
+    let textY = y + 10;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(30, 30, 30);
+    doc.text(branding.name || "ISMS", leftX, textY);
+    textY += 12;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(120, 120, 120);
+    if (branding.address) { doc.text(branding.address, leftX, textY); textY += 11; }
+    const contact = [branding.contactEmail, branding.contactPhone].filter(Boolean).join("  ·  ");
+    if (contact) { doc.text(contact, leftX, textY); textY += 11; }
+    y = Math.max(textY, y + logoSize) + 10;
+    doc.setDrawColor(220); doc.line(margin, y, W - margin, y); y += 14;
+  }
 
   line("Case Summary", { size: 13, bold: true, color: [43,158,143] });
   hr();

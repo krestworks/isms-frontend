@@ -10,16 +10,19 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { waterApi, ApiWaterOrder } from "@/lib/waterApi";
+import { waterApi, ApiWaterOrder, ApiWaterPricePackage } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const ORDER_STATUSES = ["pending", "processing", "dispatched", "delivered", "cancelled"];
 const today = () => new Date().toISOString().split("T")[0];
 
 const emptyForm = {
-  date: today(), client: "", clientPhone: "", litres: 0, pricePerLitre: 0,
+  date: today(), client: "", clientPhone: "", litres: 0, pricePerLitre: 0, packageId: "",
   orderStatus: "pending", paymentStatus: "pending", paymentMethod: "Invoice",
   processedBy: "", deliveredBy: "", deliveryAddress: "", deliveryDate: "", notes: "",
 };
@@ -30,31 +33,45 @@ export function WaterOrdersTab() {
   const canManage = can("water.orders.create");
 
   const [records, setRecords]   = useState<ApiWaterOrder[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("WaterOrder", stationId, records.length);
+  const [visibleRecords, setVisibleRecords] = useState<ApiWaterOrder[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiWaterOrder | null>(null);
   const [viewing, setViewing]   = useState<ApiWaterOrder | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [packages, setPackages] = useState<ApiWaterPricePackage[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await waterApi.orders.list({}, stationId);
+      const res = await waterApi.orders.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load orders"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
+  useEffect(() => {
+    if (!stationId) return;
+    waterApi.pricePackages.list({ status: "active" }, stationId).then(r => setPackages(r.data ?? [])).catch(() => {});
+  }, [stationId]);
+
+  const handlePackageChange = (packageId: string) => {
+    const pkg = packages.find(p => p.id === packageId);
+    setForm(f => ({ ...f, packageId, pricePerLitre: pkg ? Math.round((pkg.price / pkg.litres) * 100) / 100 : f.pricePerLitre }));
+  };
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today() }); setModalOpen(true); };
   const openEdit = (o: ApiWaterOrder) => {
     setEditing(o);
     setForm({
       date: o.date.split("T")[0], client: o.client, clientPhone: o.clientPhone ?? "",
-      litres: o.litres, pricePerLitre: o.pricePerLitre,
+      litres: o.litres, pricePerLitre: o.pricePerLitre, packageId: "",
       orderStatus: o.orderStatus, paymentStatus: o.paymentStatus, paymentMethod: o.paymentMethod,
       processedBy: o.processedBy ?? "", deliveredBy: o.deliveredBy ?? "",
       deliveryAddress: o.deliveryAddress ?? "", deliveryDate: o.deliveryDate?.split("T")[0] ?? "",
@@ -102,9 +119,9 @@ export function WaterOrdersTab() {
   };
 
   const stats = {
-    pending:    records.filter(r => r.orderStatus === "pending").length,
-    inProgress: records.filter(r => ["processing", "dispatched"].includes(r.orderStatus)).length,
-    delivered:  records.filter(r => r.orderStatus === "delivered").length,
+    pending:    visibleRecords.filter(r => r.orderStatus === "pending").length,
+    inProgress: visibleRecords.filter(r => ["processing", "dispatched"].includes(r.orderStatus)).length,
+    delivered:  visibleRecords.filter(r => r.orderStatus === "delivered").length,
   };
 
   const columns: Column<ApiWaterOrder>[] = [
@@ -121,6 +138,23 @@ export function WaterOrdersTab() {
   const filters: FilterOption[] = [
     { key: "orderStatus",  label: "Status",  options: ORDER_STATUSES.map(s => ({ label: s.charAt(0).toUpperCase() + s.slice(1), value: s })) },
     { key: "paymentStatus",label: "Payment", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }] },
+  ];
+
+  const exportColumns: ExportColumn<ApiWaterOrder>[] = [
+    { label: "Order #",        value: o => o.orderNo },
+    { label: "Date",           value: o => o.date.split("T")[0] },
+    { label: "Client",         value: o => o.client },
+    { label: "Phone",          value: o => o.clientPhone || "—" },
+    { label: "Litres (L)",     value: o => o.litres },
+    { label: "Price/L (Ksh)",  value: o => o.pricePerLitre },
+    { label: "Total (Ksh)",    value: o => o.totalAmount },
+    { label: "Order Status",   value: o => o.orderStatus },
+    { label: "Payment Status", value: o => o.paymentStatus },
+    { label: "Payment Method", value: o => o.paymentMethod },
+    { label: "Processed By",   value: o => o.processedBy || "—" },
+    { label: "Delivered By",   value: o => o.deliveredBy || "—" },
+    { label: "Delivery Date",  value: o => o.deliveryDate?.split("T")[0] || "—" },
+    { label: "Delivery Address", value: o => o.deliveryAddress || "—" },
   ];
 
   return (
@@ -140,12 +174,25 @@ export function WaterOrdersTab() {
         </CardContent></Card>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Client water orders and delivery tracking</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`water-orders${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Water Orders"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Order</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -156,6 +203,8 @@ export function WaterOrdersTab() {
         onView={o => setViewing(o)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
@@ -166,7 +215,22 @@ export function WaterOrdersTab() {
           <div><Label>Client *</Label><Input value={form.client} onChange={e => set("client", e.target.value)} /></div>
           <div><Label>Client Phone</Label><Input value={form.clientPhone} onChange={e => set("clientPhone", e.target.value)} /></div>
           <div><Label>Litres *</Label><Input type="number" value={form.litres || ""} onChange={e => set("litres", +e.target.value)} /></div>
-          <div><Label>Price/Litre (Ksh)</Label><Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} /></div>
+          <div>
+            <Label>Package</Label>
+            <Select value={form.packageId} onValueChange={handlePackageChange}>
+              <SelectTrigger><SelectValue placeholder={packages.length ? "Select package" : "No packages set up"} /></SelectTrigger>
+              <SelectContent>
+                {packages.map(p => (
+                  <SelectItem key={p.id} value={p.id}>{p.name} — Ksh {(p.price / p.litres).toFixed(2)}/L</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>Price/Litre (Ksh)</Label>
+            <Input type="number" step="0.01" value={form.pricePerLitre || ""} onChange={e => set("pricePerLitre", +e.target.value)} />
+            {form.packageId && <p className="text-xs text-muted-foreground mt-1">Auto-filled from package pricing — edit if needed</p>}
+          </div>
           <div><Label>Total (Ksh)</Label><Input value={`Ksh ${totalAmount.toLocaleString()}`} disabled className="font-mono" /></div>
           <div><Label>Payment Method</Label>
             <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>

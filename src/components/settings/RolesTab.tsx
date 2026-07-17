@@ -11,6 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { rolesApi, allPermissionsApi, ApiRole } from "@/lib/usersApi";
 import { useSession } from "@/data/sessionStore";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 type FormMode = "add" | "edit" | "view";
 
@@ -21,6 +22,7 @@ export function RolesTab() {
   const isSuperAdmin = user.activeRole === "SuperAdmin";
 
   const [data,    setData]    = useState<ApiRole[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("Role", null, data.length);
   const [allPerms, setAllPerms] = useState<{ code: string; description?: string | null; category: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [modal,   setModal]   = useState<{ mode: FormMode; id?: string } | null>(null);
@@ -112,6 +114,7 @@ export function RolesTab() {
         data={visibleRoles} columns={columns}
         searchKeys={["name", "description"]} searchPlaceholder="Search roles..."
         onView={openView} onEdit={openEdit} onDelete={handleDelete}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       {modal && (

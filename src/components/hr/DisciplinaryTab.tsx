@@ -35,6 +35,7 @@ export const DECISION_OUTCOMES = [
 
 export interface DisciplinaryCase {
   id: string;
+  caseRef: string;
   employeeId: string;
   employeeName: string;
   offence: string;
@@ -57,8 +58,9 @@ function toCase(r: ApiDisciplinaryRecord): DisciplinaryCase {
   const appeal = r.appeal ? (() => { try { return JSON.parse(r.appeal!) ?? {}; } catch { return {}; } })() : {};
   return {
     id:               r.id,
+    caseRef:          r.caseRef ?? "—",
     employeeId:       r.employeeId,
-    employeeName:     r.employee?.user?.name ?? r.employee?.name ?? r.employeeId,
+    employeeName:     r.employee?.user?.name ?? r.employee?.name ?? "Unknown employee",
     offence:          r.offence ?? "",
     category:         r.category,
     reportedBy:       r.reportedBy ?? "",
@@ -144,7 +146,7 @@ export default function DisciplinaryTab() {
   };
 
   const columns: Column<DisciplinaryCase>[] = [
-    { key: "id",           label: "Case ID",  sortable: true, render: i => <span className="font-mono text-xs">{i.id.slice(0, 8)}</span> },
+    { key: "caseRef",      label: "Case",     sortable: true, render: i => <span className="font-mono text-xs">{i.caseRef}</span> },
     { key: "employeeName", label: "Employee" },
     { key: "category",     label: "Category", render: i => <Badge variant="outline">{i.category}</Badge> },
     { key: "offence",      label: "Offence",  render: i => <span className="line-clamp-1">{i.offence}</span> },
@@ -229,7 +231,7 @@ export default function DisciplinaryTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["employeeName", "offence"]} searchPlaceholder="Search cases..." filters={filters} onView={c => { setViewing(c); loadCaseDocs(c.id); }} onEdit={openEdit} actions={(c) => (
+      <DataTable data={data} columns={columns} searchKeys={["employeeName", "offence", "caseRef"]} searchPlaceholder="Search cases..." filters={filters} onView={c => { setViewing(c); loadCaseDocs(c.id); }} onEdit={openEdit} actions={(c) => (
         <Button size="sm" variant="ghost" className="h-7 text-xs" title="Download PDF" onClick={() => { generateDisciplinaryPdf(c); toast.success("PDF generated"); }}><FileDown className="h-3.5 w-3.5" /></Button>
       )} />
 
@@ -301,13 +303,13 @@ export default function DisciplinaryTab() {
         {viewing && (
           <div className="space-y-3 text-sm">
             <div className="flex items-center justify-between">
-              <Badge variant="outline">{viewing.id}</Badge>
+              <Badge variant="outline">{viewing.caseRef}</Badge>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => { generateDisciplinaryPdf(viewing); toast.success("PDF generated"); }}><FileDown className="h-3 w-3 mr-1" /> Download PDF</Button>
                 <span className={`px-2 py-0.5 rounded text-xs font-medium ${stageColor[viewing.stage] || "bg-muted"}`}>{viewing.stage}</span>
               </div>
             </div>
-            <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName} ({viewing.employeeId})</div>
+            <div><span className="text-muted-foreground">Employee:</span> {viewing.employeeName}</div>
             <div><span className="text-muted-foreground">Category:</span> {viewing.category}</div>
             <div><span className="text-muted-foreground">Offence:</span> {viewing.offence}</div>
             <div><span className="text-muted-foreground">Reported:</span> {viewing.reportedOn} by {viewing.reportedBy}</div>

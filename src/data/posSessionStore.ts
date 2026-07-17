@@ -20,6 +20,7 @@ export interface ClosingEntry {
 
 export interface CashierSession {
   id: string;
+  sessionNo: number;
   businessId: string;
   cashier: string;
   openedAt: string;
@@ -37,6 +38,16 @@ export interface CashierSession {
 }
 
 const KEY = (businessId: string) => `pos.session.${businessId}`;
+const COUNTER_KEY = (businessId: string) => `pos.session.counter.${businessId}`;
+
+// Human-readable, per-business incrementing session number — shown on reports
+// and used in download filenames instead of the internal SES-<timestamp> id.
+function nextSessionNo(businessId: string): number {
+  const key = COUNTER_KEY(businessId);
+  const n = (parseInt(localStorage.getItem(key) || "0", 10) || 0) + 1;
+  try { localStorage.setItem(key, String(n)); } catch { /* best-effort */ }
+  return n;
+}
 
 function load(businessId: string): CashierSession | null {
   try {
@@ -62,6 +73,7 @@ export const posSessionStore = {
   open: (businessId: string, cashier: string, openingFloat: number): CashierSession => {
     const session: CashierSession = {
       id: `SES-${Date.now().toString(36).toUpperCase()}`,
+      sessionNo: nextSessionNo(businessId),
       businessId, cashier, openingFloat,
       openedAt: new Date().toISOString(),
       status: "open",

@@ -21,6 +21,7 @@ const statusMap: Record<string, { label: string; variant: Variant }> = {
   inactive: { label: "Inactive", variant: "outline" },
   maintenance: { label: "Maintenance", variant: "outline" },
   unpaid: { label: "Unpaid", variant: "destructive" },
+  overdue: { label: "Overdue", variant: "destructive" },
   on_leave: { label: "On Leave", variant: "outline" },
   over: { label: "Over", variant: "destructive" },
   under: { label: "Under", variant: "destructive" },

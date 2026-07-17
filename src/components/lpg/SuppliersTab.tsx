@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { lpgApi, ApiLpgSupplier } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const emptyForm = {
   name: "", contactPerson: "", phone: "", email: "", address: "",
@@ -23,6 +24,7 @@ export function SuppliersTab() {
   const canManage = can("lpg.suppliers.manage");
 
   const [records, setRecords]   = useState<ApiLpgSupplier[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("LpgSupplier", stationId, records.length);
   const [loading, setLoading]   = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiLpgSupplier | null>(null);
@@ -112,6 +114,7 @@ export function SuppliersTab() {
         onView={s => setViewing(s)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

@@ -64,6 +64,11 @@ export interface ApiWaterSummary {
   availableWater: number;
 }
 
+export interface ApiWaterPricePackage {
+  id: string; stationId: string; name: string; litres: number; price: number;
+  status: string; createdAt: string; updatedAt: string;
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 export const waterApi = {
@@ -126,7 +131,7 @@ export const waterApi = {
   },
 
   invoices: {
-    list: (params: { status?: string; type?: string } = {}, stationId?: string | null) =>
+    list: (params: { status?: string; type?: string; from?: string; to?: string } = {}, stationId?: string | null) =>
       api.get<R<ApiWaterInvoice[]>>(`/water/invoices${qs(params)}`, sh(stationId)),
     create: (data: Partial<ApiWaterInvoice>, stationId?: string | null) =>
       api.post<R<ApiWaterInvoice>>("/water/invoices", data, sh(stationId)),
@@ -136,5 +141,16 @@ export const waterApi = {
       api.delete<R<void>>(`/water/invoices/${id}`, sh(stationId)),
     email: (id: string, data: { email: string; name?: string }, stationId?: string | null) =>
       api.post<R<{ dev?: boolean }>>(`/water/invoices/${id}/email`, data, sh(stationId)),
+  },
+
+  pricePackages: {
+    list: (params: { status?: string } = {}, stationId?: string | null) =>
+      api.get<R<ApiWaterPricePackage[]>>(`/water/price-packages${qs(params)}`, sh(stationId)),
+    create: (data: Partial<ApiWaterPricePackage>, stationId?: string | null) =>
+      api.post<R<ApiWaterPricePackage>>("/water/price-packages", data, sh(stationId)),
+    update: (id: string, data: Partial<ApiWaterPricePackage>, stationId?: string | null) =>
+      api.put<R<ApiWaterPricePackage>>(`/water/price-packages/${id}`, data, sh(stationId)),
+    delete: (id: string, stationId?: string | null) =>
+      api.delete<R<void>>(`/water/price-packages/${id}`, sh(stationId)),
   },
 };

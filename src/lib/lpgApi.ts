@@ -122,7 +122,7 @@ export const lpgApi = {
   },
 
   invoices: {
-    list: (params: { paymentStatus?: string; type?: string } = {}, stationId?: string | null) =>
+    list: (params: { paymentStatus?: string; type?: string; from?: string; to?: string } = {}, stationId?: string | null) =>
       api.get<R<ApiLpgInvoice[]>>(`/lpg/invoices${qs(params)}`, sh(stationId)),
     create: (data: Partial<ApiLpgInvoice>, stationId?: string | null) =>
       api.post<R<ApiLpgInvoice>>("/lpg/invoices", data, sh(stationId)),

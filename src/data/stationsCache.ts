@@ -20,7 +20,7 @@ export function useStations(): ApiStationFull[] {
   const [, force] = useState(0);
   useEffect(() => {
     const u = stationsCache.subscribe(() => force(n => n + 1));
-    return () => u();
+    return () => { u(); };
   }, []);
   return stationsCache.all();
 }

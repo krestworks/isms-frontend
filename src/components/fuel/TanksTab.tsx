@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { fuelApi, ApiFuelTank } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const FUEL_TYPES    = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 const TANK_STATUSES = ["operational", "low", "critical", "maintenance"];
@@ -27,6 +28,7 @@ export function TanksTab() {
   const canDip    = can("fuel.dips.record");
 
   const [tanks, setTanks]       = useState<ApiFuelTank[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("FuelTank", stationId, tanks.length);
   const [loading, setLoading]   = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiFuelTank | null>(null);
@@ -166,6 +168,7 @@ export function TanksTab() {
             <Droplets className="h-3 w-3 mr-1" />Dip
           </Button>
         )) : undefined}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm

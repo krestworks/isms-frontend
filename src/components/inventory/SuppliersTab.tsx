@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { inventoryApi, ApiSupplier } from "@/lib/inventoryApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const CATEGORIES = ["general", "fuel", "lpg", "water", "auto_parts", "pharmacy", "food_bev"];
 const CAT_LABELS: Record<string, string> = {
@@ -30,6 +31,7 @@ const emptyForm = {
 export default function SuppliersTab() {
   const { stationId } = useActiveStation();
   const [data, setData]         = useState<ApiSupplier[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("Supplier", stationId, data.length);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [modalOpen, setModal]   = useState(false);
@@ -137,6 +139,7 @@ export default function SuppliersTab() {
         searchKeys={["name", "contactName", "phone"]} searchPlaceholder="Search suppliers..."
         onEdit={canUpdate ? openEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModal(false)}

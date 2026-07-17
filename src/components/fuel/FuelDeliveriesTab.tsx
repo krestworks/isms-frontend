@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,8 @@ import { fuelApi, ApiFuelDelivery, ApiFuelTank } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const today = () => new Date().toISOString().split("T")[0];
 
@@ -32,6 +33,7 @@ export function FuelDeliveriesTab() {
   const [modalOpen, setModalOpen]   = useState(false);
   const [form, setForm]             = useState(emptyForm);
   const [saving, setSaving]         = useState(false);
+  const [visibleDeliveries, setVisibleDeliveries] = useState<ApiFuelDelivery[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -87,14 +89,27 @@ export function FuelDeliveriesTab() {
     { key: "recordedBy",   label: "Recorded By",  render: d => d.recordedBy || "—" },
   ];
 
+  const exportColumns: ExportColumn<ApiFuelDelivery>[] = [
+    { label: "Date",           value: d => d.date.split("T")[0] },
+    { label: "Tank",           value: d => d.tank ? `${d.tank.name} (${d.tank.fuelType})` : "—" },
+    { label: "Litres",         value: d => d.litres },
+    { label: "Supplier",       value: d => d.supplier || "—" },
+    { label: "Delivery Note",  value: d => d.deliveryNote || "—" },
+    { label: "Recorded By",    value: d => d.recordedBy || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Track fuel deliveries received into tanks</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`fuel-deliveries-${today()}.csv`, deliveries)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`fuel-deliveries_${fromDate}_to_${toDate}`}
+            title="Fuel Deliveries"
+            rows={visibleDeliveries}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Delivery</Button>}
         </div>
@@ -119,8 +134,9 @@ export function FuelDeliveriesTab() {
 
       <DataTable
         data={deliveries} columns={columns}
-        searchKeys={["supplier", "deliveryNote", "recordedBy"]}
+        searchKeys={["supplier", "deliveryNote", "recordedBy", "tank.name", "tank.fuelType"]}
         searchPlaceholder="Search deliveries..."
+        onFilteredChange={setVisibleDeliveries}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)} title="Record Fuel Delivery"

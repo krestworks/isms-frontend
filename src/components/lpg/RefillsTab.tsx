@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { lpgApi, ApiLpgRefill } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const SIZES = ["6kg", "13kg", "22.5kg", "25kg", "50kg"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -27,7 +29,10 @@ export function RefillsTab() {
   const canRecord = can("lpg.refills.record");
 
   const [records, setRecords]   = useState<ApiLpgRefill[]>([]);
+  const [visibleRecords, setVisibleRecords] = useState<ApiLpgRefill[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiLpgRefill | null>(null);
   const [viewing, setViewing]   = useState<ApiLpgRefill | null>(null);
@@ -38,11 +43,11 @@ export function RefillsTab() {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await lpgApi.refills.list({}, stationId);
+      const res = await lpgApi.refills.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load refills"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -96,14 +101,39 @@ export function RefillsTab() {
     { key: "status",       label: "Status", options: [{ label: "Completed", value: "completed" }, { label: "Pending", value: "pending" }] },
   ];
 
+  const exportColumns: ExportColumn<ApiLpgRefill>[] = [
+    { label: "Batch #",        value: r => r.batchNo },
+    { label: "Date",           value: r => r.date.split("T")[0] },
+    { label: "Size",           value: r => r.cylinderSize },
+    { label: "Qty",            value: r => r.quantity },
+    { label: "Cost/Unit (Ksh)",value: r => r.costPerUnit },
+    { label: "Total (Ksh)",    value: r => r.totalCost },
+    { label: "Supplier",       value: r => r.supplier },
+    { label: "Received By",    value: r => r.receivedBy || "—" },
+    { label: "Status",         value: r => r.status },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Track cylinder refills and deliveries from suppliers</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`lpg-refills${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="LPG Refills"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canRecord && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Refill</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -113,6 +143,7 @@ export function RefillsTab() {
         filters={filters}
         onView={r => setViewing(r)}
         onEdit={canRecord ? openEdit : undefined}
+        onFilteredChange={setVisibleRecords}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizProduct, ApiBizCategory } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { compressImage } from "@/lib/imageUtils";
 
 interface Props { business: ApiBizBusiness; }
 
@@ -22,7 +24,7 @@ const emptyForm = {
   name: "", sku: "", barcode: "", description: "", categoryId: "",
   markedPrice: 0, price: 0, costPrice: 0, unit: "pcs",
   stockQty: 0, reorderLevel: 5, imageUrl: "",
-  expiryDate: "", requiresPrescription: false, status: "active",
+  expiryDate: "", requiresPrescription: false, vatExempt: false, status: "active",
 };
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -81,6 +83,7 @@ export function ProductsTab({ business }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef  = useRef<HTMLInputElement>(null);
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; description?: string; onConfirm: () => void } | null>(null);
+  const [imageProcessing, setImageProcessing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +99,8 @@ export function ProductsTab({ business }: Props) {
   }, [business.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  const pendingDeleteIds = usePendingDeleteIds("BizProduct", business.stationId, records.length);
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -116,18 +121,24 @@ export function ProductsTab({ business }: Props) {
       price: Math.round(p.price / taxFactor),
       costPrice: p.costPrice, unit: p.unit,
       stockQty: p.stockQty, reorderLevel: p.reorderLevel, imageUrl: p.imageUrl ?? "",
-      expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, status: p.status,
+      expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, vatExempt: p.vatExempt, status: p.status,
     });
     setModalOpen(true);
   };
 
-  const handleImageFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => set("imageUrl", ev.target?.result as string);
-    reader.readAsDataURL(file);
     e.target.value = "";
+    if (!file) return;
+    setImageProcessing(true);
+    try {
+      const compressed = await compressImage(file);
+      set("imageUrl", compressed);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to process image");
+    } finally {
+      setImageProcessing(false);
+    }
   };
 
   const taxFactor = 1 + business.taxRate / 100;
@@ -238,7 +249,12 @@ export function ProductsTab({ business }: Props) {
       ? <img src={p.imageUrl} alt={p.name} className="h-9 w-9 rounded-md object-cover border border-border" />
       : <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center"><Package className="h-4 w-4 text-muted-foreground/40" /></div>
     },
-    { key: "name",        label: "Product",  sortable: true },
+    { key: "name",        label: "Product",  sortable: true, render: p => (
+      <span className="flex items-center gap-1.5">
+        {p.name}
+        {p.vatExempt && <Badge variant="outline" className="text-[10px] py-0 h-4">VAT Exempt</Badge>}
+      </span>
+    ) },
     { key: "categoryName",label: "Category", render: p => p.categoryName || <span className="text-muted-foreground text-xs">—</span> },
     { key: "sku",         label: "SKU",      render: p => p.sku ? <span className="font-mono text-xs text-muted-foreground">{p.sku}</span> : <span className="text-muted-foreground text-xs">—</span> },
     { key: "markedPrice", label: "MRP",      render: p => p.markedPrice > 0 ? <span className="text-xs line-through text-muted-foreground">Ksh {p.markedPrice.toLocaleString()}</span> : <span className="text-muted-foreground text-xs">—</span> },
@@ -321,6 +337,7 @@ export function ProductsTab({ business }: Props) {
         onView={p => setViewing(p)}
         onEdit={openEdit}
         onDelete={canManage ? handleDelete : undefined}
+        pendingDeleteIds={pendingDeleteIds}
         extraActions={[{
           label: "Adjust Stock",
           onClick: p => { setAdjProduct(p); setAdjForm({ type: "adjustment", qty: p.stockQty, notes: "" }); setAdjOpen(true); },
@@ -360,8 +377,8 @@ export function ProductsTab({ business }: Props) {
               )}
               <div className="flex-1 space-y-1.5">
                 <Input value={form.imageUrl} onChange={e => set("imageUrl", e.target.value)} placeholder="Paste image URL..." />
-                <Button type="button" variant="outline" size="sm" onClick={() => imgRef.current?.click()} className="w-full h-7 text-xs">
-                  <Upload className="h-3 w-3 mr-1.5" /> Upload from device
+                <Button type="button" variant="outline" size="sm" disabled={imageProcessing} onClick={() => imgRef.current?.click()} className="w-full h-7 text-xs">
+                  <Upload className="h-3 w-3 mr-1.5" /> {imageProcessing ? "Processing…" : "Upload from device"}
                 </Button>
                 <input ref={imgRef} type="file" accept="image/*" className="hidden" onChange={handleImageFile} />
               </div>
@@ -460,6 +477,10 @@ export function ProductsTab({ business }: Props) {
                 <SelectItem value="inactive">Inactive</SelectItem>
               </SelectContent>
             </Select>
+          </div>
+          <div className="flex items-center gap-3 mt-5">
+            <Switch checked={form.vatExempt} onCheckedChange={v => set("vatExempt", v)} />
+            <Label className="cursor-pointer">VAT Exempt</Label>
           </div>
           <div className="col-span-2">
             <Label>Description</Label>

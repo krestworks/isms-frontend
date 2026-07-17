@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { fuelApi, ApiFuelSale } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
@@ -32,6 +33,7 @@ export function SalesHistoryTab() {
   const [fuelFilter, setFuelFilter] = useState("all");
   const [payFilter, setPayFilter]   = useState("all");
   const [viewing, setViewing]   = useState<ApiFuelSale | null>(null);
+  const [visibleSales, setVisibleSales] = useState<ApiFuelSale[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -68,6 +70,22 @@ export function SalesHistoryTab() {
     { key: "attendant",    label: "Attendant", render: s => s.attendant || "—" },
   ];
 
+  const exportColumns: ExportColumn<ApiFuelSale>[] = [
+    { label: "Receipt",        value: s => s.receiptNo },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Customer",       value: s => s.customer || "Walk-in" },
+    { label: "Fuel Type",      value: s => s.fuelType },
+    { label: "Pump",           value: s => `Pump ${s.pumpNumber}` },
+    { label: "Litres",         value: s => s.litres },
+    { label: "Price/L (Ksh)",  value: s => s.pricePerLitre },
+    { label: "Gross (Ksh)",    value: s => s.amount },
+    { label: "Discount (Ksh)", value: s => s.discount },
+    { label: "Net Amount (Ksh)",value: s => s.netAmount },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Status",         value: s => s.paymentStatus },
+    { label: "Attendant",      value: s => s.attendant || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -76,9 +94,13 @@ export function SalesHistoryTab() {
           <p className="text-xs text-primary font-semibold mt-0.5">Total Revenue: Ksh {totals.revenue.toLocaleString()} · {totals.litres.toLocaleString()} L</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`fuel-history-${today()}.csv`, sales)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`fuel-history_${fromDate}_to_${toDate}`}
+            title="Fuel Sales History"
+            rows={visibleSales}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>
@@ -129,6 +151,7 @@ export function SalesHistoryTab() {
         searchKeys={["receiptNo", "customer", "attendant", "fuelType"]}
         searchPlaceholder="Search sales history..."
         onView={s => setViewing(s)}
+        onFilteredChange={setVisibleSales}
       />
 
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>

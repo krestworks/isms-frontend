@@ -170,7 +170,7 @@ export default function StaffOnboardingTab() {
       .catch(() => setStationBusinesses([]));
   }, [modalOpen, form.stationId]);
 
-  const set = (field: keyof FormState, value: string) => {
+  const set = (field: keyof FormState, value: any) => {
     setForm(f => {
       const nf = { ...f, [field]: value };
       persistForm(nf);
@@ -427,8 +427,8 @@ export default function StaffOnboardingTab() {
       <DataTable
         data={data}
         columns={columns}
-        searchKeys={["employeeNumber"]}
-        searchPlaceholder="Search by employee number…"
+        searchKeys={["employeeNumber", "name", "user.name", "user.email", "user.phone", "nationalId"]}
+        searchPlaceholder="Search by name, employee number, email or phone…"
         pageSize={25}
         onView={e => setViewing(e)}
         onEdit={canEdit ? (e => e.status !== "Terminated" ? openEdit(e) : undefined) : undefined}

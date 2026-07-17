@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { lpgApi, ApiLpgCylinder } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const SIZES = ["6kg", "13kg", "22.5kg", "25kg", "50kg"];
 const CONDITIONS = ["full", "empty", "damaged"];
@@ -27,6 +28,7 @@ export function CylindersTab() {
   const canManage = can("lpg.cylinders.manage");
 
   const [records, setRecords]   = useState<ApiLpgCylinder[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("LpgCylinder", stationId, records.length);
   const [loading, setLoading]   = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiLpgCylinder | null>(null);
@@ -139,6 +141,7 @@ export function CylindersTab() {
         onView={c => setViewing(c)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

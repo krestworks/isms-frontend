@@ -22,34 +22,13 @@ import { toast } from "sonner";
 import { hrApi, ApiEmployee, ApiPayroll, ApiPayrollBatch, ApiDepartment, ApiPayrollRunRow } from "@/lib/hrApi";
 import { stationsApi, ApiStationFull } from "@/lib/stationsApi";
 import { brandingStore } from "@/data/brandingStore";
-import { sessionStore } from "@/data/sessionStore";
 import { usePermissions } from "@/lib/permissions";
-
-const fmt    = (n: number) => `Ksh ${Math.round(n).toLocaleString()}`;
-const fmtNum = (n: number) => Math.round(n).toLocaleString();
-
-// ── Kenya Statutory Tax Calculations ─────────────────────────────────────────
-
-function calcSHA(gross: number): number {
-  return Math.round(gross * 0.0275);
-}
-
-function calcNSSF(gross: number): number {
-  const tier1 = Math.min(gross, 6000) * 0.06;
-  const tier2 = Math.max(0, Math.min(gross, 18000) - 6000) * 0.06;
-  return Math.round(tier1 + tier2);
-}
-
-function calcPAYE(gross: number, nssf: number): number {
-  const taxable = gross - nssf;
-  let paye = 0;
-  if (taxable <= 24000)       paye = taxable * 0.10;
-  else if (taxable <= 32333)  paye = 2400   + (taxable - 24000)  * 0.25;
-  else if (taxable <= 500000) paye = 4483   + (taxable - 32333)  * 0.30;
-  else if (taxable <= 800000) paye = 144642 + (taxable - 500000) * 0.325;
-  else                         paye = 242142 + (taxable - 800000) * 0.35;
-  return Math.max(0, Math.round(paye - 2400));
-}
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+// Shared with PayrollBatchEntryPage — was previously reimplemented locally here
+// without the benefit-in-kind term, so "Single Entry" payroll silently computed
+// a different (lower) PAYE than the batch flow whenever BIK was nonzero.
+import { calcSHA, calcNSSF, calcPAYE, fmt, fmtNum, nssfTier1, nssfTier2 } from "@/lib/payrollCalc";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 // ── CSV Helpers ───────────────────────────────────────────────────────────────
 
@@ -85,9 +64,9 @@ function loadForm() {
 // ── Table Columns (Records Tab) ───────────────────────────────────────────────
 
 const columns: Column<ApiPayroll>[] = [
-  { key: "id",         label: "Pay ID",   sortable: true, render: i => <span className="font-mono text-xs">{i.id.slice(-8).toUpperCase()}</span> },
-  { key: "employeeId", label: "Employee", render: i => i.employee?.user?.name ?? i.employee?.name ?? i.employeeId },
-  { key: "employeeId", label: "Dept",     render: i => i.employee?.department?.name
+  { key: "payRef",     label: "Pay Ref",  sortable: true, render: i => <span className="font-mono text-xs">{i.employee?.employeeNumber ?? "—"}/{i.month}</span> },
+  { key: "employee",   label: "Employee", render: i => i.employee?.user?.name ?? i.employee?.name ?? "—" },
+  { key: "department", label: "Dept",     render: i => i.employee?.department?.name
       ? <Badge variant="outline">{i.employee.department.name}</Badge>
       : <span className="text-muted-foreground">—</span> },
   { key: "month",          label: "Month",      sortable: true },
@@ -116,6 +95,8 @@ export default function PayrollTab() {
 
   // ── Records tab ─────────────────────────────────────────────────────────────
   const [data, setData]           = useState<ApiPayroll[]>([]);
+  const [visibleData, setVisibleData] = useState<ApiPayroll[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("Payroll", null, data.length);
   const [loading, setLoading]     = useState(false);
   const [page, setPage]           = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -222,7 +203,7 @@ export default function PayrollTab() {
     try {
       const [eRes, dRes, sRes, psRes] = await Promise.all([
         hrApi.employees.list({ status: "Active", limit: 500 } as any),
-        hrApi.setup.departments.list(),
+        hrApi.departments.list(),
         stationsApi.list(),
         hrApi.payrollSettings.get(),
       ]);
@@ -243,12 +224,12 @@ export default function PayrollTab() {
   useEffect(() => { loadRecords(1); loadRef(); }, [loadRecords, loadRef]);
   useEffect(() => { loadBatches(); }, [loadBatches]);
 
-  // ── Summary stats (current page) ─────────────────────────────────────────────
+  // ── Summary stats (current page, after search/filter) ────────────────────────
   const stats = {
-    totalNet:   data.reduce((s, d) => s + d.netPay, 0),
-    pending:    data.filter(d => d.status === "pending").length,
-    paid:       data.filter(d => d.status === "paid").length,
-    processing: data.filter(d => d.status === "processing").length,
+    totalNet:   visibleData.reduce((s, d) => s + d.netPay, 0),
+    pending:    visibleData.filter(d => d.status === "pending").length,
+    paid:       visibleData.filter(d => d.status === "paid").length,
+    processing: visibleData.filter(d => d.status === "processing").length,
   };
 
   // ── Form helpers ─────────────────────────────────────────────────────────────
@@ -364,91 +345,13 @@ export default function PayrollTab() {
 
   const handlePrint = () => {
     if (!viewing) return;
-    const win = window.open("", "_blank");
-    if (!win) return;
-    const _b    = brandingStore.get();
-    const b     = { ..._b, name: esc(_b?.name), tagline: esc(_b?.tagline), address: esc(_b?.address) };
-    const loc   = sessionStore.activeLocation();
-    const branch = esc(loc !== "All Locations" ? loc : "");
-    const empKraPin  = esc(viewing.employee?.kraPin || "—");
-    const empName    = esc(viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId);
-    const empNo      = esc(viewing.employee?.employeeNumber ?? "—");
-    const dept       = esc(viewing.employee?.department?.name ?? "—");
-    const title      = esc(viewing.employee?.jobTitle?.title ?? "—");
-    const erKraPin   = esc(payrollSettings.employerKraPin || "—");
-    const fmtK = (n: number) => `KES ${Math.round(n).toLocaleString()}`;
-
-    win.document.write(`<!DOCTYPE html><html><head><title>Payslip - ${viewing.month}</title>
-<style>
-  @page { size: A4; margin: 14mm 12mm; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #111; padding: 0; margin: 0; }
-  .hdr { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #333; padding-bottom: 12px; margin-bottom: 16px; }
-  .hdr-logo { display: flex; align-items: center; gap: 10px; }
-  .hdr-logo img { height: 52px; width: 52px; object-fit: contain; border-radius: 5px; }
-  .biz-name { font-size: 16px; font-weight: 700; color: #111; }
-  .biz-sub { font-size: 10px; color: #555; margin-top: 2px; }
-  .doc-title { font-size: 20px; font-weight: 700; letter-spacing: 1px; color: #111; text-align: right; }
-  .doc-sub { font-size: 10px; color: #666; text-align: right; margin-top: 2px; }
-  table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
-  th, td { border: 1px solid #ddd; padding: 5px 8px; font-size: 10.5px; }
-  th { background: #f0f0f0; font-weight: 600; text-align: left; }
-  .right { text-align: right; }
-  .section-hdr td { background: #2563eb; color: #fff; font-weight: 700; font-size: 11px; padding: 6px 8px; border-color: #1d4ed8; }
-  .subtotal td { background: #f0f4ff; font-weight: 700; border-top: 2px solid #aaa; }
-  .deduct-tot td { background: #fff0f0; font-weight: 700; color: #b91c1c; border-top: 2px solid #aaa; }
-  .net td { background: #1e3a5f; color: #fff; font-weight: 700; font-size: 14px; text-align: center; padding: 10px; border-color: #1e3a5f; }
-  .footer { display: flex; justify-content: space-between; border-top: 1px solid #ddd; padding-top: 8px; margin-top: 8px; font-size: 10px; color: #777; }
-</style></head><body>
-<div class="hdr">
-  <div class="hdr-logo">
-    ${b?.logo ? `<img src="${b.logo}" alt="">` : ""}
-    <div>
-      <div class="biz-name">${b?.name || "ISMS"}</div>
-      ${b?.tagline ? `<div class="biz-sub">${b.tagline}</div>` : ""}
-      ${b?.address ? `<div class="biz-sub">${b.address}</div>` : ""}
-      ${erKraPin !== "—" ? `<div class="biz-sub">Employer KRA PIN: ${erKraPin}</div>` : ""}
-    </div>
-  </div>
-  <div>
-    <div class="doc-title">PAYSLIP</div>
-    ${branch ? `<div class="doc-sub">${branch}</div>` : ""}
-    <div class="doc-sub">Period: ${viewing.month}</div>
-    <div class="doc-sub">Ref: ${viewing.id.slice(-8).toUpperCase()}</div>
-  </div>
-</div>
-<table>
-  <tr><th>Employee Name</th><td>${empName}</td><th>Emp No.</th><td>${empNo}</td></tr>
-  <tr><th>Department</th><td>${dept}</td><th>Job Title</th><td>${title}</td></tr>
-  <tr><th>Employee KRA PIN</th><td>${empKraPin}</td><th>Pay Date</th><td>${viewing.payDate ?? "—"}</td></tr>
-</table>
-<table>
-  <tr class="section-hdr"><td>EARNINGS</td><td class="right">Amount (KES)</td></tr>
-  <tr><td>Basic Salary</td><td class="right">${fmtK(viewing.basicSalary)}</td></tr>
-  ${viewing.houseAllowance > 0 ? `<tr><td>House Allowance</td><td class="right">${fmtK(viewing.houseAllowance)}</td></tr>` : ""}
-  ${viewing.transportAllowance > 0 ? `<tr><td>Transport Allowance</td><td class="right">${fmtK(viewing.transportAllowance)}</td></tr>` : ""}
-  ${viewing.overtimePay > 0 ? `<tr><td>Overtime Pay</td><td class="right">${fmtK(viewing.overtimePay)}</td></tr>` : ""}
-  <tr class="subtotal"><td>GROSS PAY (Cash)</td><td class="right">${fmtK(viewing.grossPay)}</td></tr>
-  ${(viewing.benefitInKind ?? 0) > 0 ? `<tr style="background:#fff8e1"><td>Benefit in Kind (non-cash, taxable)</td><td class="right">${fmtK(viewing.benefitInKind)}</td></tr>` : ""}
-</table>
-<table>
-  <tr class="section-hdr"><td>DEDUCTIONS</td><td class="right">Amount (KES)</td></tr>
-  ${viewing.nhif > 0 ? `<tr><td>SHA (Social Health Authority)</td><td class="right">${fmtK(viewing.nhif)}</td></tr>` : ""}
-  ${viewing.nssf > 0 ? `<tr><td>NSSF</td><td class="right">${fmtK(viewing.nssf)}</td></tr>` : ""}
-  ${viewing.paye > 0 ? `<tr><td>PAYE Tax</td><td class="right">${fmtK(viewing.paye)}</td></tr>` : ""}
-  ${viewing.otherDeductions > 0 ? `<tr><td>Other Deductions</td><td class="right">${fmtK(viewing.otherDeductions)}</td></tr>` : ""}
-  <tr class="deduct-tot"><td>TOTAL DEDUCTIONS</td><td class="right">${fmtK(viewing.totalDeductions)}</td></tr>
-</table>
-<table>
-  <tr class="net"><td colspan="2">NET PAY: ${fmtK(viewing.netPay)}</td></tr>
-</table>
-<div class="footer">
-  <span>Status: ${viewing.status.toUpperCase()}</span>
-  <span>Generated: ${new Date().toLocaleDateString("en-KE")}</span>
-  <span>This is a computer-generated payslip and requires no signature.</span>
-</div>
-</body></html>`);
-    win.document.close();
-    win.print();
+    openPdfInNewTab(`/hr/payroll/${viewing.id}/pdf`)
+      .catch((e: any) => toast.error(e?.message || "Failed to open payslip PDF"));
+  };
+  const handleDownloadPayslip = () => {
+    if (!viewing) return;
+    downloadPdf(`/hr/payroll/${viewing.id}/pdf`, `payslip-${viewing.month}-${viewing.employee?.employeeNumber ?? viewing.id.slice(-6)}.pdf`)
+      .catch((e: any) => toast.error(e?.message || "Failed to download payslip PDF"));
   };
 
   // ── Send payslip by email ─────────────────────────────────────────────────────
@@ -537,7 +440,7 @@ export default function PayrollTab() {
 
     switch (type) {
       case "master": {
-        const hdrs = ["Emp No","Name","Department","Job Title","Month","Basic","House Allow","Transport","Overtime","Gross Pay","SHA","NSSF","PAYE","Other Deduct","Total Deduct","Net Pay","Status"];
+        const hdrs = ["Emp No","Name","Department","Job Title","Month","Basic","House Allow","Transport","Overtime","Gross Pay","SHIF","NSSF","PAYE","Other Deduct","Total Deduct","Net Pay","Status"];
         const rows = reportData.map(p => [
           p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—",
           p.employee?.department?.name ?? "—", p.employee?.jobTitle?.title ?? "—", p.month,
@@ -553,7 +456,7 @@ export default function PayrollTab() {
         break;
       }
       case "gross-to-net": {
-        const hdrs = ["Emp No","Name","Gross Pay","SHA","NSSF","PAYE","Other Deductions","Total Deductions","Net Pay"];
+        const hdrs = ["Emp No","Name","Gross Pay","SHIF","NSSF","PAYE","Other Deductions","Total Deductions","Net Pay"];
         const rows = reportData.map(p => [
           p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—",
           p.grossPay, p.nhif, p.nssf, p.paye, p.otherDeductions, p.totalDeductions, p.netPay,
@@ -562,7 +465,7 @@ export default function PayrollTab() {
         break;
       }
       case "statutory": {
-        const hdrs = ["Emp No","Name","Month","Gross Pay","SHA (2.75%)","NSSF Employee","PAYE","Total Statutory"];
+        const hdrs = ["Emp No","Name","Month","Gross Pay","SHIF (2.75%)","NSSF Employee","PAYE","Total Statutory"];
         const rows = reportData.map(p => [
           p.employee?.employeeNumber ?? "—", p.employee?.user?.name ?? p.employee?.name ?? "—", p.month,
           p.grossPay, p.nhif, p.nssf, p.paye, p.nhif + p.nssf + p.paye,
@@ -608,7 +511,7 @@ export default function PayrollTab() {
         const rows: unknown[][] = [];
         for (const [dept, g] of Object.entries(byDept)) {
           rows.push(["6000","Salary Expense",  `Gross Payroll - ${period}`,  g.gross, "",      dept]);
-          rows.push(["2200","SHA Payable",      `SHA - ${period}`,            "",      g.sha,   dept]);
+          rows.push(["2200","SHIF Payable",     `SHIF - ${period}`,           "",      g.sha,   dept]);
           rows.push(["2201","NSSF Payable",     `NSSF - ${period}`,           "",      g.nssf,  dept]);
           rows.push(["2202","PAYE Payable",     `PAYE - ${period}`,           "",      g.paye,  dept]);
           rows.push(["2100","Salaries Payable", `Net Salary - ${period}`,     "",      g.net,   dept]);
@@ -654,7 +557,7 @@ export default function PayrollTab() {
     if (type === "sha") {
       const totalGross = r.reduce((s, x) => s + x.grossPay, 0);
       const totalSHA   = r.reduce((s, x) => s + x.nhif, 0);
-      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Gross Pay</th><th class="r">SHA (2.75%)</th></tr></thead><tbody>
+      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Month</th><th class="r">Gross Pay</th><th class="r">SHIF (2.75%)</th></tr></thead><tbody>
         ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="4">TOTALS</td><td class="r">${fmtK(totalGross)}</td><td class="r">${fmtK(totalSHA)}</td></tr>
       </tbody></table>`;
@@ -686,12 +589,12 @@ export default function PayrollTab() {
         ${yr.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.employee?.kraPin ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.grossPay - p.nssf)}</td><td class="r">${fmtK(p.paye + 2400)}</td><td class="r">${fmtK(2400)}</td><td class="r">${fmtK(p.paye)}</td></tr>`).join("")}
       </tbody></table>`;
     } else if (type === "master") {
-      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Dept</th><th>Month</th><th class="r">Basic</th><th class="r">House Allow</th><th class="r">Transport</th><th class="r">OT</th><th class="r">Gross</th><th class="r">SHA</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
+      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th>Dept</th><th>Month</th><th class="r">Basic</th><th class="r">House Allow</th><th class="r">Transport</th><th class="r">OT</th><th class="r">Gross</th><th class="r">SHIF</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
         ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td>${p.employee?.department?.name ?? "—"}</td><td>${p.month}</td><td class="r">${fmtK(p.basicSalary)}</td><td class="r">${fmtK(p.houseAllowance)}</td><td class="r">${fmtK(p.transportAllowance)}</td><td class="r">${fmtK(p.overtimePay)}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="9">TOTALS</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.grossPay,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nhif,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nssf,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.paye,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.otherDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.totalDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.netPay,0))}</td></tr>
       </tbody></table>`;
     } else if (type === "gross-to-net") {
-      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th class="r">Gross Pay</th><th class="r">SHA</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
+      body = `<table><thead><tr><th>#</th><th>Emp No</th><th>Name</th><th class="r">Gross Pay</th><th class="r">SHIF</th><th class="r">NSSF</th><th class="r">PAYE</th><th class="r">Other</th><th class="r">Total Ded</th><th class="r">Net Pay</th></tr></thead><tbody>
         ${r.map((p, i) => `<tr><td>${i+1}</td><td>${p.employee?.employeeNumber ?? "—"}</td><td>${p.employee?.user?.name ?? p.employee?.name ?? "—"}</td><td class="r">${fmtK(p.grossPay)}</td><td class="r">${fmtK(p.nhif)}</td><td class="r">${fmtK(p.nssf)}</td><td class="r">${fmtK(p.paye)}</td><td class="r">${fmtK(p.otherDeductions)}</td><td class="r">${fmtK(p.totalDeductions)}</td><td class="r">${fmtK(p.netPay)}</td></tr>`).join("")}
         <tr class="tot"><td colspan="3">TOTALS</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.grossPay,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nhif,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.nssf,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.paye,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.otherDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.totalDeductions,0))}</td><td class="r">${fmtK(r.reduce((s,x)=>s+x.netPay,0))}</td></tr>
       </tbody></table>`;
@@ -712,7 +615,7 @@ export default function PayrollTab() {
       body = `<table><thead><tr><th>Account Code</th><th>Account Name</th><th>Description</th><th class="r">Debit</th><th class="r">Credit</th><th>Department</th></tr></thead><tbody>
         ${Object.entries(byDept).flatMap(([dept, g]) => [
           `<tr><td>6000</td><td>Salary Expense</td><td>Gross Payroll - ${period}</td><td class="r">${fmtK(g.gross)}</td><td></td><td>${dept}</td></tr>`,
-          `<tr><td>2200</td><td>SHA Payable</td><td>SHA - ${period}</td><td></td><td class="r">${fmtK(g.sha)}</td><td>${dept}</td></tr>`,
+          `<tr><td>2200</td><td>SHIF Payable</td><td>SHIF - ${period}</td><td></td><td class="r">${fmtK(g.sha)}</td><td>${dept}</td></tr>`,
           `<tr><td>2201</td><td>NSSF Payable</td><td>NSSF - ${period}</td><td></td><td class="r">${fmtK(g.nssf)}</td><td>${dept}</td></tr>`,
           `<tr><td>2202</td><td>PAYE Payable</td><td>PAYE - ${period}</td><td></td><td class="r">${fmtK(g.paye)}</td><td>${dept}</td></tr>`,
           `<tr><td>2100</td><td>Salaries Payable</td><td>Net Salary - ${period}</td><td></td><td class="r">${fmtK(g.net)}</td><td>${dept}</td></tr>`,
@@ -738,7 +641,7 @@ export default function PayrollTab() {
   };
 
   const reportTitle = (type: string) => ({
-    sha: "SHA Schedule", nssf: "NSSF Schedule", paye: "PAYE Schedule",
+    sha: "SHIF Schedule", nssf: "NSSF Schedule", paye: "PAYE Schedule",
     helb: "Third-Party Deductions (HELB/Other)", p9: "P9 Tax Certificates",
     master: "Master Payroll Register", "gross-to-net": "Gross-to-Net Summary",
     disbursement: "Disbursement List", ledger: "General Ledger Posting",
@@ -973,12 +876,14 @@ export default function PayrollTab() {
           <DataTable
             data={data}
             columns={columns}
-            searchKeys={["id", "employeeId", "month"]}
+            searchKeys={["employee.user.name", "employee.name", "employee.employeeNumber", "month"]}
             searchPlaceholder="Search payrollâ€¦"
             filters={filterOpts}
             onView={item => setViewing(item)}
             onEdit={can("hr.payroll.process") ? openEdit : undefined}
             onDelete={can("hr.payroll.process") ? handleDelete : undefined}
+            pendingDeleteIds={pendingDeleteIds}
+            onFilteredChange={setVisibleData}
             pageSize={25}
           />
 
@@ -1185,7 +1090,7 @@ export default function PayrollTab() {
                 <Card>
                   <CardHeader className="pb-2"><CardTitle className="text-sm">Statutory Schedules</CardTitle></CardHeader>
                   <CardContent className="space-y-2">
-                    <Row type="sha"  csvKey="statutory" label="SHA Schedule"  desc="Social Health Authority (2.75% of gross)" />
+                    <Row type="sha"  csvKey="statutory" label="SHIF Schedule" desc="Social Health Insurance Fund (2.75% of gross)" />
                     <Row type="nssf" csvKey="statutory" label="NSSF Schedule" desc="National Social Security Fund (employee 6%)" />
                     <Row type="paye" csvKey="statutory" label="PAYE Schedule" desc="Pay As You Earn — KRA tax table" landscape />
                     <Row type="helb" csvKey="third-party" label="HELB / Other Deductions" desc="Third-party deductions schedule" />
@@ -1301,9 +1206,9 @@ export default function PayrollTab() {
               <Calculator className="h-3.5 w-3.5 mr-1.5" /> Auto-Calculate
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground -mt-2">SHA = 2.75% · NSSF = 6% (Tier I+II) · PAYE = graduated rates with Ksh 2,400 relief{form.benefitInKind > 0 ? ` · BIK ${fmt(form.benefitInKind)} added to taxable income` : ""}</p>
+          <p className="text-xs text-muted-foreground -mt-2">SHIF = 2.75% · NSSF = 6% (Tier I+II) · PAYE = graduated rates with Ksh 2,400 relief{form.benefitInKind > 0 ? ` · BIK ${fmt(form.benefitInKind)} added to taxable income` : ""}</p>
           <div className="grid grid-cols-2 gap-4">
-            <div><Label>SHA / Social Health (Ksh)</Label><Input type="number" value={form.sha} onChange={e => set("sha", Number(e.target.value))} /></div>
+            <div><Label>SHIF / Social Health (Ksh)</Label><Input type="number" value={form.sha} onChange={e => set("sha", Number(e.target.value))} /></div>
             <div><Label>NSSF (Ksh)</Label><Input type="number" value={form.nssf} onChange={e => set("nssf", Number(e.target.value))} /></div>
             <div><Label>PAYE Tax (Ksh)</Label><Input type="number" value={form.paye} onChange={e => set("paye", Number(e.target.value))} /></div>
             <div><Label>Other Deductions (Ksh)</Label><Input type="number" value={form.otherDeductions} onChange={e => set("otherDeductions", Number(e.target.value))} /></div>
@@ -1357,7 +1262,7 @@ export default function PayrollTab() {
             <DataTable
               data={viewingBatch.records}
               columns={columns}
-              searchKeys={["id", "employeeId"]}
+              searchKeys={["employee.user.name", "employee.name", "employee.employeeNumber"]}
               searchPlaceholder="Search this batch…"
               onView={item => setViewing(item)}
             />
@@ -1381,11 +1286,11 @@ export default function PayrollTab() {
                 <div className="text-right">
                   <h2 className="text-base font-bold tracking-wide">PAYSLIP</h2>
                   <p className="text-muted-foreground text-xs">Month: {viewing.month}</p>
-                  <p className="text-muted-foreground text-xs">Ref: {viewing.id.slice(-8).toUpperCase()}</p>
+                  <p className="text-muted-foreground text-xs">Ref: {viewing.employee?.employeeNumber ?? "—"}/{viewing.month}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? viewing.employeeId}</div>
+                <div><span className="text-muted-foreground">Employee:</span> {viewing.employee?.user?.name ?? viewing.employee?.name ?? "—"}</div>
                 <div><span className="text-muted-foreground">Emp No.:</span> {viewing.employee?.employeeNumber ?? "—"}</div>
                 <div><span className="text-muted-foreground">Department:</span> {viewing.employee?.department?.name ?? "—"}</div>
                 <div><span className="text-muted-foreground">Job Title:</span> {viewing.employee?.jobTitle?.title ?? "—"}</div>
@@ -1426,7 +1331,13 @@ export default function PayrollTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {([ ["SHA (Social Health Authority)", viewing.nhif], ["NSSF", viewing.nssf], ["PAYE Tax", viewing.paye], ["Other Deductions", viewing.otherDeductions] ] as [string, number][]).filter(([, v]) => v > 0).map(([l, v]) => (
+                  {([
+                    ["SHIF (Social Health Insurance Fund)", viewing.nhif],
+                    ["NSSF Tier I", nssfTier1(viewing.nssf, viewing.grossPay)],
+                    ["NSSF Tier II", nssfTier2(viewing.nssf, viewing.grossPay)],
+                    ["PAYE Tax", viewing.paye],
+                    ["Other Deductions", viewing.otherDeductions],
+                  ] as [string, number][]).filter(([, v]) => v > 0).map(([l, v]) => (
                     <tr key={l} className="border">
                       <td className="px-3 py-1.5 border">{l}</td>
                       <td className="px-3 py-1.5 border text-right">{fmt(v)}</td>
@@ -1449,7 +1360,10 @@ export default function PayrollTab() {
             </div>
             <div className="flex gap-2 mt-3">
               <Button variant="outline" size="sm" onClick={handlePrint}>
-                <Printer className="h-3.5 w-3.5 mr-1.5" /> Print / Save PDF
+                <Printer className="h-3.5 w-3.5 mr-1.5" /> Print
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleDownloadPayslip}>
+                <Download className="h-3.5 w-3.5 mr-1.5" /> Download
               </Button>
               <Button variant="outline" size="sm" onClick={handleSendPayslip} disabled={sendingPayslip}>
                 {sendingPayslip

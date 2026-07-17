@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,8 +13,10 @@ import { toast } from "sonner";
 import { carwashApi, ApiCarwashSale, ApiCarwashPackage } from "@/lib/carwashApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -31,6 +33,7 @@ export function CarwashSalesTab() {
   const canManage = can("carwash.sales.record");
 
   const [records, setRecords]     = useState<ApiCarwashSale[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("CarwashSale", stationId, records.length);
   const [packages, setPackages]   = useState<ApiCarwashPackage[]>([]);
   const [loading, setLoading]     = useState(true);
   const [fromDate, setFromDate]   = useState(today());
@@ -40,6 +43,7 @@ export function CarwashSalesTab() {
   const [viewing, setViewing]     = useState<ApiCarwashSale | null>(null);
   const [form, setForm]           = useState(emptyForm);
   const [saving, setSaving]       = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiCarwashSale[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -123,8 +127,8 @@ export function CarwashSalesTab() {
   };
 
   const totals = {
-    revenue: records.filter(s => s.status !== "voided").reduce((a, s) => a + s.amount, 0),
-    count:   records.filter(s => s.status !== "voided").length,
+    revenue: visibleRecords.filter(s => s.status !== "voided").reduce((a, s) => a + s.amount, 0),
+    count:   visibleRecords.filter(s => s.status !== "voided").length,
   };
 
   const columns: Column<ApiCarwashSale>[] = [
@@ -144,14 +148,29 @@ export function CarwashSalesTab() {
     { key: "washPackage",   label: "Package", options: packages.map(p => ({ label: p.name, value: p.name })) },
   ];
 
+  const exportColumns: ExportColumn<ApiCarwashSale>[] = [
+    { label: "Receipt #",      value: s => s.receiptNo },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Vehicle Reg",    value: s => s.vehicleReg },
+    { label: "Package",        value: s => s.washPackage },
+    { label: "Attendant",      value: s => s.attendant || "—" },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Amount (Ksh)",   value: s => s.amount },
+    { label: "Status",         value: s => s.status },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Record and track car wash sales</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`carwash-sales-${today()}.csv`, records)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`carwash-sales_${fromDate}_to_${toDate}`}
+            title="Car Wash Sales"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && (
             <Button size="sm" onClick={openNew} disabled={noPackages} title={noPackages ? "Set up packages first" : ""}>
@@ -192,7 +211,9 @@ export function CarwashSalesTab() {
         filters={filters}
         onView={s => setViewing(s)}
         onEdit={canManage ? openEdit : undefined}
-        onDelete={canManage ? setPendingVoidSale : undefined}
+        onDelete={canManage ? (s => setPendingVoidSale(s)) : undefined}
+        onFilteredChange={rows => setVisibleRecords(rows)}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <DangerConfirmModal

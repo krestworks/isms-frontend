@@ -87,7 +87,7 @@ export const clientsApi = {
   },
 
   orders: {
-    list: (stationId?: string | null, params?: { status?: string; module?: string; clientId?: string; page?: number; limit?: number }) => {
+    list: (stationId?: string | null, params?: { status?: string; module?: string; clientId?: string; from?: string; to?: string; page?: number; limit?: number }) => {
       const p = new URLSearchParams();
       if (params) Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== "") p.set(k, String(v)); });
       const qs = p.toString() ? `?${p.toString()}` : "";

@@ -8,14 +8,14 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { toast } from "sonner";
 import { hrApi } from "@/lib/hrApi";
 import { useDocuments } from "@/data/documentsStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { exportToCsv, exportToPdf, type ExportColumn } from "@/lib/exportCsv";
 
 const REPORTS = [
   { id: "headcount",    title: "Headcount & Turnover",            desc: "Active, onboarding, exits by department",        icon: Users },
   { id: "attendance",   title: "Attendance Summary",              desc: "Clock-ins, clock-outs & absence by period",      icon: Calendar },
   { id: "leave",        title: "Leave Balances & Usage",          desc: "Annual, sick, compassionate per employee",       icon: Calendar },
   { id: "payroll",      title: "Payroll Register",                desc: "Gross, statutory deductions & net pay run",      icon: DollarSign },
-  { id: "statutory",    title: "Statutory Returns (PAYE/SHA/NSSF)", desc: "Monthly remittance schedules",               icon: DollarSign },
+  { id: "statutory",    title: "Statutory Returns (PAYE/SHIF/NSSF)", desc: "Monthly remittance schedules",              icon: DollarSign },
   { id: "discipline",   title: "Disciplinary Cases",              desc: "Open / closed cases with stage breakdown",       icon: AlertTriangle },
   { id: "performance",  title: "Performance & Tasks",             desc: "Task completion, ratings, overdue items",        icon: TrendingUp },
   { id: "documents",    title: "Document Compliance",             desc: "Expiring & expired employee documents",          icon: FileWarning },
@@ -51,6 +51,15 @@ function periodToRange(period: string): { from: string; to: string } {
   }
 }
 
+function humanizeKey(key: string): string {
+  return key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/^./, s => s.toUpperCase());
+}
+
+function autoColumns(rows: Record<string, any>[]): ExportColumn<Record<string, any>>[] {
+  if (!rows.length) return [];
+  return Object.keys(rows[0]).map(k => ({ label: humanizeKey(k), value: (r: Record<string, any>) => r[k] ?? "" }));
+}
+
 export default function HRReportsTab() {
   const docs = useDocuments();
   const [open, setOpen] = useState<string | null>(null);
@@ -65,8 +74,8 @@ export default function HRReportsTab() {
     try {
       const { from, to } = periodToRange(period);
       let rows: Record<string, any>[] = [];
-      const byDept = <T extends { department?: { name?: string } | null }>(list: T[]) =>
-        department === "all" ? list : list.filter(e => e.department?.name === department);
+      const byDept = <T extends { department?: { name?: string } | null; employee?: { department?: { name?: string } | null } | null }>(list: T[]) =>
+        department === "all" ? list : list.filter(e => (e.department?.name ?? e.employee?.department?.name) === department);
 
       if (open === "headcount") {
         const res = await hrApi.employees.list({ limit: 500 } as any);
@@ -102,14 +111,14 @@ export default function HRReportsTab() {
           ? list.map(pr => ({
               employee: pr.employee?.user?.name ?? pr.employee?.name ?? pr.employeeId,
               employeeNo: pr.employee?.employeeNumber ?? "—",
-              month: pr.month, paye: pr.paye, sha: pr.nhif, nssf: pr.nssf,
+              month: pr.month, paye: pr.paye, SHIF: pr.nhif, nssf: pr.nssf,
             }))
           : list.map(pr => ({
               employee: pr.employee?.user?.name ?? pr.employee?.name ?? pr.employeeId,
               department: pr.employee?.department?.name ?? "—",
               month: pr.month, basicSalary: pr.basicSalary, houseAllowance: pr.houseAllowance,
               transportAllowance: pr.transportAllowance, overtimePay: pr.overtimePay,
-              grossPay: pr.grossPay, sha: pr.nhif, nssf: pr.nssf, paye: pr.paye,
+              grossPay: pr.grossPay, SHIF: pr.nhif, nssf: pr.nssf, paye: pr.paye,
               otherDeductions: pr.otherDeductions, totalDeductions: pr.totalDeductions,
               netPay: pr.netPay, status: pr.status, payDate: pr.payDate ?? "—",
             }));
@@ -134,7 +143,13 @@ export default function HRReportsTab() {
       }
 
       if (!rows.length) { toast.info("No data for the selected filters."); return; }
-      exportToCsv(`hr-${open}-${period}.csv`, rows);
+      const filename = `hr-${open}-${period}`;
+      const cols = autoColumns(rows);
+      if (format === "pdf") {
+        exportToPdf(filename, current?.title || "HR Report", rows, cols, { subtitle: open === "documents" ? undefined : `${from} to ${to}` });
+      } else {
+        exportToCsv(`${filename}.csv`, rows, cols);
+      }
       toast.success(`Exported ${rows.length} rows — ${REPORTS.find(r => r.id === open)?.title}`);
       setOpen(null);
     } catch (e: any) {
@@ -201,9 +216,9 @@ export default function HRReportsTab() {
           <div><Label>Format</Label>
             <Select value={format} onValueChange={setFormat}>
               <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>{["csv", "excel"].map(f => <SelectItem key={f} value={f}>{f.toUpperCase()}</SelectItem>)}</SelectContent>
+              <SelectContent>{["csv", "pdf"].map(f => <SelectItem key={f} value={f}>{f.toUpperCase()}</SelectItem>)}</SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground mt-1">Excel exports as CSV (Excel-compatible).</p>
+            <p className="text-xs text-muted-foreground mt-1">CSV opens in Excel/Sheets; PDF is print-ready.</p>
           </div>
         </div>
       </ModalForm>

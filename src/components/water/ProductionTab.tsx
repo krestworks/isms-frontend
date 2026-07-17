@@ -14,6 +14,9 @@ import { waterApi, ApiWaterProduction } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const SHIFTS = ["Morning", "Afternoon", "Night"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -30,7 +33,11 @@ export function ProductionTab() {
   const canLog = can("water.production.log");
 
   const [records, setRecords]   = useState<ApiWaterProduction[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("WaterProduction", stationId, records.length);
+  const [visibleRecords, setVisibleRecords] = useState<ApiWaterProduction[]>([]);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiWaterProduction | null>(null);
   const [viewing, setViewing]   = useState<ApiWaterProduction | null>(null);
@@ -41,11 +48,11 @@ export function ProductionTab() {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await waterApi.production.list({}, stationId);
+      const res = await waterApi.production.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load production logs"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -111,6 +118,18 @@ export function ProductionTab() {
     { key: "status", label: "Status", options: [{ label: "Active", value: "active" }, { label: "Completed", value: "completed" }] },
   ];
 
+  const exportColumns: ExportColumn<ApiWaterProduction>[] = [
+    { label: "Date",          value: p => p.date.split("T")[0] },
+    { label: "Shift",         value: p => p.shift },
+    { label: "Produced (L)",  value: p => p.litresProduced },
+    { label: "Wasted (L)",    value: p => p.litresWasted },
+    { label: "Net Output (L)",value: p => p.netOutput },
+    { label: "Operator",      value: p => p.operator || "—" },
+    { label: "Machine",       value: p => p.machineId || "—" },
+    { label: "Status",        value: p => p.status },
+    { label: "Notes",         value: p => p.notes || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
@@ -126,12 +145,25 @@ export function ProductionTab() {
         ))}
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Shift-based water production logs</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`water-production${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Water Production"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canLog && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Production</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -142,6 +174,8 @@ export function ProductionTab() {
         onView={p => setViewing(p)}
         onEdit={canLog ? openEdit : undefined}
         onDelete={canLog ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowDown, ArrowUp, RotateCcw, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { inventoryApi, ApiStockMovement } from "@/lib/inventoryApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const TYPE_CONFIG: Record<string, { label: string; cls: string; icon: typeof ArrowDown }> = {
   receipt:      { label: "Receipt",      cls: "bg-green-100 text-green-800",  icon: ArrowDown },
@@ -29,24 +33,27 @@ export default function StockMovementsTab() {
   const [total, setTotal]     = useState(0);
   const [page, setPage]       = useState(1);
   const [loading, setLoading] = useState(true);
+  const [visibleData, setVisibleData] = useState<ApiStockMovement[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const res = await inventoryApi.movements.list(stationId, { page: p, limit: 50 });
+      const res = await inventoryApi.movements.list(stationId, { page: p, limit: 50, from: fromDate || undefined, to: toDate || undefined } as any);
       setData(res.data ?? []);
       setTotal(res.meta?.total ?? 0);
     } catch (e: any) { toast.error(e?.message || "Failed to load movements"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { load(1); }, [load]);
 
   const stats = {
-    total: data.length,
-    in:    data.filter(m => IN_TYPES.has(m.movementType)).length,
-    out:   data.filter(m => OUT_TYPES.has(m.movementType)).length,
-    adj:   data.filter(m => m.movementType === "adjustment").length,
+    total: visibleData.length,
+    in:    visibleData.filter(m => IN_TYPES.has(m.movementType)).length,
+    out:   visibleData.filter(m => OUT_TYPES.has(m.movementType)).length,
+    adj:   visibleData.filter(m => m.movementType === "adjustment").length,
   };
 
   const columns: Column<ApiStockMovement>[] = [
@@ -77,6 +84,17 @@ export default function StockMovementsTab() {
     { key: "movementType", label: "Type", options: Object.entries(TYPE_CONFIG).map(([k, v]) => ({ label: v.label, value: k })) },
   ];
 
+  const exportColumns: ExportColumn<ApiStockMovement>[] = [
+    { label: "Date",      value: m => new Date(m.createdAt).toLocaleString() },
+    { label: "Item",      value: m => m.itemName },
+    { label: "Type",      value: m => TYPE_CONFIG[m.movementType]?.label ?? m.movementType },
+    { label: "Qty",       value: m => OUT_TYPES.has(m.movementType) ? -Math.abs(m.qty) : Math.abs(m.qty) },
+    { label: "Prev Bal",  value: m => m.balanceBefore ?? "—" },
+    { label: "New Bal",   value: m => m.balanceAfter ?? "—" },
+    { label: "Reference", value: m => m.reference ?? "—" },
+    { label: "Notes",     value: m => m.notes ?? "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -84,7 +102,22 @@ export default function StockMovementsTab() {
           <h3 className="text-lg font-semibold">Stock Movements</h3>
           <p className="text-sm text-muted-foreground">All inflows, outflows and adjustments — read-only audit log</p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => load(1)}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
+        <div className="flex gap-2">
+          <ExportMenu
+            filename={`stock-movements${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Stock Movements"
+            rows={visibleData}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
+          <Button variant="outline" size="sm" onClick={() => load(1)}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
+        </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={() => load(1)}>Apply</Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -105,6 +138,7 @@ export default function StockMovementsTab() {
       <DataTable
         data={data} columns={columns} loading={loading} filters={filters}
         searchKeys={["itemName", "reference"]} searchPlaceholder="Search by item or reference..."
+        onFilteredChange={setVisibleData}
       />
     </div>
   );

@@ -56,7 +56,7 @@ function buildRawReport(session: CashierSession, sales: ApiBizSale[], b: any, bi
   const { sessionSales } = computeSessionSales(sales, session.openedAt, session.closedAt);
   const lines = [
     `${b?.name ?? bizName}`,
-    `RAW SALES REPORT — Session ${session.id}`,
+    `RAW SALES REPORT — Session #${session.sessionNo}`,
     `Cashier: ${session.cashier}`,
     `Opened:  ${fmtDate(session.openedAt)}`,
     session.closedAt ? `Closed:  ${fmtDate(session.closedAt)}` : "",
@@ -89,7 +89,7 @@ function buildSalesReport(session: CashierSession, sales: ApiBizSale[], b: any, 
 
   const lines = [
     `${b?.name ?? bizName}`,
-    `SALES REPORT — Session ${session.id}`,
+    `SALES REPORT — Session #${session.sessionNo}`,
     `Cashier: ${session.cashier}   Opened: ${fmtDate(session.openedAt)}`,
     "=".repeat(50),
     "PRODUCT BREAKDOWN",
@@ -120,7 +120,7 @@ function buildReconReport(session: CashierSession, b: any, bizName: string): str
   const totalVariance = entries.reduce((s, e) => s + e.variance, 0);
   const lines = [
     `${b?.name ?? bizName}`,
-    `RECONCILIATION REPORT — Session ${session.id}`,
+    `RECONCILIATION REPORT — Session #${session.sessionNo}`,
     `Cashier: ${session.cashier}   Status: ${session.status.toUpperCase()}`,
     session.closedAt ? `Closed: ${fmtDate(session.closedAt)}` : "",
     session.committedAt ? `Committed: ${fmtDate(session.committedAt)}` : "",
@@ -151,6 +151,13 @@ function buildConsolidatedReport(session: CashierSession, sales: ApiBizSale[], b
     "\n\n" + "─".repeat(60) + "\n\n",
     buildRawReport(session, sales, b, bizName),
   ].join("");
+}
+
+// A blank field and a typed "0" must be distinguishable — a session can't open
+// or close without someone actually looking at the till and entering a number,
+// even if that number is zero.
+function isExplicitAmount(v: string | undefined): boolean {
+  return v !== undefined && v.trim() !== "" && !isNaN(Number(v));
 }
 
 function downloadTxt(content: string, filename: string) {
@@ -207,7 +214,8 @@ export function POSSessionManager({ business, sales }: Props) {
 
   const handleOpen = () => {
     if (!openCashier.trim()) { toast.error("Cashier name required"); return; }
-    const s = posSessionStore.open(business.id, openCashier.trim(), parseFloat(openFloat) || 0);
+    if (!isExplicitAmount(openFloat)) { toast.error("Enter the opening float amount — 0 is fine, but the field can't be blank"); return; }
+    const s = posSessionStore.open(business.id, openCashier.trim(), Number(openFloat));
     setSession(s);
     setOpenDialog(false);
     toast.success("Session opened. You can now process sales.");
@@ -220,17 +228,28 @@ export function POSSessionManager({ business, sales }: Props) {
     return sessionSalesData.payMethodTotals;
   };
 
+  // Same set the close dialog actually renders inputs for (methods with sales,
+  // plus Cash always since every till has cash regardless of sales mix) — an
+  // explicit count is required for every one of these before closing.
+  const requiredCloseMethods = (): string[] => {
+    const expected = expectedByMethod();
+    return METHODS.filter(m => (expected[m] ?? 0) > 0 || m === "Cash");
+  };
+
+  const canClose = requiredCloseMethods().every(m => isExplicitAmount(closingEntries[m]));
+
   const buildEntries = (): ClosingEntry[] => {
     const expected = expectedByMethod();
     return METHODS.map(m => {
       const exp = expected[m] ?? 0;
-      const act = parseFloat(closingEntries[m] || "0") || 0;
+      const act = isExplicitAmount(closingEntries[m]) ? Number(closingEntries[m]) : 0;
       return { method: m, expected: exp, actual: act, variance: act - exp };
     }).filter(e => e.expected > 0 || e.actual > 0);
   };
 
   const handleClose = () => {
     if (!session || !sessionSalesData) return;
+    if (!canClose) { toast.error("Enter a counted amount for every payment method below — 0 is fine, but each field must be filled in"); return; }
     const entries = buildEntries();
     const s = posSessionStore.close(
       business.id, entries, closingNotes,
@@ -254,7 +273,7 @@ export function POSSessionManager({ business, sales }: Props) {
 
   const b = brandingStore.get();
   const bizName = b?.name ?? business.name;
-  const sfx = session ? `_${session.id}_${new Date().toISOString().slice(0, 10)}` : "";
+  const sfx = session ? `_session-${session.sessionNo}_${new Date().toISOString().slice(0, 10)}` : "";
 
   const downloadReport = (type: "raw" | "sales" | "recon" | "consolidated") => {
     if (!session) return;
@@ -276,9 +295,9 @@ export function POSSessionManager({ business, sales }: Props) {
     : "bg-blue-100 text-blue-800";
 
   const statusLabel = !session ? "No Session"
-    : session.status === "open"      ? `Session Open · ${session.cashier}`
-    : session.status === "closed"    ? `Closed · ${session.cashier}`
-    : `Committed · ${session.cashier}`;
+    : session.status === "open"      ? `Session #${session.sessionNo} Open · ${session.cashier}`
+    : session.status === "closed"    ? `Session #${session.sessionNo} Closed · ${session.cashier}`
+    : `Session #${session.sessionNo} Committed · ${session.cashier}`;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -430,13 +449,13 @@ export function POSSessionManager({ business, sales }: Props) {
             <p className="text-sm text-muted-foreground">Start a new session to begin processing sales. Record your opening float (cash in drawer).</p>
             <div><Label>Cashier Name *</Label><Input className="mt-1" value={openCashier} onChange={e => setOpenCashier(e.target.value)} placeholder="Your name" /></div>
             <div>
-              <Label>Opening Float (Ksh)</Label>
-              <Input className="mt-1" type="number" min={0} value={openFloat} onChange={e => setOpenFloat(e.target.value)} placeholder="0.00" />
-              <p className="text-xs text-muted-foreground mt-1">Cash amount in the till before sales begin</p>
+              <Label>Opening Float (Ksh) *</Label>
+              <Input className="mt-1" type="number" min={0} value={openFloat} onChange={e => setOpenFloat(e.target.value)} placeholder="Enter amount — 0 is valid" />
+              <p className="text-xs text-muted-foreground mt-1">Cash amount in the till before sales begin — required, 0 is a valid entry</p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpenDialog(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleOpen}><LogIn className="h-4 w-4 mr-1.5" />Open Session</Button>
+              <Button className="flex-1" onClick={handleOpen} disabled={!isExplicitAmount(openFloat)}><LogIn className="h-4 w-4 mr-1.5" />Open Session</Button>
             </div>
           </div>
         </DialogContent>
@@ -457,11 +476,12 @@ export function POSSessionManager({ business, sales }: Props) {
 
               <div>
                 <h4 className="text-sm font-semibold mb-2">Count Physical Cash / Payments</h4>
-                <p className="text-xs text-muted-foreground mb-3">Enter the actual amount counted for each payment method. Leave blank if none received.</p>
+                <p className="text-xs text-muted-foreground mb-3">Enter the actual amount counted for each payment method below — required for every method shown, 0 is a valid count.</p>
                 <div className="space-y-3">
-                  {METHODS.filter(m => (sessionSalesData.payMethodTotals[m] ?? 0) > 0 || m === "Cash").map(m => {
+                  {requiredCloseMethods().map(m => {
                     const expected = sessionSalesData.payMethodTotals[m] ?? 0;
-                    const actual = parseFloat(closingEntries[m] || "0") || 0;
+                    const entered = isExplicitAmount(closingEntries[m]);
+                    const actual = entered ? Number(closingEntries[m]) : 0;
                     const variance = actual - expected;
                     return (
                       <div key={m} className="grid grid-cols-3 gap-2 items-center">
@@ -470,11 +490,11 @@ export function POSSessionManager({ business, sales }: Props) {
                           <p className="text-xs text-muted-foreground">Exp: Ksh {fmt(expected)}</p>
                         </div>
                         <Input
-                          type="number" min={0} placeholder="Actual"
+                          type="number" min={0} placeholder="Enter count — 0 is valid"
                           value={closingEntries[m] ?? ""}
                           onChange={e => setClosingEntries(v => ({ ...v, [m]: e.target.value }))}
                         />
-                        {closingEntries[m] !== undefined && (
+                        {entered && (
                           <span className={`text-sm font-semibold ${variance === 0 ? "text-green-600" : "text-amber-600"}`}>
                             {variance >= 0 ? "+" : ""}{fmt(variance)}
                           </span>
@@ -492,7 +512,7 @@ export function POSSessionManager({ business, sales }: Props) {
 
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => setCloseDialog(false)}>Cancel</Button>
-                <Button className="flex-1" onClick={handleClose}><LogOut className="h-4 w-4 mr-1.5" />Close Session</Button>
+                <Button className="flex-1" onClick={handleClose} disabled={!canClose}><LogOut className="h-4 w-4 mr-1.5" />Close Session</Button>
               </div>
             </div>
           )}
