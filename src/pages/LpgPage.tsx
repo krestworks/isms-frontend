@@ -10,6 +10,7 @@ import { InvoicesTab } from "@/components/lpg/InvoicesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { ModulePaymentDetailsTab } from "@/components/shared/ModulePaymentDetailsTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function LpgPage() {
@@ -24,6 +25,7 @@ export default function LpgPage() {
   const showStaff     = can("hr.staff.view");
   const showShifts    = can("hr.shifts.view");
   const showAudit     = can("audit.view");
+  const showPayment   = can("lpg.cylinders.manage");
 
   const defaultTab = showSales ? "sales" : showCylinders ? "cylinders" : "sales";
 
@@ -40,6 +42,7 @@ export default function LpgPage() {
           {showStaff     && <TabsTrigger value="staff"     className="text-xs">Staff</TabsTrigger>}
           {showShifts    && <TabsTrigger value="shifts"    className="text-xs">Shifts</TabsTrigger>}
           {showAudit     && <TabsTrigger value="audit"     className="text-xs">History</TabsTrigger>}
+          {showPayment   && <TabsTrigger value="payment"   className="text-xs">Payment</TabsTrigger>}
         </TabsList>
         {showCylinders && <TabsContent value="cylinders"><CylindersTab /></TabsContent>}
         {showSales     && <TabsContent value="sales"><LpgSalesTab /></TabsContent>}
@@ -50,6 +53,7 @@ export default function LpgPage() {
         {showStaff     && <TabsContent value="staff"><ModuleStaffTab department="LPG" /></TabsContent>}
         {showShifts    && <TabsContent value="shifts"><ShiftScheduleTab department="LPG" /></TabsContent>}
         {showAudit     && <TabsContent value="audit"><ModuleAuditTab module="lpg" /></TabsContent>}
+        {showPayment   && <TabsContent value="payment"><ModulePaymentDetailsTab module="lpg" moduleLabel="LPG" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

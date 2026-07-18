@@ -23,6 +23,7 @@ export interface CashierSession {
   sessionNo: number;
   businessId: string;
   cashier: string;
+  tillNumber: string;
   openedAt: string;
   closedAt?: string;
   committedAt?: string;
@@ -70,11 +71,11 @@ function notify(businessId: string) {
 export const posSessionStore = {
   get: (businessId: string): CashierSession | null => load(businessId),
 
-  open: (businessId: string, cashier: string, openingFloat: number): CashierSession => {
+  open: (businessId: string, cashier: string, openingFloat: number, tillNumber: string): CashierSession => {
     const session: CashierSession = {
       id: `SES-${Date.now().toString(36).toUpperCase()}`,
       sessionNo: nextSessionNo(businessId),
-      businessId, cashier, openingFloat,
+      businessId, cashier, tillNumber, openingFloat,
       openedAt: new Date().toISOString(),
       status: "open",
     };

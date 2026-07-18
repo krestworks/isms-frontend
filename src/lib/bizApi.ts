@@ -16,11 +16,23 @@ type R<T> = { success: boolean; data: T; message?: string };
 
 export type BizType = "mart" | "pharmacy" | "restaurant" | "Tyre Centre";
 
+export interface ApiPaymentDetails {
+  method: "none" | "till" | "paybill" | "bank";
+  tillNumber?: string;
+  paybillNumber?: string;
+  paybillAccount?: string;
+  bankName?: string;
+  bankAccountName?: string;
+  bankAccountNumber?: string;
+  bankBranch?: string;
+}
+
 export interface ApiBizBusiness {
   id: string; stationId: string; type: BizType; name: string;
   taxRate: number; currency: string;
   kraPin?: string | null;
   receiptHeader?: string | null; receiptFooter?: string | null;
+  paymentDetails?: Partial<ApiPaymentDetails> | null;
   status: string; createdAt: string; updatedAt: string;
 }
 
@@ -36,7 +48,8 @@ export interface ApiBizProduct {
   stockQty: number; reorderLevel: number;
   imageUrl?: string | null;
   expiryDate?: string | null; requiresPrescription: boolean;
-  vatExempt: boolean;
+  /** "standard" (taxed at business.taxRate) | "exempt" (0%, no input credit) | "zero_rated" (0%, vatable) */
+  taxCategory: "standard" | "exempt" | "zero_rated";
   status: string; createdAt: string; updatedAt: string;
 }
 
@@ -60,7 +73,7 @@ export interface ApiBizPurchaseOrder {
 
 export interface ApiBizSaleItem {
   productId?: string; name: string; qty: number; unitPrice: number; discount: number; totalPrice: number;
-  vatExempt?: boolean;
+  taxCategory?: "standard" | "exempt" | "zero_rated";
 }
 
 export type BizSaleStatus = "paid" | "pending_payment" | "void" | "refunded";
@@ -70,7 +83,7 @@ export interface ApiBizSale {
   items: ApiBizSaleItem[]; subtotal: number; discount: number;
   taxRate: number; taxAmount: number; totalAmount: number;
   paymentMethod: string; amountPaid: number; change: number;
-  cashier?: string | null; tableId?: string | null; tableNo?: string | null;
+  cashier?: string | null; tillNumber?: string | null; tableId?: string | null; tableNo?: string | null;
   notes?: string | null;
   status: BizSaleStatus;
   // Pesapal fields (M-Pesa / Card via gateway)
@@ -198,6 +211,7 @@ export const bizApi = {
       paymentMethod: "M-Pesa" | "Card";
       customerPhone?: string;
       cashier?: string;
+      tillNumber?: string;
       tableId?: string;
       tableNo?: string;
       notes?: string;

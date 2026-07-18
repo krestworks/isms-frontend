@@ -22,6 +22,7 @@ import { brandingStore } from "@/data/brandingStore";
 import { POSSessionManager } from "./POSSessionManager";
 import { posSessionStore } from "@/data/posSessionStore";
 import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
+import { maskPhone, twoNames } from "@/lib/docFormat";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -33,7 +34,7 @@ interface CartItem {
   markedPrice: number;
   discount: number;
   totalPrice: number;
-  vatExempt: boolean;
+  taxCategory: "standard" | "exempt" | "zero_rated";
 }
 
 type PayPhase = "idle" | "initiating" | "awaiting" | "completed" | "failed";
@@ -175,7 +176,7 @@ export function POSTab({ business }: Props) {
       return [...prev, {
         productId: p.id, name: p.name, qty: 1,
         unitPrice: p.price, markedPrice: p.markedPrice ?? 0,
-        discount: 0, totalPrice: p.price, vatExempt: p.vatExempt,
+        discount: 0, totalPrice: p.price, taxCategory: p.taxCategory,
       }];
     });
   };
@@ -209,15 +210,17 @@ export function POSTab({ business }: Props) {
     setCustomerPhone(""); setExpandedItem(null);
   };
 
-  // ── Totals (prices are tax-inclusive; extract VAT from total) ──────────────
+  // ── Totals (prices are tax-inclusive; extract VAT from the standard-rated portion only) ──
 
-  const subtotal        = cart.reduce((s, i) => s + i.totalPrice, 0);
-  const taxableSubtotal = cart.filter(i => !i.vatExempt).reduce((s, i) => s + i.totalPrice, 0);
+  const subtotal         = cart.reduce((s, i) => s + i.totalPrice, 0);
+  const standardSubtotal = cart.filter(i => i.taxCategory === "standard").reduce((s, i) => s + i.totalPrice, 0);
+  const exemptSubtotal   = cart.filter(i => i.taxCategory === "exempt").reduce((s, i) => s + i.totalPrice, 0);
+  const zeroRatedSubtotal = cart.filter(i => i.taxCategory === "zero_rated").reduce((s, i) => s + i.totalPrice, 0);
   const baseAmount = Math.max(0, subtotal - orderDiscount);
   // VAT is embedded in the selling price — extract it for display only.
-  // Order-level discount is allocated proportionally so VAT-exempt items don't contribute to the extracted tax.
-  const taxableBase = subtotal > 0 ? Math.max(0, taxableSubtotal - orderDiscount * (taxableSubtotal / subtotal)) : 0;
-  const taxAmount  = Math.round(taxableBase * business.taxRate / (100 + business.taxRate) * 100) / 100;
+  // Order-level discount is allocated proportionally so exempt/zero-rated items don't contribute to the extracted tax.
+  const standardBase = subtotal > 0 ? Math.max(0, standardSubtotal - orderDiscount * (standardSubtotal / subtotal)) : 0;
+  const taxAmount  = Math.round(standardBase * business.taxRate / (100 + business.taxRate) * 100) / 100;
   const total      = baseAmount; // tax already included — do NOT add on top
   const paid       = parseFloat(amountPaid) || 0;
   const change     = Math.max(0, paid - total);
@@ -305,7 +308,7 @@ export function POSTab({ business }: Props) {
       const saleItems: ApiBizSaleItem[] = cart.map(i => ({
         productId: i.productId, name: i.name, qty: i.qty,
         unitPrice: i.unitPrice, discount: i.discount, totalPrice: i.totalPrice,
-        vatExempt: i.vatExempt,
+        taxCategory: i.taxCategory,
       }));
       const res = await bizApi.sales.create({
         businessId: business.id,
@@ -315,6 +318,7 @@ export function POSTab({ business }: Props) {
         paymentMethod: payMethod,
         amountPaid: paid || total, change,
         cashier: cashier || undefined,
+        tillNumber: session?.tillNumber || undefined,
         notes: notes || undefined,
         status: "paid",
       });
@@ -336,7 +340,7 @@ export function POSTab({ business }: Props) {
       const saleItems: ApiBizSaleItem[] = cart.map(i => ({
         productId: i.productId, name: i.name, qty: i.qty,
         unitPrice: i.unitPrice, discount: i.discount, totalPrice: i.totalPrice,
-        vatExempt: i.vatExempt,
+        taxCategory: i.taxCategory,
       }));
       const res = await bizApi.payments.initiate({
         businessId: business.id,
@@ -346,6 +350,7 @@ export function POSTab({ business }: Props) {
         paymentMethod: payMethod as "M-Pesa" | "Card",
         customerPhone: customerPhone.trim() || undefined,
         cashier: cashier || undefined,
+        tillNumber: session?.tillNumber || undefined,
         notes: notes || undefined,
       });
       setPayInitData(res.data); setPayPhase("awaiting");
@@ -613,7 +618,8 @@ export function POSTab({ business }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-medium truncate leading-tight flex items-center gap-1">
                         {item.name}
-                        {item.vatExempt && <Badge variant="outline" className="text-[9px] py-0 h-3.5 px-1">VAT-exempt</Badge>}
+                        {item.taxCategory === "exempt" && <Badge variant="outline" className="text-[9px] py-0 h-3.5 px-1">Exempt</Badge>}
+                        {item.taxCategory === "zero_rated" && <Badge variant="outline" className="text-[9px] py-0 h-3.5 px-1">Zero-rated</Badge>}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
                         Ksh {fmt(item.unitPrice)} × {item.qty}
@@ -683,6 +689,18 @@ export function POSTab({ business }: Props) {
                 <div className="flex justify-between text-muted-foreground">
                   <span>VAT ({business.taxRate}%, incl.)</span>
                   <span>Ksh {fmt(taxAmount)}</span>
+                </div>
+              )}
+              {exemptSubtotal > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Exempted</span>
+                  <span>Ksh {fmt(exemptSubtotal)}</span>
+                </div>
+              )}
+              {zeroRatedSubtotal > 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Zero Rated</span>
+                  <span>Ksh {fmt(zeroRatedSubtotal)}</span>
                 </div>
               )}
               <Separator />
@@ -909,8 +927,9 @@ export function POSTab({ business }: Props) {
                 <div className="space-y-0.5">
                   <div className="flex justify-between"><span>Receipt:</span><span>{lastSale.saleRef}</span></div>
                   <div className="flex justify-between"><span>Date:</span><span>{lastSale.date}</span></div>
-                  {lastSale.cashier && <div className="flex justify-between"><span>Cashier:</span><span>{lastSale.cashier}</span></div>}
-                  {lastSale.customerPhone && <div className="flex justify-between"><span>M-Pesa:</span><span>{lastSale.customerPhone}</span></div>}
+                  {lastSale.tillNumber && <div className="flex justify-between"><span>Till:</span><span>{lastSale.tillNumber}</span></div>}
+                  {lastSale.cashier && <div className="flex justify-between"><span>Cashier:</span><span>{twoNames(lastSale.cashier)}</span></div>}
+                  {lastSale.customerPhone && <div className="flex justify-between"><span>M-Pesa:</span><span>{maskPhone(lastSale.customerPhone)}</span></div>}
                   {lastSale.notes && <div className="flex justify-between"><span>Note:</span><span>{lastSale.notes}</span></div>}
                 </div>
                 {/* Space + dotted line before items */}
@@ -920,15 +939,17 @@ export function POSTab({ business }: Props) {
                   <thead>
                     <tr className="text-[10px] text-muted-foreground">
                       <th className="text-left font-normal pb-0.5 border-r border-dashed pr-1">Item</th>
-                      <th className="text-center font-normal pb-0.5 px-1 w-10">Qty</th>
-                      <th className="text-right font-normal pb-0.5 pl-1">Amount</th>
+                      <th className="text-center font-normal pb-0.5 px-1 w-8">Qty</th>
+                      <th className="text-right font-normal pb-0.5 px-1">Price</th>
+                      <th className="text-right font-normal pb-0.5 pl-1">Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(lastSale.items ?? []).map((item: ApiBizSaleItem, i: number) => (
                       <tr key={i}>
                         <td className="pr-1 border-r border-dashed align-top">{item.name}</td>
-                        <td className="text-center px-1 whitespace-nowrap w-10 align-top">{item.qty}</td>
+                        <td className="text-center px-1 whitespace-nowrap w-8 align-top">{item.qty}</td>
+                        <td className="text-right px-1 whitespace-nowrap align-top">{fmt(item.unitPrice)}</td>
                         <td className="text-right pl-1 whitespace-nowrap font-bold align-top">{fmt(item.totalPrice)}</td>
                       </tr>
                     ))}
@@ -950,7 +971,9 @@ export function POSTab({ business }: Props) {
                 </div>
                 <div className="border-t border-dashed mt-2 mb-1" />
                 {business.receiptFooter && <p className="text-center">{business.receiptFooter}</p>}
-                <p className="text-center text-muted-foreground">Thank you for your business!</p>
+                <p className="text-center text-muted-foreground text-[10px]">Prices are VAT inclusive where applicable.</p>
+                <p className="text-center text-muted-foreground text-[10px]">Goods once sold are not refundable.</p>
+                <p className="text-center text-muted-foreground mt-1">Thank you for shopping with us!</p>
                 <p className="text-center text-muted-foreground text-[10px] mt-1">Generated: {new Date().toLocaleString("en-KE")}</p>
               </div>
               <div className="flex gap-2 mt-2">

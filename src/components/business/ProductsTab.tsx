@@ -24,7 +24,7 @@ const emptyForm = {
   name: "", sku: "", barcode: "", description: "", categoryId: "",
   markedPrice: 0, price: 0, costPrice: 0, unit: "pcs",
   stockQty: 0, reorderLevel: 5, imageUrl: "",
-  expiryDate: "", requiresPrescription: false, vatExempt: false, status: "active",
+  expiryDate: "", requiresPrescription: false, taxCategory: "standard" as "standard" | "exempt" | "zero_rated", status: "active",
 };
 
 // ── CSV helpers ───────────────────────────────────────────────────────────────
@@ -121,7 +121,7 @@ export function ProductsTab({ business }: Props) {
       price: Math.round(p.price / taxFactor),
       costPrice: p.costPrice, unit: p.unit,
       stockQty: p.stockQty, reorderLevel: p.reorderLevel, imageUrl: p.imageUrl ?? "",
-      expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, vatExempt: p.vatExempt, status: p.status,
+      expiryDate: p.expiryDate ?? "", requiresPrescription: p.requiresPrescription, taxCategory: p.taxCategory, status: p.status,
     });
     setModalOpen(true);
   };
@@ -252,7 +252,8 @@ export function ProductsTab({ business }: Props) {
     { key: "name",        label: "Product",  sortable: true, render: p => (
       <span className="flex items-center gap-1.5">
         {p.name}
-        {p.vatExempt && <Badge variant="outline" className="text-[10px] py-0 h-4">VAT Exempt</Badge>}
+        {p.taxCategory === "exempt" && <Badge variant="outline" className="text-[10px] py-0 h-4">Exempt</Badge>}
+        {p.taxCategory === "zero_rated" && <Badge variant="outline" className="text-[10px] py-0 h-4">Zero-rated</Badge>}
       </span>
     ) },
     { key: "categoryName",label: "Category", render: p => p.categoryName || <span className="text-muted-foreground text-xs">—</span> },
@@ -478,9 +479,16 @@ export function ProductsTab({ business }: Props) {
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-center gap-3 mt-5">
-            <Switch checked={form.vatExempt} onCheckedChange={v => set("vatExempt", v)} />
-            <Label className="cursor-pointer">VAT Exempt</Label>
+          <div>
+            <Label>Tax Category</Label>
+            <Select value={form.taxCategory} onValueChange={v => set("taxCategory", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="standard">Standard ({business.taxRate}% VAT)</SelectItem>
+                <SelectItem value="exempt">Exempt (0%, no input credit)</SelectItem>
+                <SelectItem value="zero_rated">Zero-rated (0%, vatable)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="col-span-2">
             <Label>Description</Label>

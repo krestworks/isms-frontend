@@ -9,6 +9,7 @@ import { AutoInvoicesTab } from "@/components/automotive/AutoInvoicesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { ModulePaymentDetailsTab } from "@/components/shared/ModulePaymentDetailsTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function AutomotivePage() {
@@ -22,6 +23,7 @@ export default function AutomotivePage() {
   const showStaff    = can("hr.staff.view");
   const showShifts   = can("hr.shifts.view");
   const showAudit    = can("audit.view");
+  const showPayment  = can("auto.pricing.manage");
 
   const defaultTab = showServices ? "services" : showBilling ? "billing" : "services";
 
@@ -37,6 +39,7 @@ export default function AutomotivePage() {
           {showStaff    && <TabsTrigger value="staff"    className="text-xs">Technicians</TabsTrigger>}
           {showShifts   && <TabsTrigger value="shifts"   className="text-xs">Shifts</TabsTrigger>}
           {showAudit    && <TabsTrigger value="audit"    className="text-xs">History</TabsTrigger>}
+          {showPayment  && <TabsTrigger value="payment"  className="text-xs">Payment</TabsTrigger>}
         </TabsList>
         {showServices && <TabsContent value="services"><ServiceRecordsTab /></TabsContent>}
         {showPricing  && <TabsContent value="pricing"><ServicePricingTab /></TabsContent>}
@@ -46,6 +49,7 @@ export default function AutomotivePage() {
         {showStaff    && <TabsContent value="staff"><ModuleStaffTab department="Automotive" /></TabsContent>}
         {showShifts   && <TabsContent value="shifts"><ShiftScheduleTab department="Automotive" /></TabsContent>}
         {showAudit    && <TabsContent value="audit"><ModuleAuditTab module="auto" /></TabsContent>}
+        {showPayment  && <TabsContent value="payment"><ModulePaymentDetailsTab module="auto" moduleLabel="Automotive" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );
