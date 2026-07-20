@@ -76,7 +76,7 @@ export const autoApi = {
       api.delete<R<void>>(`/auto/bills/${id}`, sh(stationId)),
   },
   invoices: {
-    list: (params: { status?: string; type?: string } = {}, stationId?: string | null) =>
+    list: (params: { status?: string; type?: string; from?: string; to?: string } = {}, stationId?: string | null) =>
       api.get<R<ApiAutoInvoice[]>>(`/auto/invoices${qs(params)}`, sh(stationId)),
     create: (data: Partial<ApiAutoInvoice>, stationId?: string | null) =>
       api.post<R<ApiAutoInvoice>>("/auto/invoices", data, sh(stationId)),

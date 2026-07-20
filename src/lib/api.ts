@@ -1,5 +1,5 @@
 // Thin fetch wrapper with automatic access-token injection and silent refresh.
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5002/api/v1";
+export const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api/v1";
 
 let accessToken: string | null = null;
 let activeStationId: string | null = null;
@@ -14,6 +14,10 @@ export function setActiveStationId(id: string | null) {
 
 export function getAccessToken() {
   return accessToken;
+}
+
+export function getActiveStationId() {
+  return activeStationId;
 }
 
 type RequestOptions = RequestInit & { skipAuth?: boolean };

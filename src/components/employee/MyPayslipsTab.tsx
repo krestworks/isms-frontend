@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { hrApi, ApiPayroll } from "@/lib/hrApi";
-import { brandingStore } from "@/data/brandingStore";
 import { BrandedDocHeader } from "@/components/shared/BrandedDocHeader";
+import { nssfTier1, nssfTier2 } from "@/lib/payrollCalc";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 import { toast } from "sonner";
 
 const fmt = (n: number) => `Ksh ${n.toLocaleString()}`;
@@ -16,46 +17,6 @@ const fmtPeriod = (month: string) => {
   const [y, m] = month.split("-");
   return new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 };
-
-function buildPayslipText(p: ApiPayroll): string {
-  const b = brandingStore.get();
-  const name = b?.name ?? "ISMS";
-  const tagline = b?.tagline ? `\n    ${b.tagline}` : "";
-  const width = 38;
-  const centered = (s: string) => s.padStart(Math.floor((width + s.length) / 2)).padEnd(width);
-  return [
-    "═".repeat(width),
-    centered(name),
-    ...(tagline ? [centered(b!.tagline!)] : []),
-    centered("PAY STATEMENT"),
-    "═".repeat(width),
-    "",
-    `Pay Period:  ${fmtPeriod(p.month)}`,
-    `Payslip ID:  ${p.id.slice(-8).toUpperCase()}`,
-    `Date Paid:   ${p.payDate || "Pending"}`,
-    ...(p.employee?.kraPin ? [`KRA PIN:     ${p.employee.kraPin}`] : []),
-    "",
-    "─── EARNINGS ───────────────────────",
-    `Basic Salary:        ${fmt(p.basicSalary)}`,
-    `House Allowance:     ${fmt(p.houseAllowance)}`,
-    `Transport Allowance: ${fmt(p.transportAllowance)}`,
-    `Overtime Pay:        ${fmt(p.overtimePay)}`,
-    `                     ─────────────`,
-    `GROSS PAY:           ${fmt(p.grossPay)}`,
-    "",
-    "─── DEDUCTIONS ─────────────────────",
-    `SHA:                 ${fmt(p.nhif)}`,
-    `NSSF:                ${fmt(p.nssf)}`,
-    `PAYE:                ${fmt(p.paye)}`,
-    `Other Deductions:    ${fmt(p.otherDeductions)}`,
-    `                     ─────────────`,
-    `TOTAL DEDUCTIONS:    ${fmt(p.totalDeductions)}`,
-    "",
-    "══════════════════════════════════════",
-    `NET PAY:             ${fmt(p.netPay)}`,
-    "══════════════════════════════════════",
-  ].join("\n");
-}
 
 const columns: Column<ApiPayroll>[] = [
   { key: "month",          label: "Pay Period",  sortable: true, render: r => fmtPeriod(r.month) },
@@ -83,12 +44,13 @@ export default function MyPayslipsTab() {
   }, []);
 
   const handleDownload = (p: ApiPayroll) => {
-    const blob = new Blob([buildPayslipText(p)], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `payslip-${p.month}.txt`; a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`Payslip for ${fmtPeriod(p.month)} downloaded`);
+    downloadPdf(`/hr/self/payroll/${p.id}/pdf`, `payslip-${p.month}.pdf`)
+      .then(() => toast.success(`Payslip for ${fmtPeriod(p.month)} downloaded`))
+      .catch((e: any) => toast.error(e?.message || "Failed to download payslip"));
+  };
+  const handlePrint = (p: ApiPayroll) => {
+    openPdfInNewTab(`/hr/self/payroll/${p.id}/pdf`)
+      .catch((e: any) => toast.error(e?.message || "Failed to open payslip"));
   };
 
   const paid   = payslips.filter(p => p.status === "paid");
@@ -125,7 +87,7 @@ export default function MyPayslipsTab() {
             </div>
           </div>
 
-          <DataTable data={payslips} columns={columns} searchKeys={["month", "id"]} searchPlaceholder="Search payslips..." filters={filterOpts} onView={setViewing} />
+          <DataTable data={payslips} columns={columns} searchKeys={["month"]} searchPlaceholder="Search payslips..." filters={filterOpts} onView={setViewing} />
         </>
       )}
 
@@ -135,7 +97,7 @@ export default function MyPayslipsTab() {
             <BrandedDocHeader
               docTitle="PAYSLIP"
               docDate={fmtPeriod(viewing.month)}
-              docRef={viewing.id.slice(-8).toUpperCase()}
+              docRef={`${viewing.employee?.employeeNumber ?? "—"}/${viewing.month}`}
               hideLogo
             />
             <div className="flex items-center justify-between">
@@ -163,8 +125,9 @@ export default function MyPayslipsTab() {
             <div className="rounded-lg border p-4 space-y-2">
               <h4 className="font-semibold text-sm text-muted-foreground">DEDUCTIONS</h4>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <span className="text-muted-foreground">SHA</span><span className="text-right">{fmt(viewing.nhif)}</span>
-                <span className="text-muted-foreground">NSSF</span><span className="text-right">{fmt(viewing.nssf)}</span>
+                <span className="text-muted-foreground">SHIF</span><span className="text-right">{fmt(viewing.nhif)}</span>
+                <span className="text-muted-foreground">NSSF Tier I</span><span className="text-right">{fmt(nssfTier1(viewing.nssf, viewing.grossPay))}</span>
+                <span className="text-muted-foreground">NSSF Tier II</span><span className="text-right">{fmt(nssfTier2(viewing.nssf, viewing.grossPay))}</span>
                 <span className="text-muted-foreground">PAYE</span><span className="text-right">{fmt(viewing.paye)}</span>
                 <span className="text-muted-foreground">Other</span><span className="text-right">{fmt(viewing.otherDeductions)}</span>
               </div>
@@ -178,9 +141,14 @@ export default function MyPayslipsTab() {
                 <p className="text-sm text-muted-foreground">Net Pay</p>
                 <p className="text-2xl font-bold">{fmt(viewing.netPay)}</p>
               </div>
-              <Button onClick={() => handleDownload(viewing)} size="sm">
-                <Download className="h-4 w-4 mr-2" /> Download
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => handlePrint(viewing)} size="sm">
+                  <Printer className="h-4 w-4 mr-2" /> Print
+                </Button>
+                <Button onClick={() => handleDownload(viewing)} size="sm">
+                  <Download className="h-4 w-4 mr-2" /> Download
+                </Button>
+              </div>
             </div>
 
             {viewing.payDate && <p className="text-xs text-muted-foreground text-center">Paid on {viewing.payDate}</p>}

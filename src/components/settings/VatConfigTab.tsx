@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Plus, Save, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { settingsApi, VatConfig, ApiVatRate } from "@/lib/settingsApi";
 
 type FormMode = "add" | "edit" | "view";
@@ -26,6 +27,7 @@ export function VatConfigTab() {
   const { stationId } = useActiveStation();
   const [config,  setConfig]  = useState<VatConfig>(defaultVatConfig);
   const [rates,   setRates]   = useState<ApiVatRate[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("VatRate", stationId, rates.length);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [modal,   setModal]   = useState<{ mode: FormMode; item?: ApiVatRate } | null>(null);
@@ -139,7 +141,7 @@ export function VatConfigTab() {
             : <span className="text-xs text-muted-foreground">Select a station to add rates</span>
           }
         </div>
-        <DataTable data={rates} columns={columns} searchKeys={["name", "appliesTo"]} searchPlaceholder="Search rates..." onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+        <DataTable data={rates} columns={columns} searchKeys={["name", "appliesTo"]} searchPlaceholder="Search rates..." onView={openView} onEdit={openEdit} onDelete={handleDelete} pendingDeleteIds={pendingDeleteIds} />
       </div>
 
       {modal && (

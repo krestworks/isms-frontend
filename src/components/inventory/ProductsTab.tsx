@@ -13,6 +13,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { inventoryApi, ApiInventoryItem, ApiSupplier } from "@/lib/inventoryApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const CATEGORIES = ["general", "fuel", "lpg", "water", "auto_parts", "pharmacy", "food_bev"];
 const CAT_LABELS: Record<string, string> = {
@@ -40,6 +41,7 @@ function StockPill({ item }: { item: ApiInventoryItem }) {
 export default function ProductsTab() {
   const { stationId } = useActiveStation();
   const [data, setData]           = useState<ApiInventoryItem[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("InventoryItem", stationId, data.length);
   const [suppliers, setSuppliers] = useState<ApiSupplier[]>([]);
   const [loading, setLoading]     = useState(true);
   const [saving, setSaving]       = useState(false);
@@ -225,6 +227,7 @@ export default function ProductsTab() {
         onEdit={canUpdate ? openEdit : undefined}
         onDelete={canDelete ? handleDelete : undefined}
         rowActions={rowActions}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       {/* Add / Edit Item Modal */}

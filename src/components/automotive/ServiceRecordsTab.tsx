@@ -14,6 +14,9 @@ import { autoApi, ApiAutoServiceRecord, ApiAutoServicePrice, ApiAutoTechnician }
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const STATUSES = ["pending", "in-progress", "completed", "invoiced"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -31,6 +34,7 @@ export function ServiceRecordsTab() {
   const canManage = can("auto.services.record");
 
   const [records, setRecords]         = useState<ApiAutoServiceRecord[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("AutoServiceRecord", stationId, records.length);
   const [pricing, setPricing]         = useState<ApiAutoServicePrice[]>([]);
   const [technicians, setTechnicians] = useState<ApiAutoTechnician[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -39,13 +43,16 @@ export function ServiceRecordsTab() {
   const [viewing, setViewing]         = useState<ApiAutoServiceRecord | null>(null);
   const [form, setForm]               = useState(emptyForm);
   const [saving, setSaving]           = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiAutoServiceRecord[]>([]);
+  const [fromDate, setFromDate]       = useState("");
+  const [toDate, setToDate]           = useState("");
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
       const [recRes, priceRes, techRes] = await Promise.all([
-        autoApi.serviceRecords.list({}, stationId),
+        autoApi.serviceRecords.list({ from: fromDate || undefined, to: toDate || undefined }, stationId),
         autoApi.pricing.list({ status: "active" }, stationId),
         autoApi.technicians.list({ status: "active" }, stationId),
       ]);
@@ -54,7 +61,7 @@ export function ServiceRecordsTab() {
       setTechnicians(techRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load service records"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -134,9 +141,9 @@ export function ServiceRecordsTab() {
   };
 
   const stats = {
-    pending:    records.filter(r => r.status === "pending").length,
-    inProgress: records.filter(r => r.status === "in-progress").length,
-    completed:  records.filter(r => r.status === "completed").length,
+    pending:    visibleRecords.filter(r => r.status === "pending").length,
+    inProgress: visibleRecords.filter(r => r.status === "in-progress").length,
+    completed:  visibleRecords.filter(r => r.status === "completed").length,
   };
 
   const columns: Column<ApiAutoServiceRecord>[] = [
@@ -155,6 +162,20 @@ export function ServiceRecordsTab() {
   const filters: FilterOption[] = [
     { key: "status",      label: "Status",  options: STATUSES.map(s => ({ label: s.charAt(0).toUpperCase() + s.slice(1), value: s })) },
     { key: "serviceType", label: "Service", options: pricing.map(p => ({ label: p.serviceName, value: p.serviceName })) },
+  ];
+
+  const exportColumns: ExportColumn<ApiAutoServiceRecord>[] = [
+    { label: "Service #",    value: r => r.serviceNo },
+    { label: "Date",         value: r => r.date.split("T")[0] },
+    { label: "Vehicle",      value: r => r.vehicleReg },
+    { label: "Make/Model",   value: r => r.vehicleMake || "—" },
+    { label: "Customer",     value: r => r.customerName },
+    { label: "Phone",        value: r => r.customerPhone || "—" },
+    { label: "Service",      value: r => r.serviceType },
+    { label: "Technician",   value: r => r.technician || "—" },
+    { label: "Est. Cost (Ksh)", value: r => r.estimatedCost },
+    { label: "Actual Cost (Ksh)", value: r => r.actualCost || 0 },
+    { label: "Status",       value: r => r.status },
   ];
 
   return (
@@ -182,12 +203,25 @@ export function ServiceRecordsTab() {
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Vehicle service and repair records</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`auto-service-records${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Automotive Service Records"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Service</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -198,6 +232,8 @@ export function ServiceRecordsTab() {
         onView={r => setViewing(r)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,9 @@ import { lpgApi, ApiLpgSale, ApiLpgCylinder } from "@/lib/lpgApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const EXCHANGE_TYPES = ["Exchange", "New", "Refill"];
@@ -36,6 +38,7 @@ export function LpgSalesTab() {
   const canVoid   = can("lpg.sales.void");
 
   const [sales, setSales]         = useState<ApiLpgSale[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("LpgSale", stationId, sales.length);
   const [cylinders, setCylinders] = useState<ApiLpgCylinder[]>([]);
   const [loading, setLoading]     = useState(true);
   const [fromDate, setFromDate]   = useState(today());
@@ -44,6 +47,7 @@ export function LpgSalesTab() {
   const [viewing, setViewing]     = useState<ApiLpgSale | null>(null);
   const [form, setForm]           = useState(emptyForm);
   const [saving, setSaving]       = useState(false);
+  const [visibleSales, setVisibleSales] = useState<ApiLpgSale[]>([]);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -145,8 +149,8 @@ export function LpgSalesTab() {
   };
 
   const totals = {
-    revenue: sales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
-    count:   sales.filter(s => s.paymentStatus !== "voided").length,
+    revenue: visibleSales.filter(s => s.paymentStatus !== "voided").reduce((a, s) => a + s.totalAmount, 0),
+    count:   visibleSales.filter(s => s.paymentStatus !== "voided").length,
   };
 
   const set = (k: string, v: any) => updateForm(k, v);
@@ -169,14 +173,33 @@ export function LpgSalesTab() {
     { key: "paymentStatus",label: "Status", options: [{ label: "Paid", value: "paid" }, { label: "Pending", value: "pending" }, { label: "Voided", value: "voided" }] },
   ];
 
+  const exportColumns: ExportColumn<ApiLpgSale>[] = [
+    { label: "Receipt",        value: s => s.receiptNo },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Customer",       value: s => s.customer || "Walk-in" },
+    { label: "Size",           value: s => s.cylinderSize },
+    { label: "Qty",            value: s => s.quantity },
+    { label: "Unit Price (Ksh)",value: s => s.unitPrice },
+    { label: "Discount (Ksh)", value: s => s.discount },
+    { label: "Total (Ksh)",    value: s => s.totalAmount },
+    { label: "Type",           value: s => s.exchangeType },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Status",         value: s => s.paymentStatus },
+    { label: "Attendant",      value: s => s.attendant || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Record and track LPG cylinder sales</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`lpg-sales-${today()}.csv`, sales)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`lpg-sales_${fromDate}_to_${toDate}`}
+            title="LPG Sales"
+            rows={visibleSales}
+            columns={exportColumns}
+            subtitle={`${fromDate} to ${toDate}`}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canRecord && (
             <Button size="sm" onClick={openNew} disabled={noStock} title={noStock ? "No full cylinders in stock" : ""}>
@@ -217,6 +240,8 @@ export function LpgSalesTab() {
         filters={filters}
         onView={s => setViewing(s)}
         onDelete={canVoid ? (s => s.paymentStatus !== "voided" ? setPendingVoidSale(s) : undefined) : undefined}
+        onFilteredChange={setVisibleSales}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <DangerConfirmModal

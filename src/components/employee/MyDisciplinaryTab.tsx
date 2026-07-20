@@ -28,7 +28,7 @@ function CaseModal({ record, onClose }: { record: ApiDisciplinaryRecord; onClose
         <div className="sticky top-0 bg-background border-b px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-amber-500" />
-            <h2 className="font-semibold text-lg">Case #{record.id.slice(-8).toUpperCase()}</h2>
+            <h2 className="font-semibold text-lg">{record.caseRef ?? "Disciplinary Case"}</h2>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
             <X className="h-5 w-5" />
@@ -124,7 +124,7 @@ export default function MyDisciplinaryTab() {
   const suspensions = records.filter(r => r.stage.toLowerCase().includes("suspension")).length;
 
   const columns: Column<ApiDisciplinaryRecord>[] = [
-    { key: "id",       label: "Case",     render: r => <span className="font-mono text-xs">#{r.id.slice(-8).toUpperCase()}</span> },
+    { key: "caseRef",  label: "Case",     render: r => <span className="font-mono text-xs">{r.caseRef ?? "—"}</span> },
     { key: "date",     label: "Date",     sortable: true, render: r => new Date(r.date || r.createdAt).toLocaleDateString() },
     { key: "category", label: "Category", render: r => <Badge variant="outline">{r.category}</Badge> },
     { key: "stage",    label: "Stage",    render: r => (

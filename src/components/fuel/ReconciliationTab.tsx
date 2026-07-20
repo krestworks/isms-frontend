@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download, CheckCircle } from "lucide-react";
+import { Plus, RefreshCw, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,7 +14,8 @@ import { toast } from "sonner";
 import { fuelApi, ApiFuelReconciliation, ApiFuelTank } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 
@@ -40,20 +41,23 @@ export function ReconciliationTab() {
   const [form, setForm]         = useState(emptyForm);
   const [derived, setDerived]   = useState({ closingExpected: 0, variance: 0, variancePct: 0, status: "matched" });
   const [saving, setSaving]     = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiFuelReconciliation[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
       const [recRes, tankRes] = await Promise.all([
-        fuelApi.reconciliations.list({}, stationId),
+        fuelApi.reconciliations.list({ from: fromDate || undefined, to: toDate || undefined }, stationId),
         fuelApi.tanks.list(stationId),
       ]);
       setRecords(recRes.data ?? []);
       setTanks(tankRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load reconciliations"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -111,10 +115,10 @@ export function ReconciliationTab() {
   };
 
   const stats = {
-    matched: records.filter(r => r.status === "matched").length,
-    under:   records.filter(r => r.status === "under").length,
-    over:    records.filter(r => r.status === "over").length,
-    approved: records.filter(r => r.approvedAt).length,
+    matched: visibleRecords.filter(r => r.status === "matched").length,
+    under:   visibleRecords.filter(r => r.status === "under").length,
+    over:    visibleRecords.filter(r => r.status === "over").length,
+    approved: visibleRecords.filter(r => r.approvedAt).length,
   };
 
   const columns: Column<ApiFuelReconciliation>[] = [
@@ -144,6 +148,22 @@ export function ReconciliationTab() {
     ]},
   ];
 
+  const exportColumns: ExportColumn<ApiFuelReconciliation>[] = [
+    { label: "Date",              value: r => r.date.split("T")[0] },
+    { label: "Fuel Type",         value: r => r.fuelType },
+    { label: "Opening (L)",       value: r => r.openingStock },
+    { label: "Deliveries (L)",    value: r => r.deliveries },
+    { label: "Expected Sales (L)",value: r => r.expectedSales },
+    { label: "Actual Sales (L)",  value: r => r.actualSales },
+    { label: "Closing Expected (L)", value: r => r.closingStockExpected },
+    { label: "Closing Actual (L)",value: r => r.closingStockActual },
+    { label: "Variance (L)",      value: r => r.variance },
+    { label: "Variance %",        value: r => r.variancePct.toFixed(1) },
+    { label: "Status",            value: r => r.status },
+    { label: "Approved",          value: r => r.approvedAt ? r.approvedAt.split("T")[0] : "Pending" },
+    { label: "Notes",             value: r => r.notes || "—" },
+  ];
+
   const set = (k: string, v: any) => updateForm(k, v);
 
   return (
@@ -151,12 +171,22 @@ export function ReconciliationTab() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Compare expected vs actual stock — identify discrepancies</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`reconciliation-${today()}.csv`, records)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`reconciliation${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : `-${today()}`}`}
+            title="Fuel Reconciliation"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canCreate && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Reconciliation</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -185,6 +215,7 @@ export function ReconciliationTab() {
             <CheckCircle className="h-3 w-3 mr-1" />Approve
           </Button>
         ) : null) : undefined}
+        onFilteredChange={setVisibleRecords}
       />
 
       {/* Create Reconciliation */}

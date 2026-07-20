@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { fuelApi, ApiFuelProduct, ApiFuelPump, ApiFuelTank } from "@/lib/fuelApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const FUEL_TYPES = ["Super", "Diesel", "Kerosene", "V-Power", "Jet A-1", "Heavy Fuel Oil"];
 
@@ -32,6 +33,8 @@ export function FuelInventoryTab() {
   const [pumps, setPumps]       = useState<ApiFuelPump[]>([]);
   const [tanks, setTanks]       = useState<ApiFuelTank[]>([]);
   const [loading, setLoading]   = useState(true);
+  const pendingProductDeleteIds = usePendingDeleteIds("FuelProduct", stationId, products.length);
+  const pendingPumpDeleteIds    = usePendingDeleteIds("FuelPump", stationId, pumps.length);
 
   // Product modal
   const [prodModalOpen, setProdModalOpen] = useState(false);
@@ -188,6 +191,7 @@ export function FuelInventoryTab() {
           onView={p => setViewingProd(p)}
           onEdit={canEdit ? openEditProduct : undefined}
           onDelete={canEdit ? handleDeleteProduct : undefined}
+          pendingDeleteIds={pendingProductDeleteIds}
         />
       </div>
 
@@ -216,6 +220,7 @@ export function FuelInventoryTab() {
             searchPlaceholder="Search pumps..."
             onEdit={canEdit ? openEditPump : undefined}
             onDelete={canEdit ? handleDeletePump : undefined}
+            pendingDeleteIds={pendingPumpDeleteIds}
           />
         )}
       </div>

@@ -12,7 +12,9 @@ import { toast } from "sonner";
 import { autoApi, ApiAutoBill } from "@/lib/autoApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
-import { exportToCsv } from "@/lib/exportCsv";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -29,22 +31,26 @@ export function BillingTab() {
   const canManage = can("auto.billing.manage");
 
   const [records, setRecords]   = useState<ApiAutoBill[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("AutoBill", stationId, records.length);
   const [loading, setLoading]   = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiAutoBill | null>(null);
   const [viewing, setViewing]   = useState<ApiAutoBill | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiAutoBill[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await autoApi.bills.list({}, stationId);
+      const res = await autoApi.bills.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load bills"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -114,6 +120,22 @@ export function BillingTab() {
     { key: "paymentMethod", label: "Method", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
+  const exportColumns: ExportColumn<ApiAutoBill>[] = [
+    { label: "Bill #",         value: b => b.billNo },
+    { label: "Date",           value: b => b.date.split("T")[0] },
+    { label: "Service Ref",    value: b => b.serviceRef || "—" },
+    { label: "Customer",       value: b => b.customerName },
+    { label: "Vehicle",        value: b => b.vehicleReg },
+    { label: "Labour (Ksh)",   value: b => b.labourCharges },
+    { label: "Parts (Ksh)",    value: b => b.partsCost },
+    { label: "Discount (Ksh)", value: b => b.discount },
+    { label: "Total (Ksh)",    value: b => b.totalAmount },
+    { label: "Paid (Ksh)",     value: b => b.paidAmount },
+    { label: "Balance (Ksh)",  value: b => b.balance },
+    { label: "Payment Method", value: b => b.paymentMethod },
+    { label: "Status",         value: b => b.paymentStatus },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-3">
@@ -131,13 +153,25 @@ export function BillingTab() {
         </CardContent></Card>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Customer billing and payment tracking</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`auto-bills-${today()}.csv`, records)}>Export</Button>
+          <ExportMenu
+            filename={`auto-bills${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Automotive Bills"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canManage && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />New Bill</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -148,6 +182,8 @@ export function BillingTab() {
         onView={b => setViewing(b)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

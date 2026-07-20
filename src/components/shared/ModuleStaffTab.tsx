@@ -113,7 +113,7 @@ export function ModuleStaffTab({ department }: Props) {
         <DataTable
           data={employees}
           columns={columns}
-          searchKeys={["employeeNumber"]}
+          searchKeys={["employeeNumber", "name", "user.name", "user.email", "jobTitle.title", "department.name"]}
           searchPlaceholder="Search staff..."
           filters={filters}
         />

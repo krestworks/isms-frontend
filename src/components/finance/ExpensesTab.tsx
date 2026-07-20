@@ -10,6 +10,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { financeApi, ApiFinanceExpense } from "@/lib/financeApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const modules            = ["General", "Fuel", "LPG", "Water", "Automotive", "Car Wash"];
 const expenseCategories  = ["Fuel Purchase", "LPG Stock", "Utilities", "Salaries", "Maintenance", "Supplies", "Transport", "Rent", "Insurance", "Miscellaneous"];
@@ -32,6 +35,16 @@ const filters: FilterOption[] = [
   { key: "category", label: "Category", options: expenseCategories.map(c => ({ label: c, value: c })) },
 ];
 
+const exportColumns: ExportColumn<ApiFinanceExpense>[] = [
+  { label: "Date",     value: r => r.date },
+  { label: "Module",   value: r => r.module || "—" },
+  { label: "Category", value: r => r.category || "—" },
+  { label: "Vendor",   value: r => r.vendor || "—" },
+  { label: "Amount",   value: r => r.amount },
+  { label: "Payment",  value: r => r.paymentMethod || "—" },
+  { label: "Status",   value: r => r.status },
+];
+
 export function ExpensesTab() {
   const { stationId } = useActiveStation();
   const [data,    setData]    = useState<ApiFinanceExpense[]>([]);
@@ -39,17 +52,22 @@ export function ExpensesTab() {
   const [modal,   setModal]   = useState<{ mode: "add" | "edit" | "view"; id?: string } | null>(null);
   const [form,    setForm]    = useState<Partial<ApiFinanceExpense>>({ ...blank });
   const [saving,  setSaving]  = useState(false);
+  const [visibleData, setVisibleData] = useState<ApiFinanceExpense[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await financeApi.expenses.list(stationId);
+      const res = await financeApi.expenses.list(stationId, { from: fromDate || undefined, to: toDate || undefined });
       setData(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load expenses"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
+
+  const pendingDeleteIds = usePendingDeleteIds("FinanceExpense", stationId, data.length);
 
   const set = (k: keyof ApiFinanceExpense, v: any) => setForm(f => ({ ...f, [k]: v }));
 
@@ -86,12 +104,25 @@ export function ExpensesTab() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{data.length} expense entries</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`expenses${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Expenses"
+            rows={visibleData}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
           <Button size="sm" onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Log Expense</Button>
         </div>
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} />
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
+      </div>
+
+      <DataTable data={data} columns={columns} searchKeys={["vendor", "description"]} searchPlaceholder="Search expenses..." filters={filters} onView={openView} onEdit={openEdit} onDelete={handleDelete} onFilteredChange={setVisibleData} pendingDeleteIds={pendingDeleteIds} />
 
       {modal && (
         <ModalForm open title={modal.mode === "add" ? "Log Expense" : modal.mode === "edit" ? "Edit Expense" : "Expense Details"} onClose={() => setModal(null)} onSubmit={handleSave} isView={isView} submitLabel={saving ? "Saving..." : modal.mode === "edit" ? "Update" : "Log"}>

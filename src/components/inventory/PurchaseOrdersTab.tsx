@@ -14,6 +14,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { inventoryApi, ApiPurchaseOrder, ApiPOItem, ApiSupplier, ApiInventoryItem } from "@/lib/inventoryApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const STATUS_CONFIG: Record<string, string> = {
   draft: "bg-gray-100 text-gray-800",
@@ -36,6 +38,9 @@ export default function PurchaseOrdersTab() {
   const [saving, setSaving]       = useState(false);
   const [modalOpen, setModal]     = useState(false);
   const [viewing, setViewing]     = useState<ApiPurchaseOrder | null>(null);
+  const [visibleData, setVisibleData] = useState<ApiPurchaseOrder[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const [supplierId, setSupplierId]   = useState("");
   const [supplierName, setSupplierName] = useState("");
@@ -49,7 +54,7 @@ export default function PurchaseOrdersTab() {
     setLoading(true);
     try {
       const [poRes, suppRes, itemRes] = await Promise.all([
-        inventoryApi.po.list(stationId),
+        inventoryApi.po.list(stationId, { from: fromDate || undefined, to: toDate || undefined } as any),
         inventoryApi.suppliers.list(stationId),
         inventoryApi.items.list(stationId),
       ]);
@@ -58,7 +63,7 @@ export default function PurchaseOrdersTab() {
       setItems(itemRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load purchase orders"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -136,6 +141,15 @@ export default function PurchaseOrdersTab() {
     )},
   ];
 
+  const exportColumns: ExportColumn<ApiPurchaseOrder>[] = [
+    { label: "PO #",      value: p => p.poNumber },
+    { label: "Supplier",  value: p => p.supplier?.name ?? p.supplierName ?? "—" },
+    { label: "Order Date",value: p => new Date(p.orderDate).toLocaleDateString() },
+    { label: "Expected",  value: p => p.expectedDate ? new Date(p.expectedDate).toLocaleDateString() : "—" },
+    { label: "Total",     value: p => p.totalAmount },
+    { label: "Status",    value: p => p.status },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -144,16 +158,29 @@ export default function PurchaseOrdersTab() {
           <p className="text-sm text-muted-foreground">Order stock from suppliers</p>
         </div>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`purchase-orders${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Purchase Orders"
+            rows={visibleData}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
           {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" />New PO</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
         {(["draft", "sent", "partial", "received", "cancelled"] as const).map(s => (
           <Card key={s}><CardContent className="p-3">
             <p className="text-xs text-muted-foreground capitalize">{s}</p>
-            <p className="text-xl font-bold">{data.filter(d => d.status === s).length}</p>
+            <p className="text-xl font-bold">{visibleData.filter(d => d.status === s).length}</p>
           </CardContent></Card>
         ))}
       </div>
@@ -162,6 +189,7 @@ export default function PurchaseOrdersTab() {
         data={data} columns={columns} loading={loading}
         searchKeys={["poNumber", "supplierName"]} searchPlaceholder="Search POs..."
         onView={po => setViewing(po)}
+        onFilteredChange={setVisibleData}
         rowActions={(po) => (
           <div className="flex gap-1">
             {po.status === "draft" && (

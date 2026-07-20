@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download, Store } from "lucide-react";
+import { Plus, RefreshCw, Store } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +12,8 @@ import { toast } from "sonner";
 import { bizApi, ApiBizSale, ApiBizProduct, ApiBizBusiness } from "@/lib/bizApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { useSession } from "@/data/sessionStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Credit"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -34,6 +35,9 @@ export default function InventorySalesTab() {
   const [modalOpen, setModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [visibleSales, setVisibleSales] = useState<ApiBizSale[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   // Load businesses for this station
   useEffect(() => {
@@ -48,14 +52,14 @@ export default function InventorySalesTab() {
     setLoading(true);
     try {
       const [salesRes, prodsRes] = await Promise.all([
-        bizApi.sales.list(biz.id),
+        bizApi.sales.list(biz.id, { from: fromDate || undefined, to: toDate || undefined }),
         bizApi.products.list(biz.id, { status: "active" }),
       ]);
       setSales(salesRes.data ?? []);
       setProducts(prodsRes.data ?? []);
     } catch { toast.error("Failed to load business data"); }
     finally { setLoading(false); }
-  }, []);
+  }, [fromDate, toDate]);
 
   const onSelectBiz = (id: string) => {
     const biz = businesses.find(b => b.id === id) ?? null;
@@ -101,7 +105,7 @@ export default function InventorySalesTab() {
     finally { setSaving(false); }
   };
 
-  const activeSales = sales.filter(s => s.status !== "void" && s.status !== "refunded");
+  const activeSales = visibleSales.filter(s => s.status !== "void" && s.status !== "refunded");
   const stats = {
     total: activeSales.length,
     revenue: activeSales.reduce((a, s) => a + s.totalAmount, 0),
@@ -121,14 +125,29 @@ export default function InventorySalesTab() {
     { key: "paymentMethod", label: "Payment", options: PAY_METHODS.map(m => ({ label: m, value: m })) },
   ];
 
+  const exportColumns: ExportColumn<ApiBizSale>[] = [
+    { label: "Receipt",        value: s => s.saleRef },
+    { label: "Date",           value: s => s.date.split("T")[0] },
+    { label: "Items",          value: s => (s.items ?? []).map(i => `${i.name} ×${i.qty}`).join(", ") || "—" },
+    { label: "Total (Ksh)",    value: s => s.totalAmount },
+    { label: "Payment Method", value: s => s.paymentMethod },
+    { label: "Cashier",        value: s => s.cashier || "—" },
+    { label: "Status",         value: s => s.status },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">POS-style sales across sub-businesses</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`inventory-sales-${today()}.csv`, sales)} disabled={!selectedBiz}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu
+            filename={`inventory-sales${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : `-${today()}`}`}
+            title="Inventory Sales"
+            rows={visibleSales}
+            columns={exportColumns}
+            disabled={!selectedBiz}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={() => selectedBiz && loadBizData(selectedBiz)} disabled={!selectedBiz}>
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -149,6 +168,9 @@ export default function InventorySalesTab() {
             </SelectContent>
           </Select>
         </div>
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" disabled={!selectedBiz} onClick={() => selectedBiz && loadBizData(selectedBiz)}>Apply</Button>
       </div>
 
       {selectedBiz ? (
@@ -169,6 +191,7 @@ export default function InventorySalesTab() {
             searchKeys={["saleRef", "cashier"]}
             searchPlaceholder="Search sales..."
             filters={filters}
+            onFilteredChange={setVisibleSales}
           />
         </>
       ) : (

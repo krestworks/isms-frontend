@@ -12,8 +12,9 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { DangerConfirmModal } from "@/components/shared/DangerConfirmModal";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { bizApi, ApiBizBusiness, ApiBizTable } from "@/lib/bizApi";
+import { bizApi, ApiBizBusiness, ApiBizTable, ApiPaymentDetails } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
+import { PaymentDetailsFields } from "@/components/shared/PaymentDetailsFields";
 
 interface Props {
   business: ApiBizBusiness;
@@ -37,6 +38,7 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
     receiptFooter: business.receiptFooter ?? "",
     status: business.status,
   });
+  const [paymentDetails, setPaymentDetails] = useState<Partial<ApiPaymentDetails>>(business.paymentDetails ?? { method: "none" });
   const [savingConfig, setSavingConfig] = useState(false);
 
   // Tables
@@ -61,7 +63,7 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
   const handleSaveConfig = async () => {
     setSavingConfig(true);
     try {
-      const res = await bizApi.businesses.update(business.id, config);
+      const res = await bizApi.businesses.update(business.id, { ...config, paymentDetails });
       onUpdate(res.data);
       toast.success("Settings saved");
     } catch (e: any) { toast.error(e?.message || "Failed to save settings"); }
@@ -144,7 +146,13 @@ export function SetupTab({ business, isRestaurant, onUpdate }: Props) {
           <Separator />
           <div><Label>Business KRA PIN</Label><Input value={config.kraPin} onChange={e => setC("kraPin", e.target.value)} placeholder="e.g. A001234567X" /></div>
           <div><Label>Receipt Header</Label><Textarea value={config.receiptHeader} onChange={e => setC("receiptHeader", e.target.value)} placeholder="Text shown at the top of every receipt" /></div>
-          <div><Label>Receipt Footer</Label><Textarea value={config.receiptFooter} onChange={e => setC("receiptFooter", e.target.value)} placeholder="Text shown at the bottom — e.g. 'Thank you for your business'" /></div>
+          <div><Label>Receipt Footer</Label><Textarea value={config.receiptFooter} onChange={e => setC("receiptFooter", e.target.value)} placeholder="Text shown at the bottom — e.g. 'Thank you for shopping with us'" /></div>
+          <Separator />
+          <div>
+            <Label className="text-sm font-semibold">Payment Details</Label>
+            <p className="text-xs text-muted-foreground mb-2">Till/paybill/bank shown on this business's receipts — independent of other modules.</p>
+            <PaymentDetailsFields value={paymentDetails} onChange={setPaymentDetails} />
+          </div>
           <Button onClick={handleSaveConfig} disabled={savingConfig}>
             <Save className="h-4 w-4 mr-2" />{savingConfig ? "Saving..." : "Save Settings"}
           </Button>

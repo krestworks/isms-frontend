@@ -48,7 +48,7 @@ export function VarianceTab() {
 
   const openBudget = (row?: ApiVarianceRow) => {
     setEditForm({ module: row?.module ?? "Fuel", metric: row?.metric ?? "Revenue", amount: row?.budget ?? 0 });
-    setModal(row ?? { module: "Fuel", metric: "Revenue", amount: 0 });
+    setModal(row ? { module: row.module, metric: row.metric, amount: row.budget } : { module: "Fuel", metric: "Revenue", amount: 0 });
   };
 
   const handleSaveBudget = async () => {

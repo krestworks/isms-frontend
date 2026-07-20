@@ -7,9 +7,11 @@ import { WaterSalesTab } from "@/components/water/WaterSalesTab";
 import { WaterOrdersTab } from "@/components/water/WaterOrdersTab";
 import { DistributionTab } from "@/components/water/DistributionTab";
 import { WaterInvoicesTab } from "@/components/water/WaterInvoicesTab";
+import { PriceListTab } from "@/components/water/PriceListTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { ModulePaymentDetailsTab } from "@/components/shared/ModulePaymentDetailsTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function WaterPage() {
@@ -21,6 +23,7 @@ export default function WaterPage() {
   const showOrders      = can("water.orders.create");
   const showDistrib     = can("water.distributions.approve") || can("water.distributions.deliver");
   const showInvoices    = can("water.invoices.issue");
+  const showPricing     = can("water.pricing.manage") || can("water.production.view");
   const showStaff       = can("hr.staff.view");
   const showShifts      = can("hr.shifts.view");
   const showAudit       = can("audit.view");
@@ -37,9 +40,11 @@ export default function WaterPage() {
           {showOrders     && <TabsTrigger value="orders"       className="text-xs">Orders</TabsTrigger>}
           {showDistrib    && <TabsTrigger value="distribution" className="text-xs">Distribution</TabsTrigger>}
           {showInvoices   && <TabsTrigger value="invoices"     className="text-xs">Invoices</TabsTrigger>}
+          {showPricing    && <TabsTrigger value="pricing"      className="text-xs">Pricing</TabsTrigger>}
           {showStaff      && <TabsTrigger value="staff"        className="text-xs">Staff</TabsTrigger>}
           {showShifts     && <TabsTrigger value="shifts"       className="text-xs">Shifts</TabsTrigger>}
           {showAudit      && <TabsTrigger value="audit"        className="text-xs">History</TabsTrigger>}
+          {showPricing    && <TabsTrigger value="payment"      className="text-xs">Payment</TabsTrigger>}
         </TabsList>
         {showProduction && <TabsContent value="production"><ProductionTab /></TabsContent>}
         {showEquipment  && <TabsContent value="equipment"><EquipmentTab /></TabsContent>}
@@ -47,9 +52,11 @@ export default function WaterPage() {
         {showOrders     && <TabsContent value="orders"><WaterOrdersTab /></TabsContent>}
         {showDistrib    && <TabsContent value="distribution"><DistributionTab /></TabsContent>}
         {showInvoices   && <TabsContent value="invoices"><WaterInvoicesTab /></TabsContent>}
+        {showPricing    && <TabsContent value="pricing"><PriceListTab /></TabsContent>}
         {showStaff      && <TabsContent value="staff"><ModuleStaffTab department="Water" /></TabsContent>}
         {showShifts     && <TabsContent value="shifts"><ShiftScheduleTab department="Water" /></TabsContent>}
         {showAudit      && <TabsContent value="audit"><ModuleAuditTab module="water" /></TabsContent>}
+        {showPricing    && <TabsContent value="payment"><ModulePaymentDetailsTab module="water" moduleLabel="Water" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );

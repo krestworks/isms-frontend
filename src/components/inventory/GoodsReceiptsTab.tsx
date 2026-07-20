@@ -14,6 +14,8 @@ import { usePermission, guardAction } from "@/lib/actionPermissions";
 import { inventoryApi, ApiGoodsReceipt, ApiPurchaseOrder, ApiInventoryItem } from "@/lib/inventoryApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { useSession } from "@/data/sessionStore";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const STATUS_CONFIG: Record<string, string> = {
   draft:    "bg-gray-100 text-gray-800",
@@ -35,6 +37,9 @@ export default function GoodsReceiptsTab() {
   const [saving, setSaving]   = useState(false);
   const [modalOpen, setModal] = useState(false);
   const [viewing, setViewing] = useState<ApiGoodsReceipt | null>(null);
+  const [visibleData, setVisibleData] = useState<ApiGoodsReceipt[]>([]);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
 
   const [poId, setPoId]             = useState("");
   const [supplierName, setSupName]  = useState("");
@@ -49,7 +54,7 @@ export default function GoodsReceiptsTab() {
     setLoading(true);
     try {
       const [grnRes, poRes, itemRes] = await Promise.all([
-        inventoryApi.grn.list(stationId),
+        inventoryApi.grn.list(stationId, { from: fromDate || undefined, to: toDate || undefined } as any),
         inventoryApi.po.list(stationId, { status: "sent", limit: 100 } as any),
         inventoryApi.items.list(stationId),
       ]);
@@ -58,7 +63,7 @@ export default function GoodsReceiptsTab() {
       setItems(itemRes.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load GRNs"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -163,6 +168,15 @@ export default function GoodsReceiptsTab() {
 
   const grandTotal = lines.reduce((s, l) => s + l.receivedQty * l.unitCost, 0);
 
+  const exportColumns: ExportColumn<ApiGoodsReceipt>[] = [
+    { label: "GRN #",        value: g => g.grnNumber },
+    { label: "Supplier",     value: g => g.supplierName ?? g.po?.poNumber ?? "—" },
+    { label: "Receipt Date", value: g => new Date(g.receiptDate).toLocaleDateString() },
+    { label: "Total",        value: g => g.totalAmount },
+    { label: "Received By",  value: g => g.receivedBy ?? "—" },
+    { label: "Status",       value: g => g.status },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -171,16 +185,29 @@ export default function GoodsReceiptsTab() {
           <p className="text-sm text-muted-foreground">Record received goods and post to update stock</p>
         </div>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`goods-receipts${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Goods Receipts"
+            rows={visibleData}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="sm" onClick={load}><RefreshCw className="h-4 w-4 mr-1.5" />Refresh</Button>
           {canCreate && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" />New GRN</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         {(["draft", "verified", "posted"] as const).map(s => (
           <Card key={s}><CardContent className="p-3">
             <p className="text-xs text-muted-foreground capitalize">{s}</p>
-            <p className="text-xl font-bold">{data.filter(d => d.status === s).length}</p>
+            <p className="text-xl font-bold">{visibleData.filter(d => d.status === s).length}</p>
           </CardContent></Card>
         ))}
       </div>
@@ -189,6 +216,7 @@ export default function GoodsReceiptsTab() {
         data={data} columns={columns} loading={loading}
         searchKeys={["grnNumber", "supplierName"]} searchPlaceholder="Search GRNs..."
         onView={g => setViewing(g)}
+        onFilteredChange={setVisibleData}
         rowActions={(g) => (
           <div className="flex gap-1">
             {g.status !== "posted" && canPost && (

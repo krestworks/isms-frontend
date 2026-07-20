@@ -12,6 +12,9 @@ import { toast } from "sonner";
 import { waterApi, ApiWaterDistribution } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 const today = () => new Date().toISOString().split("T")[0];
 
@@ -26,7 +29,11 @@ export function DistributionTab() {
   const canDeliver = can("water.distributions.deliver");
 
   const [records, setRecords]   = useState<ApiWaterDistribution[]>([]);
+  const [visibleRecords, setVisibleRecords] = useState<ApiWaterDistribution[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("WaterDistribution", stationId, records.length);
   const [loading, setLoading]   = useState(true);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate]     = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing]   = useState<ApiWaterDistribution | null>(null);
   const [viewing, setViewing]   = useState<ApiWaterDistribution | null>(null);
@@ -37,11 +44,11 @@ export function DistributionTab() {
     if (!stationId) return;
     setLoading(true);
     try {
-      const res = await waterApi.distribution.list({}, stationId);
+      const res = await waterApi.distribution.list({ from: fromDate || undefined, to: toDate || undefined }, stationId);
       setRecords(res.data ?? []);
     } catch (e: any) { toast.error(e?.message || "Failed to load distribution logs"); }
     finally { setLoading(false); }
-  }, [stationId]);
+  }, [stationId, fromDate, toDate]);
 
   useEffect(() => { if (stationId) load(); }, [load]);
 
@@ -59,9 +66,11 @@ export function DistributionTab() {
 
   const set = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const variance = form.litresDelivered - form.litresLoaded;
+  const overDelivered = form.litresDelivered > form.litresLoaded;
 
   const handleSave = async () => {
     if (!form.date) return toast.error("Date is required");
+    if (overDelivered) return toast.error(`Delivered litres (${form.litresDelivered}) cannot exceed loaded litres (${form.litresLoaded})`);
     setSaving(true);
     try {
       const payload = {
@@ -96,9 +105,9 @@ export function DistributionTab() {
   };
 
   const stats = {
-    active:    records.filter(r => r.status === "active").length,
-    completed: records.filter(r => r.status === "completed").length,
-    totalLitres: records.filter(r => r.status === "completed").reduce((s, r) => s + r.litresDelivered, 0),
+    active:    visibleRecords.filter(r => r.status === "active").length,
+    completed: visibleRecords.filter(r => r.status === "completed").length,
+    totalLitres: visibleRecords.filter(r => r.status === "completed").reduce((s, r) => s + r.litresDelivered, 0),
   };
 
   const columns: Column<ApiWaterDistribution>[] = [
@@ -115,6 +124,20 @@ export function DistributionTab() {
 
   const filters: FilterOption[] = [
     { key: "status", label: "Status", options: [{ label: "In Transit", value: "active" }, { label: "Completed", value: "completed" }] },
+  ];
+
+  const exportColumns: ExportColumn<ApiWaterDistribution>[] = [
+    { label: "Date",            value: d => d.date.split("T")[0] },
+    { label: "Vehicle",         value: d => d.vehicle || "—" },
+    { label: "Driver",          value: d => d.driver || "—" },
+    { label: "Client",          value: d => d.client || "—" },
+    { label: "Destination",     value: d => d.destination || "—" },
+    { label: "Loaded (L)",      value: d => d.litresLoaded },
+    { label: "Delivered (L)",   value: d => d.litresDelivered },
+    { label: "Variance (L)",    value: d => d.variance },
+    { label: "Status",          value: d => d.status === "active" ? "In Transit" : d.status },
+    { label: "Departure",       value: d => d.departureTime || "—" },
+    { label: "Arrival",         value: d => d.arrivalTime || "—" },
   ];
 
   return (
@@ -134,12 +157,25 @@ export function DistributionTab() {
         </CardContent></Card>
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Vehicle and driver delivery logs with variance tracking</p>
         <div className="flex gap-2">
+          <ExportMenu
+            filename={`water-distribution${fromDate || toDate ? `_${fromDate || "start"}_to_${toDate || "now"}` : ""}`}
+            title="Water Distribution"
+            rows={visibleRecords}
+            columns={exportColumns}
+            subtitle={fromDate || toDate ? `${fromDate || "…"} to ${toDate || "…"}` : undefined}
+          />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           {canDeliver && <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Log Delivery</Button>}
         </div>
+      </div>
+
+      <div className="flex gap-3 items-end flex-wrap">
+        <div><Label className="text-xs">From</Label><Input type="date" className="h-8 text-xs w-36" value={fromDate} onChange={e => setFromDate(e.target.value)} /></div>
+        <div><Label className="text-xs">To</Label><Input type="date" className="h-8 text-xs w-36" value={toDate} onChange={e => setToDate(e.target.value)} /></div>
+        <Button size="sm" variant="outline" onClick={load}>Apply</Button>
       </div>
 
       <DataTable
@@ -150,11 +186,14 @@ export function DistributionTab() {
         onView={d => setViewing(d)}
         onEdit={canDeliver ? openEdit : undefined}
         onDelete={canDeliver ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
         title={editing ? "Edit Delivery Log" : "Log Delivery"}
-        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Log"}>
+        onSubmit={handleSave} submitLabel={saving ? "Saving..." : editing ? "Update" : "Log"}
+        submitDisabled={overDelivered}>
         <div className="grid grid-cols-2 gap-4">
           <div><Label>Date *</Label><Input type="date" value={form.date} onChange={e => set("date", e.target.value)} /></div>
           <div><Label>Vehicle</Label><Input value={form.vehicle} onChange={e => set("vehicle", e.target.value)} placeholder="KBZ 123A" /></div>
@@ -162,7 +201,11 @@ export function DistributionTab() {
           <div><Label>Client</Label><Input value={form.client} onChange={e => set("client", e.target.value)} /></div>
           <div className="col-span-2"><Label>Destination</Label><Input value={form.destination} onChange={e => set("destination", e.target.value)} /></div>
           <div><Label>Litres Loaded</Label><Input type="number" value={form.litresLoaded || ""} onChange={e => set("litresLoaded", +e.target.value)} /></div>
-          <div><Label>Litres Delivered</Label><Input type="number" value={form.litresDelivered || ""} onChange={e => set("litresDelivered", +e.target.value)} /></div>
+          <div>
+            <Label>Litres Delivered</Label>
+            <Input type="number" value={form.litresDelivered || ""} onChange={e => set("litresDelivered", +e.target.value)} />
+            {overDelivered && <p className="text-xs text-destructive font-medium mt-1">⚠ Cannot exceed litres loaded ({form.litresLoaded}L)</p>}
+          </div>
           <div><Label>Variance (L)</Label><Input value={`${variance >= 0 ? "+" : ""}${variance}`} disabled className={`font-mono ${variance < 0 ? "text-destructive" : ""}`} /></div>
           <div><Label>Status</Label>
             <Select value={form.status} onValueChange={v => set("status", v)}>

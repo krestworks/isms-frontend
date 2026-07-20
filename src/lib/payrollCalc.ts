@@ -13,6 +13,18 @@ export function calcNSSF(gross: number): number {
   return Math.round(tier1 + tier2);
 }
 
+// Splits an already-computed NSSF total back into its Tier I / Tier II parts for
+// display (payslips only store the combined total). Tier I is recomputed from
+// gross and capped at the stored total; Tier II is the remainder — so the two
+// always add back up to the exact total on record, regardless of which gross
+// figure originally produced it.
+export function nssfTier1(nssfTotal: number, gross: number): number {
+  return Math.min(Math.round(Math.min(gross, 6000) * 0.06), nssfTotal);
+}
+export function nssfTier2(nssfTotal: number, gross: number): number {
+  return Math.max(0, nssfTotal - nssfTier1(nssfTotal, gross));
+}
+
 // bik = benefit in kind value; adds to taxable income but not cash gross, NSSF, or SHA
 export function calcPAYE(gross: number, nssf: number, bik = 0): number {
   const taxable = (gross + bik) - nssf;

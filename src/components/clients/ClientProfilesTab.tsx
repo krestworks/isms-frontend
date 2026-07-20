@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/shared/StatusBadge";
 import { toast } from "sonner";
 import { clientsApi, ApiClient } from "@/lib/clientsApi";
 import { useActiveStation } from "@/lib/useActiveStation";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const allModules = ["Fuel", "LPG", "Water", "Car Wash", "Automotive"];
 
@@ -39,6 +40,7 @@ type FormState = typeof blank;
 export default function ClientProfilesTab() {
   const { stationId } = useActiveStation();
   const [data,    setData]    = useState<ApiClient[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("Client", stationId, data.length);
   const [loading, setLoading] = useState(true);
   const [modal,   setModal]   = useState<{ mode: "add" | "edit" | "view"; id?: string } | null>(null);
   const [form,    setForm]    = useState<FormState>({ ...blank });
@@ -106,6 +108,7 @@ export default function ClientProfilesTab() {
         searchKeys={["name", "phone", "email"]} searchPlaceholder="Search clients..."
         filters={filters}
         onView={openView} onEdit={openEdit} onDelete={handleDelete}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       {modal && (

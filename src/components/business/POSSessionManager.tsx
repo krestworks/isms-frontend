@@ -16,6 +16,7 @@ import {
 import { useSession } from "@/data/sessionStore";
 import { brandingStore } from "@/data/brandingStore";
 import { ApiBizBusiness, ApiBizSale } from "@/lib/bizApi";
+import { buildSessionReportPdf, ReportSection } from "@/lib/sessionReportPdf";
 
 interface Props {
   business: ApiBizBusiness;
@@ -50,34 +51,24 @@ function computeSessionSales(sales: ApiBizSale[], openedAt: string, closedAt?: s
   return { sessionSales, totalSales, totalTransactions, payMethodTotals };
 }
 
-// ── Report generators ─────────────────────────────────────────────────────────
+// ── Report section builders ─────────────────────────────────────────────────
 
-function buildRawReport(session: CashierSession, sales: ApiBizSale[], b: any, bizName: string): string {
+function rawReportSections(session: CashierSession, sales: ApiBizSale[]): ReportSection[] {
   const { sessionSales } = computeSessionSales(sales, session.openedAt, session.closedAt);
-  const lines = [
-    `${b?.name ?? bizName}`,
-    `RAW SALES REPORT — Session ${session.id}`,
-    `Cashier: ${session.cashier}`,
-    `Opened:  ${fmtDate(session.openedAt)}`,
-    session.closedAt ? `Closed:  ${fmtDate(session.closedAt)}` : "",
-    "=".repeat(60),
-    `${"REF".padEnd(16)}${"DATE".padEnd(22)}${"METHOD".padEnd(10)}${"AMOUNT".padStart(12)}`,
-    "-".repeat(60),
-    ...sessionSales.map(s =>
-      `${(s.saleRef ?? "—").padEnd(16)}${s.date.slice(0, 19).replace("T", " ").padEnd(22)}${(s.paymentMethod ?? "Cash").padEnd(10)}${("Ksh " + fmt(s.totalAmount)).padStart(12)}`
-    ),
-    "-".repeat(60),
-    `TOTAL: ${sessionSales.length} sale(s) — Ksh ${fmt(sessionSales.reduce((s, x) => s + x.totalAmount, 0))}`,
-    "",
-    `Generated: ${new Date().toLocaleString()}`,
-  ].filter(l => l !== undefined);
-  return lines.join("\n");
+  return [{
+    heading: "Raw Sales",
+    table: {
+      headers: ["Ref", "Date", "Method", "Amount"],
+      rows: sessionSales.map(s => [s.saleRef ?? "—", s.date.slice(0, 19).replace("T", " "), s.paymentMethod ?? "Cash", `Ksh ${fmt(s.totalAmount)}`]),
+      weights: [1.3, 1.6, 1, 1],
+    },
+    kv: [["Total", `${sessionSales.length} sale(s) — Ksh ${fmt(sessionSales.reduce((s, x) => s + x.totalAmount, 0))}`]],
+  }];
 }
 
-function buildSalesReport(session: CashierSession, sales: ApiBizSale[], b: any, bizName: string): string {
+function salesReportSections(session: CashierSession, sales: ApiBizSale[]): ReportSection[] {
   const { sessionSales, totalSales, payMethodTotals } = computeSessionSales(sales, session.openedAt, session.closedAt);
 
-  // Group by product name
   const byProduct: Record<string, { qty: number; total: number }> = {};
   sessionSales.forEach(s => {
     (s.items ?? []).forEach((item: any) => {
@@ -87,83 +78,61 @@ function buildSalesReport(session: CashierSession, sales: ApiBizSale[], b: any, 
     });
   });
 
-  const lines = [
-    `${b?.name ?? bizName}`,
-    `SALES REPORT — Session ${session.id}`,
-    `Cashier: ${session.cashier}   Opened: ${fmtDate(session.openedAt)}`,
-    "=".repeat(50),
-    "PRODUCT BREAKDOWN",
-    "-".repeat(50),
-    `${"PRODUCT".padEnd(28)}${"QTY".padStart(6)}${"TOTAL".padStart(16)}`,
-    ...Object.entries(byProduct)
-      .sort((a, b) => b[1].total - a[1].total)
-      .map(([name, d]) =>
-        `${name.slice(0, 27).padEnd(28)}${String(d.qty).padStart(6)}${("Ksh " + fmt(d.total)).padStart(16)}`
-      ),
-    "-".repeat(50),
-    "",
-    "PAYMENT METHOD BREAKDOWN",
-    "-".repeat(50),
-    ...METHODS.filter(m => (payMethodTotals[m] ?? 0) > 0).map(m =>
-      `${m.padEnd(20)}${"Ksh " + fmt(payMethodTotals[m] ?? 0)}`
-    ),
-    "=".repeat(50),
-    `TOTAL SALES: Ksh ${fmt(totalSales)}   |   ${sessionSales.length} transactions`,
-    "",
-    `Generated: ${new Date().toLocaleString()}`,
+  return [
+    {
+      heading: "Product Breakdown",
+      table: {
+        headers: ["Product", "Qty", "Total"],
+        rows: Object.entries(byProduct).sort((a, b) => b[1].total - a[1].total).map(([name, d]) => [name, d.qty, `Ksh ${fmt(d.total)}`]),
+        weights: [2, 1, 1],
+      },
+    },
+    {
+      heading: "Payment Method Breakdown",
+      table: {
+        headers: ["Method", "Amount"],
+        rows: METHODS.filter(m => (payMethodTotals[m] ?? 0) > 0).map(m => [m, `Ksh ${fmt(payMethodTotals[m] ?? 0)}`]),
+      },
+      kv: [["Total Sales", `Ksh ${fmt(totalSales)} (${sessionSales.length} transactions)`]],
+    },
   ];
-  return lines.join("\n");
 }
 
-function buildReconReport(session: CashierSession, b: any, bizName: string): string {
+function reconReportSections(session: CashierSession): ReportSection[] {
   const entries = session.closingEntries ?? [];
   const totalVariance = entries.reduce((s, e) => s + e.variance, 0);
-  const lines = [
-    `${b?.name ?? bizName}`,
-    `RECONCILIATION REPORT — Session ${session.id}`,
-    `Cashier: ${session.cashier}   Status: ${session.status.toUpperCase()}`,
-    session.closedAt ? `Closed: ${fmtDate(session.closedAt)}` : "",
-    session.committedAt ? `Committed: ${fmtDate(session.committedAt)}` : "",
-    "=".repeat(60),
-    `Opening Float: Ksh ${fmt(session.openingFloat)}`,
-    "",
-    `${"METHOD".padEnd(14)}${"EXPECTED".padStart(14)}${"ACTUAL".padStart(14)}${"VARIANCE".padStart(14)}`,
-    "-".repeat(60),
-    ...entries.map(e =>
-      `${e.method.padEnd(14)}${("Ksh " + fmt(e.expected)).padStart(14)}${("Ksh " + fmt(e.actual)).padStart(14)}${(e.variance >= 0 ? "+" : "") + fmt(e.variance).padStart(13)}`
-    ),
-    "-".repeat(60),
-    `${"NET VARIANCE".padEnd(42)}${((totalVariance >= 0 ? "+" : "") + "Ksh " + fmt(Math.abs(totalVariance))).padStart(18)}`,
-    totalVariance === 0 ? "  → BALANCED ✓" : totalVariance > 0 ? "  → SURPLUS (over)" : "  → SHORTAGE (short)",
-    "",
-    session.closingNotes ? `Notes: ${session.closingNotes}` : "",
-    "",
-    `Generated: ${new Date().toLocaleString()}`,
-  ].filter(l => l !== undefined);
-  return lines.join("\n");
+  const balanceLabel = totalVariance === 0 ? "Balanced" : totalVariance > 0 ? "Surplus (over)" : "Shortage (short)";
+  const section: ReportSection = {
+    heading: "Reconciliation",
+    table: {
+      headers: ["Method", "Expected", "Actual", "Variance"],
+      rows: entries.map(e => [e.method, `Ksh ${fmt(e.expected)}`, `Ksh ${fmt(e.actual)}`, `${e.variance >= 0 ? "+" : ""}${fmt(e.variance)}`]),
+    },
+    kv: [
+      ["Opening Float", `Ksh ${fmt(session.openingFloat)}`],
+      ["Net Variance", `${totalVariance >= 0 ? "+" : ""}Ksh ${fmt(Math.abs(totalVariance))} — ${balanceLabel}`],
+      ["Status", session.status.toUpperCase()],
+    ],
+  };
+  if (session.closingNotes) section.lines = [`Notes: ${session.closingNotes}`];
+  return [section];
 }
 
-function buildConsolidatedReport(session: CashierSession, sales: ApiBizSale[], b: any, bizName: string): string {
-  return [
-    buildSalesReport(session, sales, b, bizName),
-    "\n\n" + "─".repeat(60) + "\n\n",
-    buildReconReport(session, b, bizName),
-    "\n\n" + "─".repeat(60) + "\n\n",
-    buildRawReport(session, sales, b, bizName),
-  ].join("");
+function consolidatedReportSections(session: CashierSession, sales: ApiBizSale[]): ReportSection[] {
+  return [...salesReportSections(session, sales), ...reconReportSections(session), ...rawReportSections(session, sales)];
 }
 
-function downloadTxt(content: string, filename: string) {
-  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
+// A blank field and a typed "0" must be distinguishable — a session can't open
+// or close without someone actually looking at the till and entering a number,
+// even if that number is zero.
+function isExplicitAmount(v: string | undefined): boolean {
+  return v !== undefined && v.trim() !== "" && !isNaN(Number(v));
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 
 export function POSSessionManager({ business, sales }: Props) {
-  const { user } = useSession();
+  const { user, activeLocation } = useSession();
   const [session, setSession] = useState<CashierSession | null>(() => posSessionStore.get(business.id));
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -171,6 +140,7 @@ export function POSSessionManager({ business, sales }: Props) {
   const [openDialog, setOpenDialog] = useState(false);
   const [openFloat, setOpenFloat]   = useState("");
   const [openCashier, setOpenCashier] = useState(user.name || "");
+  const [openTill, setOpenTill] = useState("");
 
   // Auto-prompt to open session on first mount if none exists
   useEffect(() => {
@@ -178,6 +148,7 @@ export function POSSessionManager({ business, sales }: Props) {
     if (!current || current.status === "committed") {
       setOpenCashier(user.name || "");
       setOpenFloat("");
+      setOpenTill("");
       setOpenDialog(true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,7 +178,9 @@ export function POSSessionManager({ business, sales }: Props) {
 
   const handleOpen = () => {
     if (!openCashier.trim()) { toast.error("Cashier name required"); return; }
-    const s = posSessionStore.open(business.id, openCashier.trim(), parseFloat(openFloat) || 0);
+    if (!openTill.trim()) { toast.error("Till/counter number required"); return; }
+    if (!isExplicitAmount(openFloat)) { toast.error("Enter the opening float amount — 0 is fine, but the field can't be blank"); return; }
+    const s = posSessionStore.open(business.id, openCashier.trim(), Number(openFloat), openTill.trim());
     setSession(s);
     setOpenDialog(false);
     toast.success("Session opened. You can now process sales.");
@@ -220,17 +193,28 @@ export function POSSessionManager({ business, sales }: Props) {
     return sessionSalesData.payMethodTotals;
   };
 
+  // Same set the close dialog actually renders inputs for (methods with sales,
+  // plus Cash always since every till has cash regardless of sales mix) — an
+  // explicit count is required for every one of these before closing.
+  const requiredCloseMethods = (): string[] => {
+    const expected = expectedByMethod();
+    return METHODS.filter(m => (expected[m] ?? 0) > 0 || m === "Cash");
+  };
+
+  const canClose = requiredCloseMethods().every(m => isExplicitAmount(closingEntries[m]));
+
   const buildEntries = (): ClosingEntry[] => {
     const expected = expectedByMethod();
     return METHODS.map(m => {
       const exp = expected[m] ?? 0;
-      const act = parseFloat(closingEntries[m] || "0") || 0;
+      const act = isExplicitAmount(closingEntries[m]) ? Number(closingEntries[m]) : 0;
       return { method: m, expected: exp, actual: act, variance: act - exp };
     }).filter(e => e.expected > 0 || e.actual > 0);
   };
 
   const handleClose = () => {
     if (!session || !sessionSalesData) return;
+    if (!canClose) { toast.error("Enter a counted amount for every payment method below — 0 is fine, but each field must be filled in"); return; }
     const entries = buildEntries();
     const s = posSessionStore.close(
       business.id, entries, closingNotes,
@@ -253,18 +237,29 @@ export function POSSessionManager({ business, sales }: Props) {
   // ── Reports ───────────────────────────────────────────────────────────────────
 
   const b = brandingStore.get();
-  const bizName = b?.name ?? business.name;
-  const sfx = session ? `_${session.id}_${new Date().toISOString().slice(0, 10)}` : "";
+  const sfx = session ? `_session-${session.sessionNo}_${new Date().toISOString().slice(0, 10)}` : "";
+  const REPORT_TITLES = { raw: "Raw Sales Report", sales: "Sales Report", recon: "Reconciliation Report", consolidated: "Consolidated Report" };
 
   const downloadReport = (type: "raw" | "sales" | "recon" | "consolidated") => {
     if (!session) return;
-    const map = {
-      raw:          () => buildRawReport(session, sales, b, bizName),
-      sales:        () => buildSalesReport(session, sales, b, bizName),
-      recon:        () => buildReconReport(session, b, bizName),
-      consolidated: () => buildConsolidatedReport(session, sales, b, bizName),
+    const sectionsMap = {
+      raw:          () => rawReportSections(session, sales),
+      sales:        () => salesReportSections(session, sales),
+      recon:        () => reconReportSections(session),
+      consolidated: () => consolidatedReportSections(session, sales),
     };
-    downloadTxt(map[type](), `${type}_report${sfx}.txt`);
+    const pdf = buildSessionReportPdf({
+      reportTitle: REPORT_TITLES[type],
+      branding: b,
+      stationName: activeLocation !== "All Locations" ? activeLocation : undefined,
+      sessionNo: session.sessionNo,
+      cashier: session.cashier,
+      tillNumber: session.tillNumber,
+      openedAt: fmtDate(session.openedAt),
+      closedAt: session.closedAt ? fmtDate(session.closedAt) : undefined,
+      sections: sectionsMap[type](),
+    });
+    pdf.save(`${type}_report${sfx}.pdf`);
     toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} report downloaded`);
   };
 
@@ -276,9 +271,9 @@ export function POSSessionManager({ business, sales }: Props) {
     : "bg-blue-100 text-blue-800";
 
   const statusLabel = !session ? "No Session"
-    : session.status === "open"      ? `Session Open · ${session.cashier}`
-    : session.status === "closed"    ? `Closed · ${session.cashier}`
-    : `Committed · ${session.cashier}`;
+    : session.status === "open"      ? `Session #${session.sessionNo} Open · ${session.cashier}`
+    : session.status === "closed"    ? `Session #${session.sessionNo} Closed · ${session.cashier}`
+    : `Session #${session.sessionNo} Committed · ${session.cashier}`;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -299,7 +294,7 @@ export function POSSessionManager({ business, sales }: Props) {
         </div>
         <div className="flex gap-1.5 shrink-0">
           {!session && (
-            <Button size="sm" className="h-7 text-xs" onClick={() => { setOpenCashier(user.name || ""); setOpenFloat(""); setOpenDialog(true); }}>
+            <Button size="sm" className="h-7 text-xs" onClick={() => { setOpenCashier(user.name || ""); setOpenFloat(""); setOpenTill(""); setOpenDialog(true); }}>
               <LogIn className="h-3.5 w-3.5 mr-1" />Open Session
             </Button>
           )}
@@ -318,6 +313,7 @@ export function POSSessionManager({ business, sales }: Props) {
               posSessionStore.clear(business.id);
               setOpenCashier(user.name || "");
               setOpenFloat("");
+              setOpenTill("");
               setOpenDialog(true);
             }}>
               <LogIn className="h-3.5 w-3.5 mr-1" />New Session
@@ -340,6 +336,12 @@ export function POSSessionManager({ business, sales }: Props) {
               <p className="text-xs text-muted-foreground">Opened</p>
               <p className="font-medium text-xs">{fmtDate(session.openedAt)}</p>
             </div>
+            {session.tillNumber && (
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <p className="text-xs text-muted-foreground">Till / Counter</p>
+                <p className="font-bold text-xs">{session.tillNumber}</p>
+              </div>
+            )}
             {session.closedAt && (
               <div className="rounded-lg bg-muted/50 px-3 py-2">
                 <p className="text-xs text-muted-foreground">Closed</p>
@@ -414,6 +416,7 @@ export function POSSessionManager({ business, sales }: Props) {
               setPanelOpen(false);
               setOpenCashier(user.name || "");
               setOpenFloat("");
+              setOpenTill("");
               setOpenDialog(true);
             }}>
               <LogIn className="h-4 w-4 mr-2" />Start New Session
@@ -429,14 +432,15 @@ export function POSSessionManager({ business, sales }: Props) {
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">Start a new session to begin processing sales. Record your opening float (cash in drawer).</p>
             <div><Label>Cashier Name *</Label><Input className="mt-1" value={openCashier} onChange={e => setOpenCashier(e.target.value)} placeholder="Your name" /></div>
+            <div><Label>Till / Counter Number *</Label><Input className="mt-1" value={openTill} onChange={e => setOpenTill(e.target.value)} placeholder="e.g. 1, 2, Counter A" /></div>
             <div>
-              <Label>Opening Float (Ksh)</Label>
-              <Input className="mt-1" type="number" min={0} value={openFloat} onChange={e => setOpenFloat(e.target.value)} placeholder="0.00" />
-              <p className="text-xs text-muted-foreground mt-1">Cash amount in the till before sales begin</p>
+              <Label>Opening Float (Ksh) *</Label>
+              <Input className="mt-1" type="number" min={0} value={openFloat} onChange={e => setOpenFloat(e.target.value)} placeholder="Enter amount — 0 is valid" />
+              <p className="text-xs text-muted-foreground mt-1">Cash amount in the till before sales begin — required, 0 is a valid entry</p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setOpenDialog(false)}>Cancel</Button>
-              <Button className="flex-1" onClick={handleOpen}><LogIn className="h-4 w-4 mr-1.5" />Open Session</Button>
+              <Button className="flex-1" onClick={handleOpen} disabled={!isExplicitAmount(openFloat) || !openTill.trim()}><LogIn className="h-4 w-4 mr-1.5" />Open Session</Button>
             </div>
           </div>
         </DialogContent>
@@ -457,11 +461,12 @@ export function POSSessionManager({ business, sales }: Props) {
 
               <div>
                 <h4 className="text-sm font-semibold mb-2">Count Physical Cash / Payments</h4>
-                <p className="text-xs text-muted-foreground mb-3">Enter the actual amount counted for each payment method. Leave blank if none received.</p>
+                <p className="text-xs text-muted-foreground mb-3">Enter the actual amount counted for each payment method below — required for every method shown, 0 is a valid count.</p>
                 <div className="space-y-3">
-                  {METHODS.filter(m => (sessionSalesData.payMethodTotals[m] ?? 0) > 0 || m === "Cash").map(m => {
+                  {requiredCloseMethods().map(m => {
                     const expected = sessionSalesData.payMethodTotals[m] ?? 0;
-                    const actual = parseFloat(closingEntries[m] || "0") || 0;
+                    const entered = isExplicitAmount(closingEntries[m]);
+                    const actual = entered ? Number(closingEntries[m]) : 0;
                     const variance = actual - expected;
                     return (
                       <div key={m} className="grid grid-cols-3 gap-2 items-center">
@@ -470,11 +475,11 @@ export function POSSessionManager({ business, sales }: Props) {
                           <p className="text-xs text-muted-foreground">Exp: Ksh {fmt(expected)}</p>
                         </div>
                         <Input
-                          type="number" min={0} placeholder="Actual"
+                          type="number" min={0} placeholder="Enter count — 0 is valid"
                           value={closingEntries[m] ?? ""}
                           onChange={e => setClosingEntries(v => ({ ...v, [m]: e.target.value }))}
                         />
-                        {closingEntries[m] !== undefined && (
+                        {entered && (
                           <span className={`text-sm font-semibold ${variance === 0 ? "text-green-600" : "text-amber-600"}`}>
                             {variance >= 0 ? "+" : ""}{fmt(variance)}
                           </span>
@@ -492,7 +497,7 @@ export function POSSessionManager({ business, sales }: Props) {
 
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={() => setCloseDialog(false)}>Cancel</Button>
-                <Button className="flex-1" onClick={handleClose}><LogOut className="h-4 w-4 mr-1.5" />Close Session</Button>
+                <Button className="flex-1" onClick={handleClose} disabled={!canClose}><LogOut className="h-4 w-4 mr-1.5" />Close Session</Button>
               </div>
             </div>
           )}

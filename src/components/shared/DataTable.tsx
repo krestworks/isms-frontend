@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Pencil, Trash2 } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Search, Filter, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Eye, Pencil, Trash2, Clock } from "lucide-react";
 import { useDebounce } from "@/hooks/useDebounce";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -48,6 +48,17 @@ interface DataTableProps<T> {
   actions?: (item: T) => React.ReactNode;
   rowActions?: (item: T) => React.ReactNode;
   extraActions?: ExtraAction<T>[];
+  /** Fires whenever the visible (search+filter+sort applied, pre-pagination) row set changes — use to drive "export what I see" instead of exporting the raw unfiltered data prop. */
+  onFilteredChange?: (rows: T[]) => void;
+  /** item.id values with a pending Tier-1/Tier-2 delete-approval request — row is highlighted and the delete action is replaced with a "pending" indicator. */
+  pendingDeleteIds?: Set<string>;
+}
+
+/** Resolves dot-path keys ("employee.user.name") against nested objects; falls back to a flat lookup for plain keys. */
+function getPath(obj: any, path: string): any {
+  if (obj == null) return undefined;
+  if (!path.includes(".")) return obj[path];
+  return path.split(".").reduce((v, k) => (v == null ? undefined : v[k]), obj);
 }
 
 export function DataTable<T extends Record<string, any>>({
@@ -65,9 +76,13 @@ export function DataTable<T extends Record<string, any>>({
   actions: actionsProp,
   rowActions,
   extraActions = [],
+  onFilteredChange,
+  pendingDeleteIds,
 }: DataTableProps<T>) {
   const hasActions = !!(actionsProp || rowActions || onView || onEdit || onDelete || extraActions.length);
-  const renderActions = (item: T) => (
+  const renderActions = (item: T) => {
+    const isPendingDelete = !!(pendingDeleteIds && item?.id != null && pendingDeleteIds.has(item.id));
+    return (
     <div className="flex items-center gap-1">
       {onView && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onView(item)}><Eye className="h-3.5 w-3.5" /></Button>}
       {onEdit && <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(item)}><Pencil className="h-3.5 w-3.5" /></Button>}
@@ -79,11 +94,16 @@ export function DataTable<T extends Record<string, any>>({
           </Button>
         );
       })}
-      {onDelete && <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>}
+      {onDelete && (
+        isPendingDelete
+          ? <Button variant="ghost" size="icon" className="h-7 w-7 text-amber-600" disabled title="Deletion pending a second person's approval"><Clock className="h-3.5 w-3.5" /></Button>
+          : <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => onDelete(item)}><Trash2 className="h-3.5 w-3.5" /></Button>
+      )}
       {actionsProp?.(item)}
       {rowActions?.(item)}
     </div>
-  );
+    );
+  };
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
   const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
@@ -97,20 +117,20 @@ export function DataTable<T extends Record<string, any>>({
     if (debouncedSearch && searchKeys.length > 0) {
       const q = debouncedSearch.toLowerCase();
       result = result.filter((item) =>
-        searchKeys.some((key) => String(item[key] ?? "").toLowerCase().includes(q))
+        searchKeys.some((key) => String(getPath(item, key) ?? "").toLowerCase().includes(q))
       );
     }
 
     Object.entries(activeFilters).forEach(([key, value]) => {
       if (value && value !== "__all__") {
-        result = result.filter((item) => String(item[key]) === value);
+        result = result.filter((item) => String(getPath(item, key)) === value);
       }
     });
 
     if (sortKey) {
       result.sort((a, b) => {
-        const aVal = a[sortKey];
-        const bVal = b[sortKey];
+        const aVal = getPath(a, sortKey);
+        const bVal = getPath(b, sortKey);
         const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
         return sortDir === "asc" ? cmp : -cmp;
       });
@@ -118,6 +138,8 @@ export function DataTable<T extends Record<string, any>>({
 
     return result;
   }, [data, debouncedSearch, searchKeys, activeFilters, sortKey, sortDir]);
+
+  useEffect(() => { onFilteredChange?.(filtered); }, [filtered, onFilteredChange]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safeP = Math.min(page, totalPages);
@@ -202,15 +224,22 @@ export function DataTable<T extends Record<string, any>>({
                 </TableCell>
               </TableRow>
             ) : (
-              paged.map((item, i) => (
+              paged.map((item, i) => {
+                const isPendingDelete = !!(pendingDeleteIds && item?.id != null && pendingDeleteIds.has(item.id));
+                return (
                 <TableRow
                   key={item.id ?? i}
-                  className={onRowClick ? "cursor-pointer" : ""}
+                  className={`${onRowClick ? "cursor-pointer" : ""} ${isPendingDelete ? "bg-amber-50/70 dark:bg-amber-950/20" : ""}`}
                   onClick={() => onRowClick?.(item)}
                 >
-                  {columns.map((col) => (
+                  {columns.map((col, ci) => (
                     <TableCell key={col.key} className="text-sm">
-                      {col.render ? col.render(item) : String(item[col.key] ?? "")}
+                      {ci === 0 && isPendingDelete && (
+                        <span className="inline-flex items-center gap-1 mr-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 align-middle">
+                          <Clock className="h-2.5 w-2.5" />Pending Deletion
+                        </span>
+                      )}
+                      {col.render ? col.render(item) : String(getPath(item, col.key) ?? "")}
                     </TableCell>
                   ))}
                   {hasActions && (
@@ -219,7 +248,8 @@ export function DataTable<T extends Record<string, any>>({
                     </TableCell>
                   )}
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>

@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { waterApi, ApiWaterEquipment } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 const TYPES = ["Reverse Osmosis", "UV Treatment", "Storage", "Pump", "Filter", "Other"];
 const STATUSES = ["operational", "maintenance", "inactive"];
@@ -33,6 +34,7 @@ export function EquipmentTab() {
   const [viewing, setViewing]   = useState<ApiWaterEquipment | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const pendingDeleteIds = usePendingDeleteIds("WaterEquipment", stationId, records.length);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -144,6 +146,7 @@ export function EquipmentTab() {
         onView={eq => setViewing(eq)}
         onEdit={canManage ? openEdit : undefined}
         onDelete={canManage ? handleDelete : undefined}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

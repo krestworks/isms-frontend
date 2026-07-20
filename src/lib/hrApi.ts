@@ -56,6 +56,7 @@ export interface ApiShiftPattern {
 
 export interface ApiEmployee {
   id: string; employeeNumber: string; stationId: string;
+  name?: string | null; // set only when there's no linked user (see hrEmployeesController's fallback pattern)
   employmentType: string; contractType?: string;
   startDate: string; endDate?: string;
   gender?: string; nationalId?: string; dateOfBirth?: string; address?: string;
@@ -97,19 +98,19 @@ export interface ApiLeaveSlip {
 export interface ApiLeaveBalance {
   leaveType: { id: string; name: string; isPaid: boolean; daysAllowed: number };
   year: number; total: number; used: number; pending: number; available: number;
-  employee?: { id: string; employeeNumber: string; user: { id: string; name: string; email: string }; department?: { id: string; name: string } | null };
+  employee?: { id: string; employeeNumber: string; name?: string | null; user: { id: string; name: string; email: string }; department?: { id: string; name: string } | null };
 }
 
 export interface ApiAttendance {
   id: string; employeeId: string; date: string;
   checkIn?: string; checkOut?: string; status: string; note?: string;
-  employee?: { id: string; user: { id: string; name: string } };
+  employee?: { id: string; name?: string | null; user: { id: string; name: string } };
   createdAt: string; updatedAt: string;
 }
 
 export interface ApiShiftAssignment {
   id: string; employeeId: string; shiftPatternId: string; date: string; stationId: string;
-  employee?: { id: string; user: { id: string; name: string } };
+  employee?: { id: string; name?: string | null; user: { id: string; name: string } };
   shiftPattern?: { id: string; name: string; startTime: string; endTime: string };
 }
 
@@ -130,11 +131,17 @@ export interface ApiDocument {
   caseId?: string | null;
   uploadedBy: string;
   uploadedAt: string;
-  employee?: { id: string; employeeNumber: string; user: { name: string } };
+  employee?: { id: string; employeeNumber: string; name?: string | null; user: { name: string } };
+}
+
+export interface DisciplinaryAppealInput {
+  status: string; filedOn?: string; grounds?: string;
+  hearingDate?: string; decision?: string; decidedOn?: string;
 }
 
 export interface ApiDisciplinaryRecord {
   id: string;
+  caseRef?: string | null;
   employeeId: string;
   category: string;
   offence?: string | null;
@@ -150,7 +157,7 @@ export interface ApiDisciplinaryRecord {
   createdAt: string;
   updatedAt: string;
   employee?: {
-    id: string; employeeNumber: string;
+    id: string; employeeNumber: string; name?: string | null;
     user: { id: string; name: string };
     department?: { id: string; name: string } | null;
   };
@@ -242,7 +249,7 @@ export interface ApiPerformanceTask {
   createdAt: string;
   updatedAt: string;
   employee?: {
-    id: string; employeeNumber: string;
+    id: string; employeeNumber: string; name?: string | null;
     user: { id: string; name: string };
     department?: { id: string; name: string } | null;
   };
@@ -383,7 +390,7 @@ export const hrApi = {
     remove: (id: string) =>
       api.delete<{ success: boolean }>(`/hr/shifts/${id}`),
     assignments: {
-      list: (params?: { employeeId?: string; stationId?: string; from?: string; to?: string }) =>
+      list: (params?: { employeeId?: string; stationId?: string; from?: string; to?: string; limit?: number }) =>
         api.get<{ success: boolean; data: ApiShiftAssignment[]; meta: PageMeta }>(`/hr/shifts/assignments${qs(params as any)}`),
       assign: (data: { employeeId: string; shiftPatternId: string; date: string; stationId?: string }) =>
         api.post<{ success: boolean; data: ApiShiftAssignment }>("/hr/shifts/assignments", data, sh(data.stationId) as any),
@@ -442,9 +449,12 @@ export const hrApi = {
       listAll: (params?: { employeeId?: string; stage?: string; category?: string }) =>
         api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>(`/hr/disciplinary${qs(params as any)}`),
       list:   (id: string) => api.get<{ success: boolean; data: ApiDisciplinaryRecord[] }>(`/hr/employees/${id}/disciplinary`),
-      create: (id: string, data: Partial<ApiDisciplinaryRecord>) =>
+      // create/update accept a structured `appeal` object (the backend JSON.stringifies
+      // it before storing) — different shape from ApiDisciplinaryRecord.appeal, which is
+      // the already-stringified value you get back on read.
+      create: (id: string, data: Partial<Omit<ApiDisciplinaryRecord, "appeal">> & { appeal?: DisciplinaryAppealInput | null }) =>
         api.post<{ success: boolean; data: ApiDisciplinaryRecord }>(`/hr/employees/${id}/disciplinary`, data),
-      update: (employeeId: string, recordId: string, data: Partial<ApiDisciplinaryRecord>) =>
+      update: (employeeId: string, recordId: string, data: Partial<Omit<ApiDisciplinaryRecord, "appeal">> & { appeal?: DisciplinaryAppealInput | null }) =>
         api.put<{ success: boolean; data: ApiDisciplinaryRecord }>(`/hr/employees/${employeeId}/disciplinary/${recordId}`, data),
     },
   },

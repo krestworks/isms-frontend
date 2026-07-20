@@ -52,7 +52,7 @@ export function useBranding() {
   const [, force] = useState(0);
   useEffect(() => {
     const unsub = brandingStore.subscribe(() => force(n => n + 1));
-    return unsub;
+    return () => { unsub(); };
   }, []);
   return brandingStore.get();
 }

@@ -346,7 +346,7 @@ function RequestsTab({
       <DataTable
         data={requests}
         columns={columns}
-        searchKeys={["leaveRef", "employee"]}
+        searchKeys={["leaveRef", "employee.name", "employee.user.name"]}
         searchPlaceholder="Search leave requests…"
         actions={r => (
           <>
@@ -549,7 +549,7 @@ function EntitlementsTab({
         </div>
       )}
 
-      <DataTable data={balances} columns={columns} searchKeys={["year"]} searchPlaceholder="Search employee or type…" />
+      <DataTable data={balances} columns={columns} searchKeys={["employee.name", "employee.user.name", "employee.employeeNumber", "leaveType.name"]} searchPlaceholder="Search employee or type…" />
 
       <ModalForm open={adjustOpen} onClose={() => setAdjustOpen(false)} title="Adjust Leave Entitlement"
         description="Set or override an employee's leave balance for the year"

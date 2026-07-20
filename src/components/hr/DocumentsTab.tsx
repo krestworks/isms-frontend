@@ -10,10 +10,12 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 import { toast } from "sonner";
 import { hrApi, ApiDocument, ApiEmployee } from "@/lib/hrApi";
 import { usePermissions } from "@/lib/permissions";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 
 export const DOC_TYPES = [
   "ID Card", "Passport", "KRA PIN Cert.", "SHA Card", "NSSF Card",
@@ -30,6 +32,7 @@ const emptyForm = {
 
 export default function DocumentsTab() {
   const [data, setData] = useState<ApiDocument[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("EmployeeDocument", null, data.length);
   const [employees, setEmployees] = useState<ApiEmployee[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -38,6 +41,7 @@ export default function DocumentsTab() {
   const [viewing, setViewing] = useState<ApiDocument | null>(null);
   const [confirmDlg, setConfirmDlg] = useState<{ title: string; onConfirm: () => void } | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [visibleData, setVisibleData] = useState<ApiDocument[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const can = usePermissions();
   const canManage = can("hr.staff.edit");
@@ -58,19 +62,19 @@ export default function DocumentsTab() {
   useEffect(() => { load(); }, [load]);
 
   const stats = {
-    total:    data.length,
-    valid:    data.filter(d => d.status === "valid").length,
-    expiring: data.filter(d => d.status === "expiring").length,
-    expired:  data.filter(d => d.status === "expired").length,
+    total:    visibleData.length,
+    valid:    visibleData.filter(d => d.status === "valid").length,
+    expiring: visibleData.filter(d => d.status === "expiring").length,
+    expired:  visibleData.filter(d => d.status === "expired").length,
   };
 
   const columns: Column<ApiDocument>[] = [
-    { key: "employee", label: "Employee", render: d => (d.employee?.user?.name ?? d.employee?.name) || d.employeeId },
+    { key: "employee", label: "Employee", render: d => (d.employee?.user?.name ?? d.employee?.name) || "—" },
     { key: "type",     label: "Type",     render: d => <Badge variant="outline">{d.type}</Badge> },
     { key: "fileName", label: "File",     render: d => <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" /> {d.fileName} <span className="text-[10px] text-muted-foreground">({formatBytes(d.fileSize)})</span></span> },
     { key: "uploadedAt", label: "Uploaded", sortable: true, render: d => d.uploadedAt?.split("T")[0] },
     { key: "expiresOn",  label: "Expires",  render: d => d.expiresOn || "—" },
-    { key: "caseId",   label: "Case",     render: d => d.caseId ? <Badge variant="outline" className="text-[10px]">{d.caseId.slice(0, 8)}</Badge> : "—" },
+    { key: "caseId",   label: "Case",     render: d => d.caseId ? <Badge variant="outline" className="text-[10px]">Linked</Badge> : "—" },
     { key: "status",   label: "Status",   render: d => {
       const cls = d.status === "valid" ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" : d.status === "expiring" ? "bg-amber-100 text-amber-800" : "bg-red-100 text-red-800";
       return <span className={`px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{d.status}</span>;
@@ -80,6 +84,19 @@ export default function DocumentsTab() {
   const filters: FilterOption[] = [
     { key: "type",   label: "Type",   options: DOC_TYPES.map(t => ({ label: t, value: t })) },
     { key: "status", label: "Status", options: ["valid", "expiring", "expired"].map(s => ({ label: s, value: s })) },
+  ];
+
+  const exportColumns: ExportColumn<ApiDocument>[] = [
+    { label: "Employee",   value: d => (d.employee?.user?.name ?? d.employee?.name) || "—" },
+    { label: "Type",       value: d => d.type },
+    { label: "File",       value: d => d.fileName },
+    { label: "Size",       value: d => formatBytes(d.fileSize) },
+    { label: "Uploaded",   value: d => d.uploadedAt?.split("T")[0] || "—" },
+    { label: "Uploaded By",value: d => d.uploadedBy || "—" },
+    { label: "Expires",    value: d => d.expiresOn || "—" },
+    { label: "Linked Case",value: d => d.caseId ? "Yes" : "No" },
+    { label: "Status",     value: d => d.status },
+    { label: "Notes",      value: d => d.notes || "—" },
   ];
 
   const openNew = () => { setEditing(null); setForm(emptyForm); setModalOpen(true); };
@@ -148,7 +165,7 @@ export default function DocumentsTab() {
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="icon" onClick={load} disabled={loading}><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></Button>
-          <Button variant="outline" onClick={() => exportToCsv("employee-documents.csv", data.map(({ fileData, ...r }) => r as any))}><Download className="h-4 w-4 mr-2" /> Export</Button>
+          <ExportMenu filename="employee-documents" title="Employee Documents" rows={visibleData} columns={exportColumns} />
           {canManage && <Button onClick={openNew}><Plus className="h-4 w-4 mr-2" /> Upload Document</Button>}
         </div>
       </div>
@@ -170,8 +187,8 @@ export default function DocumentsTab() {
       <DataTable
         data={data}
         columns={columns}
-        searchKeys={["fileName"]}
-        searchPlaceholder="Search documents..."
+        searchKeys={["fileName", "employee.user.name", "employee.name"]}
+        searchPlaceholder="Search documents or employee..."
         filters={filters}
         onView={d => setViewing(d)}
         onEdit={canManage ? openEdit : undefined}
@@ -181,6 +198,8 @@ export default function DocumentsTab() {
             <Download className="h-3.5 w-3.5" />
           </Button>
         )}
+        onFilteredChange={setVisibleData}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}
@@ -227,8 +246,8 @@ export default function DocumentsTab() {
       <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Document" isView>
         {viewing && (
           <div className="space-y-2 text-sm">
-            <div className="flex items-center justify-between"><Badge variant="outline">{viewing.id.slice(0, 12)}</Badge><Badge>{viewing.type}</Badge></div>
-            <div><span className="text-muted-foreground">Employee:</span> {(viewing.employee?.user?.name ?? viewing.employee?.name) || viewing.employeeId}</div>
+            <div className="flex items-center justify-between"><Badge>{viewing.type}</Badge></div>
+            <div><span className="text-muted-foreground">Employee:</span> {(viewing.employee?.user?.name ?? viewing.employee?.name) || "—"}</div>
             <div><span className="text-muted-foreground">File:</span> {viewing.fileName} ({formatBytes(viewing.fileSize)})</div>
             <div><span className="text-muted-foreground">Uploaded:</span> {viewing.uploadedAt?.split("T")[0]} by {viewing.uploadedBy}</div>
             <div><span className="text-muted-foreground">Expires:</span> {viewing.expiresOn || "—"}</div>

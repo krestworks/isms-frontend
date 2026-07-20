@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, Download } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,7 +10,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { bizApi, ApiBizBusiness, ApiBizExpense } from "@/lib/bizApi";
 import { usePermissions } from "@/lib/permissions";
-import { exportToCsv } from "@/lib/exportCsv";
+import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 
 interface Props { business: ApiBizBusiness; }
 
@@ -26,6 +28,7 @@ export function ExpensesTab({ business }: Props) {
   const canManage = can("business.expenses.record");
 
   const [records,   setRecords]   = useState<ApiBizExpense[]>([]);
+  const pendingDeleteIds = usePendingDeleteIds("BizExpense", business.stationId, records.length);
   const [loading,   setLoading]   = useState(true);
   const [fromDate,  setFromDate]  = useState(firstOfMonth());
   const [toDate,    setToDate]    = useState(today());
@@ -33,6 +36,7 @@ export function ExpensesTab({ business }: Props) {
   const [editing,   setEditing]   = useState<ApiBizExpense | null>(null);
   const [form,      setForm]      = useState(emptyForm);
   const [saving,    setSaving]    = useState(false);
+  const [visibleRecords, setVisibleRecords] = useState<ApiBizExpense[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,7 +75,7 @@ export function ExpensesTab({ business }: Props) {
     catch (e: any) { toast.error((e as any)?.message || "Failed to delete"); }
   };
 
-  const totalExpenses = records.reduce((s, e) => s + e.amount, 0);
+  const totalExpenses = visibleRecords.reduce((s, e) => s + e.amount, 0);
 
   const columns: Column<ApiBizExpense>[] = [
     { key: "date",          label: "Date",        sortable: true },
@@ -82,14 +86,21 @@ export function ExpensesTab({ business }: Props) {
     { key: "recordedBy",    label: "By",          render: e => e.recordedBy || "—" },
   ];
 
+  const exportColumns: ExportColumn<ApiBizExpense>[] = [
+    { label: "Date",           value: e => e.date.split("T")[0] },
+    { label: "Description",    value: e => e.description },
+    { label: "Category",       value: e => e.category || "—" },
+    { label: "Payment Method", value: e => e.paymentMethod },
+    { label: "Amount (Ksh)",   value: e => e.amount },
+    { label: "Recorded By",    value: e => e.recordedBy || "—" },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Business expense tracking</p>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => exportToCsv(`expenses-${today()}.csv`, records)}>
-            <Download className="h-4 w-4 mr-1.5" />Export
-          </Button>
+          <ExportMenu filename={`expenses_${fromDate}_to_${toDate}`} title="Business Expenses" rows={visibleRecords} columns={exportColumns} subtitle={`${fromDate} to ${toDate}`} />
           <Button variant="outline" size="icon" onClick={load}><RefreshCw className="h-4 w-4" /></Button>
           <Button size="sm" onClick={openNew}><Plus className="h-4 w-4 mr-1.5" />Record Expense</Button>
         </div>
@@ -111,6 +122,8 @@ export function ExpensesTab({ business }: Props) {
         searchKeys={["description","category"]} searchPlaceholder="Search expenses..."
         onEdit={openEdit}
         onDelete={canManage ? handleDelete : undefined}
+        onFilteredChange={setVisibleRecords}
+        pendingDeleteIds={pendingDeleteIds}
       />
 
       <ModalForm open={modalOpen} onClose={() => setModalOpen(false)}

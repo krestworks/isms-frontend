@@ -1,12 +1,13 @@
 import { useState } from "react";
-import { Download, Trash2, ShieldAlert } from "lucide-react";
+import { Trash2, ShieldAlert } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DataTable, Column, FilterOption } from "@/components/shared/DataTable";
 import { auditLog, useAuditLog, AuditEntry } from "@/data/auditLogStore";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 import { toast } from "sonner";
 
 const actionColor: Record<string, string> = {
@@ -23,10 +24,11 @@ const actionColor: Record<string, string> = {
 export default function AuditLogTab() {
   const data = useAuditLog();
   const [confirmClear, setConfirmClear] = useState(false);
+  const [visibleData, setVisibleData] = useState<AuditEntry[]>([]);
   const stats = {
-    total: data.length,
-    today: data.filter(e => e.ts.startsWith(new Date().toISOString().split("T")[0])).length,
-    denied: data.filter(e => e.action === "permission.denied").length,
+    total: visibleData.length,
+    today: visibleData.filter(e => e.ts.startsWith(new Date().toISOString().split("T")[0])).length,
+    denied: visibleData.filter(e => e.action === "permission.denied").length,
   };
 
   const columns: Column<AuditEntry>[] = [
@@ -44,6 +46,16 @@ export default function AuditLogTab() {
     { key: "role", label: "Role", options: ["Admin", "Manager", "Accountant", "Attendant", "LocationHead", "Employee"].map(r => ({ label: r, value: r })) },
   ];
 
+  const exportColumns: ExportColumn<AuditEntry>[] = [
+    { label: "When",     value: e => new Date(e.ts).toLocaleString() },
+    { label: "User",     value: e => e.userName },
+    { label: "Role",     value: e => e.role },
+    { label: "Location", value: e => e.location },
+    { label: "Action",   value: e => e.action },
+    { label: "Target",   value: e => e.target },
+    { label: "Details",  value: e => e.details },
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -52,7 +64,7 @@ export default function AuditLogTab() {
           <p className="text-sm text-muted-foreground">Sensitive actions: switches, document changes, attendance corrections, denials</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => exportToCsv("audit-log.csv", data)}><Download className="h-4 w-4 mr-2" /> Export</Button>
+          <ExportMenu filename="audit-log" title="Audit Log" rows={visibleData} columns={exportColumns} />
           <Button variant="outline" className="text-destructive" onClick={() => setConfirmClear(true)}><Trash2 className="h-4 w-4 mr-2" /> Clear</Button>
         </div>
       </div>
@@ -67,7 +79,7 @@ export default function AuditLogTab() {
         ))}
       </div>
 
-      <DataTable data={data} columns={columns} searchKeys={["userName", "target", "details"]} searchPlaceholder="Search audit entries..." filters={filters} />
+      <DataTable data={data} columns={columns} searchKeys={["userName", "target", "details"]} searchPlaceholder="Search audit entries..." filters={filters} onFilteredChange={setVisibleData} />
 
       <ConfirmDialog
         open={confirmClear}

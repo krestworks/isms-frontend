@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus, Download, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,8 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { hrApi, ApiEmployee, ApiShiftAssignment, ApiShiftPattern } from "@/lib/hrApi";
 import { sessionStore, useSession } from "@/data/sessionStore";
 import { stationsCache } from "@/data/stationsCache";
-import { exportToCsv } from "@/lib/exportCsv";
+import { ExportMenu } from "@/components/shared/ExportMenu";
+import type { ExportColumn } from "@/lib/exportCsv";
 import { toast } from "sonner";
 
 interface Props { department: string; }
@@ -27,6 +28,7 @@ export function ShiftScheduleTab({ department }: Props) {
   const [saving,       setSaving]       = useState(false);
   const [modalOpen,    setModalOpen]    = useState(false);
   const [form,         setForm]         = useState(emptyForm);
+  const [visibleAssignments, setVisibleAssignments] = useState<ApiShiftAssignment[]>([]);
 
   const activeLoc = sessionStore.activeLocation();
 
@@ -74,10 +76,10 @@ export function ShiftScheduleTab({ department }: Props) {
 
   const today = new Date().toISOString().split("T")[0];
   const stats = useMemo(() => ({
-    total:    assignments.length,
-    today:    assignments.filter(a => a.date?.startsWith(today)).length,
-    upcoming: assignments.filter(a => a.date > today).length,
-  }), [assignments, today]);
+    total:    visibleAssignments.length,
+    today:    visibleAssignments.filter(a => a.date?.startsWith(today)).length,
+    upcoming: visibleAssignments.filter(a => a.date > today).length,
+  }), [visibleAssignments, today]);
 
   const columns: Column<ApiShiftAssignment>[] = [
     { key: "employee",     label: "Employee",  render: a => a.employee?.user?.name ?? a.employee?.name ?? "—" },
@@ -119,7 +121,13 @@ export function ShiftScheduleTab({ department }: Props) {
     }
   };
 
-  const handleExport = () => exportToCsv(`${department}-shifts.csv`, assignments);
+  const exportColumns: ExportColumn<ApiShiftAssignment>[] = [
+    { label: "Employee", value: a => a.employee?.user?.name ?? a.employee?.name ?? "—" },
+    { label: "Date",     value: a => new Date(a.date).toLocaleDateString() },
+    { label: "Shift",    value: a => a.shiftPattern?.name ?? "—" },
+    { label: "Start",    value: a => a.shiftPattern?.startTime ?? "—" },
+    { label: "End",      value: a => a.shiftPattern?.endTime ?? "—" },
+  ];
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -134,7 +142,7 @@ export function ShiftScheduleTab({ department }: Props) {
           <Button variant="outline" size="icon" onClick={load} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>
-          <Button variant="outline" onClick={handleExport}><Download className="h-4 w-4 mr-2" /> Export</Button>
+          <ExportMenu filename={`${department}-shifts`} title={`${department} Shift Schedule`} rows={visibleAssignments} columns={exportColumns} />
           <Button onClick={() => { setForm({ ...emptyForm, date: today }); setModalOpen(true); }}>
             <Plus className="h-4 w-4 mr-2" /> Schedule Shift
           </Button>
@@ -168,9 +176,10 @@ export function ShiftScheduleTab({ department }: Props) {
       <DataTable
         data={assignments}
         columns={columns}
-        searchKeys={["date"]}
-        searchPlaceholder="Search shifts..."
+        searchKeys={["date", "employee.user.name", "employee.name"]}
+        searchPlaceholder="Search shifts or employee..."
         filters={filters}
+        onFilteredChange={setVisibleAssignments}
       />
 
       <ModalForm

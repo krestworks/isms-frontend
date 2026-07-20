@@ -10,6 +10,7 @@ import { FuelDeliveriesTab } from "@/components/fuel/FuelDeliveriesTab";
 import { ModuleStaffTab } from "@/components/shared/ModuleStaffTab";
 import { ShiftScheduleTab } from "@/components/shared/ShiftScheduleTab";
 import { ModuleAuditTab } from "@/components/shared/ModuleAuditTab";
+import { ModulePaymentDetailsTab } from "@/components/shared/ModulePaymentDetailsTab";
 import { usePermissions } from "@/lib/permissions";
 
 export default function FuelPage() {
@@ -23,6 +24,7 @@ export default function FuelPage() {
   const showStaff      = can("hr.staff.view");
   const showShifts     = can("hr.shifts.view");
   const showAudit      = can("audit.view");
+  const showPayment    = can("fuel.tanks.edit");
 
   const defaultTab = showSales ? "pump-sales" : showTanks ? "tanks" : "pump-sales";
 
@@ -39,6 +41,7 @@ export default function FuelPage() {
           {showStaff      && <TabsTrigger value="staff"          className="text-xs">Staff</TabsTrigger>}
           {showShifts     && <TabsTrigger value="shifts"         className="text-xs">Shifts</TabsTrigger>}
           {showAudit      && <TabsTrigger value="audit"          className="text-xs">History</TabsTrigger>}
+          {showPayment    && <TabsTrigger value="payment"        className="text-xs">Payment</TabsTrigger>}
         </TabsList>
         {showTanks      && <TabsContent value="tanks"><TanksTab /></TabsContent>}
         {showSales      && <TabsContent value="pump-sales"><PumpSalesTab /></TabsContent>}
@@ -49,6 +52,7 @@ export default function FuelPage() {
         {showStaff      && <TabsContent value="staff"><ModuleStaffTab department="Fuel" /></TabsContent>}
         {showShifts     && <TabsContent value="shifts"><ShiftScheduleTab department="Fuel" /></TabsContent>}
         {showAudit      && <TabsContent value="audit"><ModuleAuditTab module="fuel" /></TabsContent>}
+        {showPayment    && <TabsContent value="payment"><ModulePaymentDetailsTab module="fuel" moduleLabel="Fuel" /></TabsContent>}
       </Tabs>
     </ModulePageShell>
   );
