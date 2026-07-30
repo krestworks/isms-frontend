@@ -129,7 +129,7 @@ export default function InventorySalesTab() {
     { label: "Receipt",        value: s => s.saleRef },
     { label: "Date",           value: s => s.date.split("T")[0] },
     { label: "Items",          value: s => (s.items ?? []).map(i => `${i.name} ×${i.qty}`).join(", ") || "—" },
-    { label: "Total (Ksh)",    value: s => s.totalAmount },
+    { label: "Total (Ksh)",    value: s => s.totalAmount, total: rows => rows.reduce((sum, s) => sum + s.totalAmount, 0) },
     { label: "Payment Method", value: s => s.paymentMethod },
     { label: "Cashier",        value: s => s.cashier || "—" },
     { label: "Status",         value: s => s.status },

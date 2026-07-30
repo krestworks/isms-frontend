@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { authService } from "@/lib/authService";
 import { sessionStore } from "@/data/sessionStore";
 import { stationsCache } from "@/data/stationsCache";
@@ -11,7 +12,6 @@ import { ApiError, setAccessToken, setActiveStationId, refreshAccessToken } from
 export interface LoginOutcome {
   requiresOtp: boolean;
   otpChallenge?: string;
-  devOtp?: string;
 }
 
 // Access tokens live 15 minutes — refresh proactively at roughly 2/3 of that so
@@ -22,6 +22,13 @@ const PROACTIVE_REFRESH_MS = 10 * 60 * 1000;
 // Auto-lock the screen after this long with no mouse/keyboard/touch activity —
 // only takes effect once the user has set a quick-unlock PIN (see LockScreen).
 const IDLE_LOCK_MS = 10 * 60 * 1000;
+
+// How often to poll for a revoked session. Access tokens stay cryptographically
+// valid for their full 15-minute life regardless of what happens to the
+// underlying refresh-token session, so without this an admin's "Revoke session"
+// / "Force logout" action would silently do nothing until the token happened to
+// expire. This is a deliberately cheap, read-only check (no token rotation).
+const SESSION_CHECK_MS = 20 * 1000;
 
 interface AuthContextValue {
   isAuthenticated: boolean;
@@ -119,6 +126,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(id);
   }, [isAuthenticated]);
 
+  // Revoked-session detection — a session revoked from another device/by an
+  // admin (SecuritySettingsModal "Revoke"/"Force Logout") only marks the DB
+  // row; the still-open tab's access token remains valid until it naturally
+  // expires. Polling this cheap read-only endpoint closes that gap so the
+  // revoked device is logged out within seconds instead of up to 15 minutes,
+  // without the user needing to refresh the page. checkSession()'s own logout
+  // side-effect (via the shared "auth:logout" event in api.ts) does the actual
+  // work — this just surfaces a clearer, reason-specific toast.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const id = setInterval(async () => {
+      const result = await authService.checkSession();
+      if (result === "revoked") {
+        toast.error("Your session was ended by an administrator.");
+      }
+    }, SESSION_CHECK_MS);
+    return () => clearInterval(id);
+  }, [isAuthenticated]);
+
   // Idle auto-lock — only meaningful once a PIN exists to unlock with again.
   // hasPin is read fresh from the store on every fired timeout (not captured in
   // the effect closure) so setting a PIN mid-session takes effect immediately.
@@ -133,25 +159,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => { clearTimeout(timer); events.forEach(e => window.removeEventListener(e, reset)); };
   }, [isAuthenticated, isLocked, lock]);
 
-  // Attempt silent refresh on mount to restore session
+  // Attempt silent refresh on mount to restore session. Reuses the same
+  // refreshAccessToken() as the proactive-refresh timer below (not a duplicate
+  // fetch with its own hardcoded base URL) so a page reload always resolves the
+  // same backend the rest of the app talks to.
   useEffect(() => {
     async function restoreSession() {
       try {
-        const res = await fetch(
-          `${import.meta.env.VITE_API_URL || "http://localhost:5002/api/v1"}/auth/refresh`,
-          { method: "POST", credentials: "include" },
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data?.data?.accessToken) {
-            setAccessToken(data.data.accessToken);
-            const user = await authService.getMe();
-            sessionStore.setUser(user);
-            const stations = await loadStations();
-            enforceLocationScope(user, stations);
-            await loadBranding();
-            setIsAuthenticated(true);
-          }
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          const user = await authService.getMe();
+          sessionStore.setUser(user);
+          const stations = await loadStations();
+          enforceLocationScope(user, stations);
+          await loadBranding();
+          setIsAuthenticated(true);
         }
       } catch {
         // No valid session — will show login
@@ -182,7 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await authService.login(email, password);
       if ("requiresOtp" in res) {
-        return { requiresOtp: true, otpChallenge: res.data.otpChallenge, devOtp: res.data.dev_otp };
+        return { requiresOtp: true, otpChallenge: res.data.otpChallenge };
       }
       await finishSession(res.data.user);
       return { requiresOtp: false };

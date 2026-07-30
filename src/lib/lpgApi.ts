@@ -47,7 +47,8 @@ export interface ApiLpgOrder {
   clientPhone?: string | null; cylinderSize: string; quantity: number; unitPrice: number;
   totalAmount: number; orderStatus: string; paymentStatus: string; paymentMethod: string;
   processedBy?: string | null; deliveredBy?: string | null; deliveryAddress?: string | null;
-  deliveryDate?: string | null; notes?: string | null; createdAt: string; updatedAt: string;
+  deliveryDate?: string | null; notes?: string | null; saleId?: string | null;
+  createdAt: string; updatedAt: string;
 }
 
 export interface ApiLpgInvoiceItem { description: string; qty: number; unitPrice: number; discount?: number; total: number; }

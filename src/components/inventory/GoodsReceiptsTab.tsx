@@ -172,7 +172,7 @@ export default function GoodsReceiptsTab() {
     { label: "GRN #",        value: g => g.grnNumber },
     { label: "Supplier",     value: g => g.supplierName ?? g.po?.poNumber ?? "—" },
     { label: "Receipt Date", value: g => new Date(g.receiptDate).toLocaleDateString() },
-    { label: "Total",        value: g => g.totalAmount },
+    { label: "Total",        value: g => g.totalAmount, total: rows => rows.reduce((sum, g) => sum + g.totalAmount, 0) },
     { label: "Received By",  value: g => g.receivedBy ?? "—" },
     { label: "Status",       value: g => g.status },
   ];

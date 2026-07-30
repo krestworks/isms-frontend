@@ -48,7 +48,7 @@ export const usersApi = {
     return api.get<R<ApiUser[]>>(`/users${qs ? `?${qs}` : ""}`);
   },
   create: (body: { name: string; email: string; password?: string; sendInvite?: boolean; phone?: string; activeRole?: string; homeLocation?: string; roles?: string[]; isEmployee?: boolean }) =>
-    api.post<{ success: boolean; data: ApiUser; dev_invite_link?: string }>("/users", body),
+    api.post<{ success: boolean; message: string; data: ApiUser; emailSent?: boolean; emailError?: string; inviteLink?: string }>("/users", body),
   get: (id: string) =>
     api.get<R<ApiUser>>(`/users/${id}`),
   update: (id: string, body: { name?: string; phone?: string; homeLocation?: string | null }) =>
@@ -59,7 +59,7 @@ export const usersApi = {
     api.put<R<ApiUser>>(`/users/${id}/status`, { status }),
 
   resendInvite: (id: string) =>
-    api.post<{ success: boolean; message: string; dev_invite_link?: string }>(`/users/${id}/resend-invite`, {}),
+    api.post<{ success: boolean; message: string; emailSent?: boolean; emailError?: string; inviteLink?: string }>(`/users/${id}/resend-invite`, {}),
 
   /** HR employees with no account or Pending activation — used for bulk invite */
   hrNeedsInvite: () =>
@@ -67,7 +67,7 @@ export const usersApi = {
 
   /** Bulk-create/refresh accounts from HR employee records and send invites */
   bulkInviteFromHr: (entries: { employeeId: string; email?: string; name?: string; roles: string[] }[]) =>
-    api.post<{ success: boolean; data: { employeeId: string; email?: string; name?: string; dev_invite_link?: string; error?: string }[] }>(
+    api.post<{ success: boolean; data: { employeeId: string; email?: string; name?: string; emailSent?: boolean; emailError?: string; error?: string }[] }>(
       "/users/bulk-invite-from-hr",
       { employees: entries }
     ),

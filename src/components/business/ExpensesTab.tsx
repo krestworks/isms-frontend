@@ -91,7 +91,7 @@ export function ExpensesTab({ business }: Props) {
     { label: "Description",    value: e => e.description },
     { label: "Category",       value: e => e.category || "—" },
     { label: "Payment Method", value: e => e.paymentMethod },
-    { label: "Amount (Ksh)",   value: e => e.amount },
+    { label: "Amount (Ksh)",   value: e => e.amount, total: rows => rows.reduce((sum, e) => sum + e.amount, 0) },
     { label: "Recorded By",    value: e => e.recordedBy || "—" },
   ];
 

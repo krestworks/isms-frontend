@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation, useNavigate } from "react-router-dom";
-import { canAccessRoute, useStationModuleFilter, hasAnyBusinessAssignment } from "@/lib/permissions";
+import { canAccessRoute, useStationModuleFilter, hasAnyBusinessAssignment, SEGMENT_MODULE_KEY } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
 import { useBranding } from "@/data/brandingStore";
 import { useAppPaths } from "@/hooks/useAppPaths";
@@ -25,19 +25,6 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-
-// Module key by last URL segment — used by useStationModuleFilter.
-const SEGMENT_MODULE_KEY: Record<string, string> = {
-  "fuel":       "fuel",
-  "lpg":        "lpg",
-  "water":      "water",
-  "automotive": "auto",
-  "carwash":    "carwash",
-  "business":   "pos",
-  "inventory":  "pos",
-  "finance":    "finance",
-  "hr":         "hr",
-};
 
 export function AppSidebar() {
   const { user } = useSession();

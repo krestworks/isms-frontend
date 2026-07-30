@@ -17,6 +17,7 @@ import {
   hrApi,
   ApiStation, ApiDepartment, ApiJobTitle, ApiLeaveType, ApiShiftPattern, ApiStationModule, ApiPublicHoliday,
 } from "@/lib/hrApi";
+import { settingsApi } from "@/lib/settingsApi";
 import { usePermissions } from "@/lib/permissions";
 
 // ── Station selector ──────────────────────────────────────────────────────────
@@ -593,6 +594,96 @@ function ShiftsSubTab({ stationId }: { stationId: string }) {
 
 // ── Public Holidays ───────────────────────────────────────────────────────────
 
+// Which weekdays don't count as working days for leave-day calculations —
+// previously hardcoded to Sat+Sun everywhere, so a station that runs Saturday
+// as a working day (or a different rest-day schedule) had no way to say so.
+// Stored per-station via the generic StationConfig "workdays" section.
+const WEEKDAYS = [
+  { value: 0, label: "Sunday" }, { value: 1, label: "Monday" }, { value: 2, label: "Tuesday" },
+  { value: 3, label: "Wednesday" }, { value: 4, label: "Thursday" }, { value: 5, label: "Friday" },
+  { value: 6, label: "Saturday" },
+];
+const DEFAULT_NON_WORKING_DAYS = [0, 6]; // Sun + Sat — matches the old hardcoded behavior
+
+function NonWorkingDaysCard({ stationId }: { stationId: string }) {
+  const [nonWorkingDays, setNonWorkingDays] = useState<number[]>(DEFAULT_NON_WORKING_DAYS);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const can = usePermissions();
+  const canManage = can("hr.setup.leavetypes");
+
+  useEffect(() => {
+    if (!stationId) return;
+    setLoading(true);
+    settingsApi.config.get<{ nonWorkingDays?: number[] }>("workdays", stationId)
+      .then(r => setNonWorkingDays(r.data?.nonWorkingDays ?? DEFAULT_NON_WORKING_DAYS))
+      .catch(() => setNonWorkingDays(DEFAULT_NON_WORKING_DAYS))
+      .finally(() => setLoading(false));
+  }, [stationId]);
+
+  const toggleDay = (day: number) => {
+    setNonWorkingDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day].sort());
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await settingsApi.config.set("workdays", { nonWorkingDays }, stationId);
+      toast.success("Non-working days updated");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!stationId) {
+    return (
+      <Card>
+        <CardContent className="p-4 text-sm text-muted-foreground">
+          Select a specific station above to configure its non-working days (this setting is per-station).
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-medium">Non-working days</CardTitle>
+        <p className="text-xs text-muted-foreground font-normal mt-1">
+          Days excluded from leave-day and attendance calculations for this station. Leave types with
+          "Exclude weekends" enabled will skip these days instead of always assuming Sat/Sun.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAYS.map(d => (
+            <button
+              key={d.value}
+              type="button"
+              disabled={!canManage || loading}
+              onClick={() => toggleDay(d.value)}
+              className={`px-3 py-1.5 rounded-md text-xs border transition-colors disabled:opacity-50 ${
+                nonWorkingDays.includes(d.value)
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "hover:bg-muted text-muted-foreground border-input"
+              }`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+        {canManage && (
+          <Button size="sm" onClick={save} disabled={saving || loading}>
+            {saving ? "Saving..." : "Save"}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function HolidaysSubTab({ stationId }: { stationId: string }) {
   const currentYear = new Date().getFullYear();
   const [data, setData] = useState<ApiPublicHoliday[]>([]);
@@ -663,15 +754,31 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
   ];
 
   const loadKenyaDefaults = async () => {
-    try {
-      let created = 0;
-      for (const h of KENYA_DEFAULTS) {
+    // The backend now rejects exact duplicates (name+date+scope) with a 409,
+    // but skip already-loaded ones client-side too so re-clicking this button
+    // (e.g. across repeated visits) doesn't even attempt them, and so the
+    // "already existed" count is accurate rather than lumping failures in.
+    const existingKeys = new Set(
+      data.map(h => `${h.name.trim().toLowerCase()}|${new Date(h.date).toISOString().split("T")[0].slice(5)}`)
+    );
+    const toCreate = KENYA_DEFAULTS.filter(
+      h => !existingKeys.has(`${h.name.trim().toLowerCase()}|${h.date.slice(5)}`)
+    );
+    if (toCreate.length === 0) {
+      toast.info("Kenya public holidays are already loaded");
+      return;
+    }
+    let created = 0, skipped = 0;
+    for (const h of toCreate) {
+      try {
         await hrApi.holidays.create(h, undefined);
         created++;
+      } catch {
+        skipped++; // most likely a 409 from a duplicate created concurrently elsewhere
       }
-      toast.success(`${created} Kenya public holidays added`);
-      load();
-    } catch (e: any) { toast.error(e.message || "Failed to load defaults"); }
+    }
+    toast.success(`${created} Kenya public holiday(s) added${skipped ? ` (${skipped} already existed)` : ""}`);
+    load();
   };
 
   const columns: Column<ApiPublicHoliday>[] = [
@@ -692,6 +799,8 @@ function HolidaysSubTab({ stationId }: { stationId: string }) {
 
   return (
     <div className="space-y-4">
+      <NonWorkingDaysCard stationId={stationId} />
+
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div className="flex items-center gap-2">
           <CalendarDays className="h-4 w-4 text-muted-foreground" />

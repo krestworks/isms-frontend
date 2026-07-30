@@ -12,6 +12,9 @@ export interface ExportColumn<T> {
   value: (row: T) => string | number | null | undefined;
   /** PDF column width weight (relative). Defaults to 1 — give wide text columns (e.g. "Description") a bigger number. */
   weight?: number;
+  /** Sum shown in a TOTAL row appended to the export (CSV and PDF). Omit for
+   * non-numeric columns — the TOTAL row leaves those cells blank. */
+  total?: (rows: T[]) => number;
 }
 
 function cell(v: string | number | null | undefined): string {
@@ -34,6 +37,19 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+/** One cell per column: the computed sum for columns with `total`, "TOTAL" as
+ * a label in the first column that has none, blank elsewhere. Returns null if
+ * no column defines `total` (nothing to append). */
+function computeTotalsRow<T>(rows: T[], columns: ExportColumn<T>[]): string[] | null {
+  if (!columns.some(c => c.total)) return null;
+  let labelPlaced = false;
+  return columns.map(c => {
+    if (c.total) return String(c.total(rows));
+    if (!labelPlaced) { labelPlaced = true; return "TOTAL"; }
+    return "";
+  });
+}
+
 /** Builds the raw CSV text — exposed separately so callers needing a Blob for
  * something other than an immediate download (e.g. a future email attachment) can reuse it. */
 export function toCsvString<T>(rows: T[], columns: ExportColumn<T>[]): string {
@@ -41,7 +57,9 @@ export function toCsvString<T>(rows: T[], columns: ExportColumn<T>[]): string {
   const body = rows
     .map(r => columns.map(c => escapeCsv(cell(c.value(r)))).join(","))
     .join("\n");
-  return `${header}\n${body}`;
+  const totalsRow = computeTotalsRow(rows, columns);
+  const totalsLine = totalsRow ? `\n${totalsRow.map(escapeCsv).join(",")}` : "";
+  return `${header}\n${body}${totalsLine}`;
 }
 
 export function exportToCsv<T>(filename: string, rows: T[], columns: ExportColumn<T>[]) {
@@ -204,6 +222,23 @@ export function exportToPdf<T>(filename: string, title: string, rows: T[], colum
     });
     y += rowH;
   });
+
+  const totalsRow = computeTotalsRow(rows, columns);
+  if (totalsRow) {
+    if (y + rowH > pageH - margin) newPage();
+    doc.setDrawColor(20, 24, 28);
+    doc.setLineWidth(1);
+    doc.line(margin, y, pageW - margin, y);
+    doc.setFillColor(230, 230, 226);
+    doc.rect(margin, y, usableW, rowH, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(20, 24, 28);
+    totalsRow.forEach((val, ci) => {
+      const text = doc.splitTextToSize(val, colW[ci] - 8)[0] ?? val;
+      doc.text(text, colX[ci] + 5, y + rowH - 6);
+    });
+    y += rowH;
+  }
 
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {

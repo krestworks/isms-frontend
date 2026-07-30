@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Printer, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { useSession } from "@/data/sessionStore";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -155,7 +156,7 @@ export function CarwashSalesTab() {
     { label: "Package",        value: s => s.washPackage },
     { label: "Attendant",      value: s => s.attendant || "—" },
     { label: "Payment Method", value: s => s.paymentMethod },
-    { label: "Amount (Ksh)",   value: s => s.amount },
+    { label: "Amount (Ksh)",   value: s => s.amount, total: rows => rows.reduce((sum, s) => sum + s.amount, 0) },
     { label: "Status",         value: s => s.status },
   ];
 
@@ -245,7 +246,7 @@ export function CarwashSalesTab() {
               </SelectContent>
             </Select>
           </div>
-          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+          <div><Label>Attendant</Label><Input value={form.attendant} disabled className="bg-muted/50 text-muted-foreground" /></div>
           <div>
             <Label>Payment Method</Label>
             <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
@@ -268,7 +269,11 @@ export function CarwashSalesTab() {
         </div>
       </ModalForm>
 
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView
+        footerExtra={<>
+          <Button variant="outline" size="sm" onClick={() => viewing && openPdfInNewTab(`/carwash/sales/${viewing.id}/receipt.pdf`)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && downloadPdf(`/carwash/sales/${viewing.id}/receipt.pdf`, `${viewing.receiptNo}.pdf`)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
+        </>}>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>

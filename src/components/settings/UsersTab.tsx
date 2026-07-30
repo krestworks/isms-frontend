@@ -58,7 +58,7 @@ export function UsersTab() {
   const [hrSearch,     setHrSearch]     = useState("");
   const [bulkRoles,    setBulkRoles]    = useState<string[]>(["Employee"]);
   const [bulkSending,  setBulkSending]  = useState(false);
-  const [bulkResults,  setBulkResults]  = useState<{ name?: string; email?: string; dev_invite_link?: string; error?: string }[]>([]);
+  const [bulkResults,  setBulkResults]  = useState<{ name?: string; email?: string; emailSent?: boolean; emailError?: string; error?: string }[]>([]);
 
   // ── Load users ──────────────────────────────────────────────────────────────
 
@@ -126,10 +126,14 @@ export function UsersTab() {
     setResending(true);
     try {
       const res = await usersApi.resendInvite(modal.user.id);
-      toast.success(res.message || "Invite resent");
-      if (res.dev_invite_link) {
+      if (res.emailSent === false) {
+        toast.warning(res.message || `Invite email failed to send (${res.emailError ?? "unknown error"})`, { duration: 8000 });
+      } else {
+        toast.success(res.message || "Invite resent");
+      }
+      if (res.inviteLink) {
         setModal(null);
-        setInviteLink(res.dev_invite_link);
+        setInviteLink(res.inviteLink);
       }
     } catch (e: any) { toast.error(e?.message || "Failed to resend invite"); }
     finally { setResending(false); }
@@ -152,11 +156,12 @@ export function UsersTab() {
           roles: form.roles,
         });
         setModal(null);
-        if (res.dev_invite_link) {
-          setInviteLink(res.dev_invite_link as string);
+        if (res.emailSent === false) {
+          toast.warning(res.message || `User created, but the invite email failed to send (${res.emailError ?? "unknown error"})`, { duration: 8000 });
         } else {
           toast.success("User created");
         }
+        if (res.inviteLink) setInviteLink(res.inviteLink);
         load();
         return;
       } else if (modal?.mode === "edit" && modal.user) {
@@ -459,11 +464,12 @@ export function UsersTab() {
                       roles: form.roles,
                     });
                     setAddOpen(false);
-                    if (res.dev_invite_link) {
-                      setInviteLink(res.dev_invite_link as string);
+                    if (res.emailSent === false) {
+                      toast.warning(res.message || `User created, but the invite email failed to send (${res.emailError ?? "unknown error"})`, { duration: 8000 });
                     } else {
                       toast.success("User created");
                     }
+                    if (res.inviteLink) setInviteLink(res.inviteLink);
                     load();
                   } catch (e: any) { toast.error(e?.message || "Failed to create user"); }
                   finally { setSaving(false); }
@@ -587,15 +593,9 @@ export function UsersTab() {
                     <div key={i} className="text-xs flex items-center gap-2">
                       {r.error
                         ? <><span className="text-destructive font-medium">✗</span> <span>{r.name || r.email} — {r.error}</span></>
-                        : <><span className="text-green-600 font-medium">✓</span> <span className="truncate">{r.name} ({r.email})</span>
-                            {r.dev_invite_link && (
-                              <button
-                                className="ml-auto text-primary underline shrink-0"
-                                onClick={() => { navigator.clipboard.writeText(r.dev_invite_link!); toast.success("Copied!"); }}>
-                                Copy link
-                              </button>
-                            )}
-                          </>
+                        : r.emailSent === false
+                        ? <><span className="text-amber-600 font-medium">⚠</span> <span className="truncate">{r.name} ({r.email}) — invite email failed: {r.emailError ?? "unknown error"}</span></>
+                        : <><span className="text-green-600 font-medium">✓</span> <span className="truncate">{r.name} ({r.email})</span></>
                       }
                     </div>
                   ))}
@@ -627,8 +627,8 @@ export function UsersTab() {
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Share this link with the user. They click it to set their password and activate their account.
-              In production this is sent automatically by email.
+              An activation email was sent automatically. Use this link as a manual fallback — e.g. to share via
+              WhatsApp/Slack, or if the email bounces or lands in spam.
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 text-xs bg-muted px-3 py-2.5 rounded break-all border">{inviteLink}</code>

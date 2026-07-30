@@ -15,6 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PasswordConfirmModal } from "@/components/shared/PasswordConfirmModal";
 import { accountsApi, ApiAccount, ApiAccountDetail } from "@/lib/accountsApi";
 import { toast } from "sonner";
 
@@ -61,7 +62,7 @@ export default function AccountsPage() {
   const [creating, setCreating]         = useState(false);
   const [showCreate, setShowCreate]     = useState(false);
   const [form, setForm]                 = useState<CreateForm>(emptyForm);
-  const [devLink, setDevLink]           = useState<string | null>(null);
+  const [pendingStatusChange, setPendingStatusChange] = useState<{ accountId: string; status: ApiAccount["status"] } | null>(null);
 
   // Detail panel
   const [selectedId, setSelectedId]         = useState<string | null>(null);
@@ -127,8 +128,11 @@ export default function AccountsPage() {
         adminEmail: form.adminEmail,
         phone: form.phone || undefined,
       });
-      toast.success(`Account "${form.name}" created`);
-      if (res.dev_invite_link) setDevLink(res.dev_invite_link);
+      if (res.emailSent === false) {
+        toast.warning(`Account "${form.name}" created, but the invite email failed to send (${res.emailError ?? "unknown error"}). Use "Resend Invite" from the account detail panel.`, { duration: 8000 });
+      } else {
+        toast.success(`Account "${form.name}" created. Invite sent to ${form.adminEmail}.`);
+      }
       setForm(emptyForm);
       setShowCreate(false);
       load();
@@ -137,6 +141,13 @@ export default function AccountsPage() {
     } finally {
       setCreating(false);
     }
+  }
+
+  // Status changes (activate/suspend/deactivate) require re-entering the
+  // account password first (see PasswordConfirmModal below) — previously
+  // these fired immediately on click with no confirmation of any kind.
+  function requestStatusChange(accountId: string, status: ApiAccount["status"]) {
+    setPendingStatusChange({ accountId, status });
   }
 
   async function handleStatusChange(accountId: string, status: ApiAccount["status"]) {
@@ -181,8 +192,11 @@ export default function AccountsPage() {
     setResending(true);
     try {
       const res = await accountsApi.resendInvite(detail.id);
-      toast.success(res.message ?? "Invite resent");
-      if (res.dev_invite_link) setDevLink(res.dev_invite_link);
+      if (res.emailSent === false) {
+        toast.warning(res.message ?? `Invite email failed to send (${res.emailError ?? "unknown error"})`, { duration: 8000 });
+      } else {
+        toast.success(res.message ?? "Invite resent");
+      }
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to resend invite");
     } finally {
@@ -341,7 +355,7 @@ export default function AccountsPage() {
                       size="sm"
                       variant="outline"
                       className="text-green-600 border-green-200 hover:bg-green-50 dark:hover:bg-green-950"
-                      onClick={() => handleStatusChange(detail.id, "Active")}
+                      onClick={() => requestStatusChange(detail.id, "Active")}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" /> Activate
                     </Button>
@@ -351,7 +365,7 @@ export default function AccountsPage() {
                       size="sm"
                       variant="outline"
                       className="text-destructive border-destructive/20 hover:bg-destructive/5"
-                      onClick={() => handleStatusChange(detail.id, "Suspended")}
+                      onClick={() => requestStatusChange(detail.id, "Suspended")}
                     >
                       <XCircle className="h-3.5 w-3.5 mr-1.5" /> Suspend Account
                     </Button>
@@ -361,7 +375,7 @@ export default function AccountsPage() {
                       size="sm"
                       variant="ghost"
                       className="text-muted-foreground"
-                      onClick={() => handleStatusChange(detail.id, "Cancelled")}
+                      onClick={() => requestStatusChange(detail.id, "Cancelled")}
                     >
                       <AlertCircle className="h-3.5 w-3.5 mr-1.5" /> Deactivate
                     </Button>
@@ -613,26 +627,30 @@ export default function AccountsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dev invite link */}
-      {devLink && (
-        <Dialog open onOpenChange={() => setDevLink(null)}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Admin Invite Link (Dev)</DialogTitle>
-            </DialogHeader>
-            <p className="text-xs text-muted-foreground mb-2">
-              In production this would be sent by email. Share this link with the admin to activate their account.
-            </p>
-            <code className="block text-xs bg-muted p-3 rounded break-all">{devLink}</code>
-            <DialogFooter>
-              <Button onClick={() => { navigator.clipboard.writeText(devLink); toast.success("Copied"); }}>
-                Copy Link
-              </Button>
-              <Button variant="outline" onClick={() => setDevLink(null)}>Close</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
+      <PasswordConfirmModal
+        open={!!pendingStatusChange}
+        title={
+          pendingStatusChange?.status === "Active" ? "Activate this account?"
+          : pendingStatusChange?.status === "Suspended" ? "Suspend this account?"
+          : "Deactivate this account?"
+        }
+        description={
+          pendingStatusChange?.status === "Active"
+            ? "Users will regain access immediately once confirmed."
+            : "Users will lose access to this account immediately once confirmed."
+        }
+        confirmLabel={
+          pendingStatusChange?.status === "Active" ? "Activate"
+          : pendingStatusChange?.status === "Suspended" ? "Suspend"
+          : "Deactivate"
+        }
+        variant={pendingStatusChange?.status === "Active" ? "default" : "destructive"}
+        onConfirm={() => {
+          if (pendingStatusChange) handleStatusChange(pendingStatusChange.accountId, pendingStatusChange.status);
+          setPendingStatusChange(null);
+        }}
+        onCancel={() => setPendingStatusChange(null)}
+      />
     </div>
   );
 }

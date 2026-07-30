@@ -40,7 +40,7 @@ export interface ApiWaterOrder {
   orderStatus: string; paymentStatus: string; paymentMethod: string;
   processedBy?: string | null; deliveredBy?: string | null;
   deliveryAddress?: string | null; deliveryDate?: string | null; notes?: string | null;
-  createdAt: string; updatedAt: string;
+  saleId?: string | null; createdAt: string; updatedAt: string;
 }
 
 export interface ApiWaterDistribution {

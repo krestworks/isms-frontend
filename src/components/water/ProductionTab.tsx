@@ -10,7 +10,7 @@ import { ModalForm } from "@/components/shared/ModalForm";
 import { StatusBadge } from "@/components/shared/StatusBadge";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
-import { waterApi, ApiWaterProduction } from "@/lib/waterApi";
+import { waterApi, ApiWaterProduction, ApiWaterEquipment, ApiWaterSummary } from "@/lib/waterApi";
 import { useActiveStation } from "@/lib/useActiveStation";
 import { usePermissions } from "@/lib/permissions";
 import { useSession } from "@/data/sessionStore";
@@ -43,6 +43,8 @@ export function ProductionTab() {
   const [viewing, setViewing]   = useState<ApiWaterProduction | null>(null);
   const [form, setForm]         = useState(emptyForm);
   const [saving, setSaving]     = useState(false);
+  const [pumps, setPumps]       = useState<ApiWaterEquipment[]>([]);
+  const [summary, setSummary]   = useState<ApiWaterSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!stationId) return;
@@ -54,7 +56,25 @@ export function ProductionTab() {
     finally { setLoading(false); }
   }, [stationId, fromDate, toDate]);
 
+  const loadPumps = useCallback(async () => {
+    if (!stationId) return;
+    try {
+      const res = await waterApi.equipment.list({ type: "Pump" }, stationId);
+      setPumps(res.data ?? []);
+    } catch { /* non-fatal — form still usable if this fails */ }
+  }, [stationId]);
+
+  const loadSummary = useCallback(async () => {
+    if (!stationId) return;
+    try {
+      const res = await waterApi.summary(stationId);
+      setSummary(res.data);
+    } catch { /* non-fatal — production log itself still works without it */ }
+  }, [stationId]);
+
   useEffect(() => { if (stationId) load(); }, [load]);
+  useEffect(() => { if (stationId) loadPumps(); }, [loadPumps]);
+  useEffect(() => { if (stationId) loadSummary(); }, [loadSummary]);
 
   const openNew = () => { setEditing(null); setForm({ ...emptyForm, date: today(), operator: user.name || "" }); setModalOpen(true); };
   const openEdit = (p: ApiWaterProduction) => {
@@ -84,6 +104,7 @@ export function ProductionTab() {
       }
       setModalOpen(false);
       load();
+      loadSummary();
     } catch (e: any) { toast.error(e?.message || "Failed to save"); }
     finally { setSaving(false); }
   };
@@ -121,9 +142,9 @@ export function ProductionTab() {
   const exportColumns: ExportColumn<ApiWaterProduction>[] = [
     { label: "Date",          value: p => p.date.split("T")[0] },
     { label: "Shift",         value: p => p.shift },
-    { label: "Produced (L)",  value: p => p.litresProduced },
-    { label: "Wasted (L)",    value: p => p.litresWasted },
-    { label: "Net Output (L)",value: p => p.netOutput },
+    { label: "Produced (L)",  value: p => p.litresProduced, total: rows => rows.reduce((sum, p) => sum + p.litresProduced, 0) },
+    { label: "Wasted (L)",    value: p => p.litresWasted, total: rows => rows.reduce((sum, p) => sum + p.litresWasted, 0) },
+    { label: "Net Output (L)",value: p => p.netOutput, total: rows => rows.reduce((sum, p) => sum + p.netOutput, 0) },
     { label: "Operator",      value: p => p.operator || "—" },
     { label: "Machine",       value: p => p.machineId || "—" },
     { label: "Status",        value: p => p.status },
@@ -132,11 +153,12 @@ export function ProductionTab() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-4 gap-3">
         {[
           { label: "Produced (L)", value: totals.produced.toLocaleString(), color: "text-primary" },
           { label: "Wasted (L)",   value: totals.wasted.toLocaleString(),   color: "text-amber-600" },
           { label: "Net Output (L)",value: totals.net.toLocaleString(),     color: "text-green-600" },
+          { label: "Available for Sale (L)", value: (summary?.availableWater ?? 0).toLocaleString(), color: "text-blue-600" },
         ].map(s => (
           <Card key={s.label}><CardContent className="p-4 text-center">
             <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
@@ -144,6 +166,7 @@ export function ProductionTab() {
           </CardContent></Card>
         ))}
       </div>
+      <p className="text-xs text-muted-foreground -mt-2">"Available for Sale" is the running total (all-time production minus all sales/orders) — orders can be recorded even if this runs short; the shortfall only blocks at delivery/sale.</p>
 
       <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-sm text-muted-foreground">Shift-based water production logs</p>
@@ -199,7 +222,16 @@ export function ProductionTab() {
             </Select>
           </div>
           <div><Label>Operator</Label><Input value={form.operator} onChange={e => set("operator", e.target.value)} /></div>
-          <div><Label>Machine ID</Label><Input value={form.machineId} onChange={e => set("machineId", e.target.value)} /></div>
+          <div><Label>Machine</Label>
+            <Select value={form.machineId} onValueChange={v => set("machineId", v)}>
+              <SelectTrigger><SelectValue placeholder="Select pump..." /></SelectTrigger>
+              <SelectContent>
+                {pumps.length === 0
+                  ? <div className="px-2 py-1.5 text-xs text-muted-foreground">No pump equipment set up yet</div>
+                  : pumps.map(p => <SelectItem key={p.id} value={p.name}>{p.name}{p.status !== "operational" ? ` (${p.status})` : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
           <div className="col-span-2"><Label>Notes</Label><Textarea value={form.notes} onChange={e => set("notes", e.target.value)} /></div>
         </div>
       </ModalForm>

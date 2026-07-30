@@ -152,7 +152,7 @@ export function PurchaseOrdersTab({ business }: Props) {
     { label: "Order Ref", value: o => o.orderRef },
     { label: "Date",      value: o => o.orderDate },
     { label: "Supplier",  value: o => o.supplierName || "—" },
-    { label: "Total",     value: o => o.totalAmount },
+    { label: "Total",     value: o => o.totalAmount, total: rows => rows.reduce((sum, o) => sum + o.totalAmount, 0) },
     { label: "Status",    value: o => o.status },
   ];
 

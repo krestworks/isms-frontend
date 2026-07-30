@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Printer, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,6 +16,7 @@ import { usePermissions } from "@/lib/permissions";
 import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const ORDER_STATUSES = ["pending", "processing", "dispatched", "delivered", "cancelled"];
@@ -145,9 +146,9 @@ export function WaterOrdersTab() {
     { label: "Date",           value: o => o.date.split("T")[0] },
     { label: "Client",         value: o => o.client },
     { label: "Phone",          value: o => o.clientPhone || "—" },
-    { label: "Litres (L)",     value: o => o.litres },
+    { label: "Litres (L)",     value: o => o.litres, total: rows => rows.reduce((sum, o) => sum + o.litres, 0) },
     { label: "Price/L (Ksh)",  value: o => o.pricePerLitre },
-    { label: "Total (Ksh)",    value: o => o.totalAmount },
+    { label: "Total (Ksh)",    value: o => o.totalAmount, total: rows => rows.reduce((sum, o) => sum + o.totalAmount, 0) },
     { label: "Order Status",   value: o => o.orderStatus },
     { label: "Payment Status", value: o => o.paymentStatus },
     { label: "Payment Method", value: o => o.paymentMethod },
@@ -258,7 +259,11 @@ export function WaterOrdersTab() {
         </div>
       </ModalForm>
 
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Order Details" isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Order Details" isView
+        footerExtra={viewing?.saleId ? <>
+          <Button variant="outline" size="sm" onClick={() => openPdfInNewTab(`/water/sales/${viewing.saleId}/receipt.pdf`)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print Receipt</Button>
+          <Button variant="outline" size="sm" onClick={() => downloadPdf(`/water/sales/${viewing.saleId}/receipt.pdf`, `${viewing.orderNo}.pdf`)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
+        </> : undefined}>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><span className="text-muted-foreground">Order #:</span> <span className="font-mono">{viewing.orderNo}</span></div>
@@ -275,6 +280,7 @@ export function WaterOrdersTab() {
             {viewing.deliveryDate && <div><span className="text-muted-foreground">Delivery Date:</span> {viewing.deliveryDate.split("T")[0]}</div>}
             {viewing.deliveryAddress && <div className="col-span-2"><span className="text-muted-foreground">Address:</span> {viewing.deliveryAddress}</div>}
             {viewing.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes:</span> {viewing.notes}</div>}
+            {viewing.saleId && <div className="col-span-2 text-xs text-muted-foreground">This order has been delivered and converted to a sale.</div>}
           </div>
         )}
       </ModalForm>

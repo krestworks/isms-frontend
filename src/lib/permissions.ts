@@ -24,6 +24,23 @@ export const ROUTE_TO_MODULE: Record<string, string> = {
   "/accounts": "Accounts",
 };
 
+// Module key by last URL segment — matches the backend's StationModule keys
+// ("fuel", "lpg", "water", "carwash", "auto", "pos", "finance", "hr") and the
+// requireModuleEnabled() gate applied to each module's routes on the backend.
+// Shared by AppSidebar (hides disabled links) and RouteGuard (blocks direct
+// navigation to a disabled module, not just permission checks).
+export const SEGMENT_MODULE_KEY: Record<string, string> = {
+  "fuel":       "fuel",
+  "lpg":        "lpg",
+  "water":      "water",
+  "automotive": "auto",
+  "carwash":    "carwash",
+  "business":   "pos",
+  "inventory":  "pos",
+  "finance":    "finance",
+  "hr":         "hr",
+};
+
 // Minimum permission code required to access each module
 const MODULE_PERMISSION: Record<string, string> = {
   Fuel:          "fuel.sales.view",
@@ -84,7 +101,7 @@ export function canAccessModule(moduleName: string): boolean {
  * looked up in ROUTE_TO_MODULE, which uses module-relative paths (/fuel, /hr, …).
  * Also strips query params before splitting.
  */
-function extractModulePath(fullPath: string): string {
+export function extractModulePath(fullPath: string): string {
   const path = fullPath.split("?")[0];
   const parts = path.split("/").filter(Boolean); // ["slug", "fuel"] or ["slug"]
   if (parts.length <= 1) return "/";             // root index = dashboard

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Printer, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ import { useSession } from "@/data/sessionStore";
 import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const EXCHANGE_TYPES = ["Exchange", "New", "Refill"];
@@ -178,10 +179,10 @@ export function LpgSalesTab() {
     { label: "Date",           value: s => s.date.split("T")[0] },
     { label: "Customer",       value: s => s.customer || "Walk-in" },
     { label: "Size",           value: s => s.cylinderSize },
-    { label: "Qty",            value: s => s.quantity },
+    { label: "Qty",            value: s => s.quantity, total: rows => rows.reduce((sum, s) => sum + s.quantity, 0) },
     { label: "Unit Price (Ksh)",value: s => s.unitPrice },
-    { label: "Discount (Ksh)", value: s => s.discount },
-    { label: "Total (Ksh)",    value: s => s.totalAmount },
+    { label: "Discount (Ksh)", value: s => s.discount, total: rows => rows.reduce((sum, s) => sum + s.discount, 0) },
+    { label: "Total (Ksh)",    value: s => s.totalAmount, total: rows => rows.reduce((sum, s) => sum + s.totalAmount, 0) },
     { label: "Type",           value: s => s.exchangeType },
     { label: "Payment Method", value: s => s.paymentMethod },
     { label: "Status",         value: s => s.paymentStatus },
@@ -302,11 +303,15 @@ export function LpgSalesTab() {
             </Select>
           </div>
           <div><Label>Customer</Label><Input value={form.customer} onChange={e => set("customer", e.target.value)} placeholder="Walk-in" /></div>
-          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+          <div><Label>Attendant</Label><Input value={form.attendant} disabled className="bg-muted/50 text-muted-foreground" /></div>
         </div>
       </ModalForm>
 
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView
+        footerExtra={<>
+          <Button variant="outline" size="sm" onClick={() => viewing && openPdfInNewTab(`/lpg/sales/${viewing.id}/receipt.pdf`)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && downloadPdf(`/lpg/sales/${viewing.id}/receipt.pdf`, `${viewing.receiptNo}.pdf`)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
+        </>}>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>

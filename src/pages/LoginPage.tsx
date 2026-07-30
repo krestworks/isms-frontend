@@ -95,7 +95,6 @@ export default function LoginPage() {
       const outcome = await login(values.email, values.password);
       if (outcome.requiresOtp) {
         setOtpChallenge(outcome.otpChallenge ?? null);
-        if (outcome.devOtp) toast.info(`DEV — login OTP: ${outcome.devOtp}`, { duration: 60000 });
         toast.success("Enter the code sent to your registered email");
         setView("otp");
         return;
@@ -127,9 +126,8 @@ export default function LoginPage() {
   async function handleResendVerification() {
     if (!emailUnverified) return;
     try {
-      const res = await authService.resendEmailVerification(emailUnverified);
+      await authService.resendEmailVerification(emailUnverified);
       toast.success("If that account needs verification, a new link has been sent to its email address");
-      if ((res as any).dev_email) toast.info("DEV — verification link logged to server console", { duration: 8000 });
     } catch {
       toast.error("Failed to resend verification email");
     }
@@ -138,9 +136,8 @@ export default function LoginPage() {
   async function handleForgot(values: ForgotValues) {
     setSubmitting(true);
     try {
-      const res = await authService.forgotPassword(values.email);
+      await authService.forgotPassword(values.email);
       toast.success("Reset code sent to your registered phone number");
-      if (res.dev_otp) toast.info(`DEV — OTP code: ${res.dev_otp}`, { duration: 60000 });
       setView("reset");
     } catch {
       toast.error("Failed to send reset code. Try again.");

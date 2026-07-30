@@ -3,7 +3,7 @@ import {
   Search, ScanBarcode, Plus, Minus, Trash2, ShoppingCart, CreditCard,
   Printer, Download, X, CheckCircle2, Tag, ChevronUp,
   Smartphone, Loader2, QrCode, AlertCircle, Monitor,
-  LayoutGrid, List, Package, Filter,
+  LayoutGrid, List, Package, Filter, Keyboard,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
   bizApi, ApiBizBusiness, ApiBizProduct, ApiBizCategory,
@@ -378,6 +379,68 @@ export function POSTab({ business }: Props) {
   const isPesapalMethod  = payMethod === "M-Pesa" || (payMethod === "Card" && cardMode === "remote");
   const isImmediateMethod = !isPesapalMethod;
 
+  // ── Keyboard-driven checkout ───────────────────────────────────────────────
+  // Lets a cashier run a whole cash sale without touching the mouse: scan
+  // items (barcode input already handles Enter), adjust the last-added line
+  // with +/-/Delete, F2 to open checkout, Ctrl+Enter to confirm, Ctrl+P to
+  // print the receipt. Escape-to-close is Radix Dialog's own built-in
+  // behavior (and already respects the "don't close while awaiting a Pesapal
+  // callback" guard in the Dialog's onOpenChange below), so it isn't
+  // re-implemented here. See docs/keyboard-shortcuts.md for the full reference.
+  useEffect(() => {
+    const isTypingTarget = (el: EventTarget | null) => {
+      const tag = (el as HTMLElement | null)?.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || (el as HTMLElement | null)?.isContentEditable;
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Ctrl/Cmd+Enter — confirm sale, works even while focused in the
+      // amount-paid field (that's the natural place a cashier presses it).
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter" && payOpen && payPhase === "idle") {
+        e.preventDefault();
+        if (isImmediateMethod) handleCashCheckout(); else handlePesapalCheckout();
+        return;
+      }
+      // Ctrl/Cmd+P — print the just-completed receipt instead of the browser's page-print.
+      if ((e.ctrlKey || e.metaKey) && (e.key === "p" || e.key === "P") && receiptOpen && lastSale) {
+        e.preventDefault();
+        handlePrint();
+        return;
+      }
+      // F2 — open checkout (equivalent to clicking the Checkout button).
+      if (e.key === "F2" && !payOpen && !receiptOpen && cart.length > 0) {
+        e.preventDefault();
+        openPayDialog();
+        return;
+      }
+      // The rest only apply when not typing into a field, and only when no
+      // dialog is open — they act on the product grid / cart, not on forms.
+      if (isTypingTarget(e.target) || payOpen || receiptOpen) return;
+
+      if (e.key === "/") {
+        e.preventDefault();
+        barcodeRef.current?.focus();
+        return;
+      }
+      if (cart.length === 0) return;
+      const lastItem = cart[cart.length - 1];
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        updateQty(lastItem.productId, 1);
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        updateQty(lastItem.productId, -1);
+      } else if (e.key === "Delete") {
+        e.preventDefault();
+        removeItem(lastItem.productId);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart, payOpen, payPhase, receiptOpen, lastSale, isImmediateMethod]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -411,6 +474,23 @@ export function POSTab({ business }: Props) {
               onKeyDown={handleBarcodeKey}
             />
           </div>
+          {/* Keyboard shortcuts hint */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" className="shrink-0" aria-label="Keyboard shortcuts">
+                <Keyboard className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs space-y-1 max-w-[220px]">
+              <p><kbd className="font-mono">/</kbd> — focus barcode scanner</p>
+              <p><kbd className="font-mono">+</kbd> / <kbd className="font-mono">-</kbd> — qty on last item</p>
+              <p><kbd className="font-mono">Delete</kbd> — remove last item</p>
+              <p><kbd className="font-mono">F2</kbd> — open checkout</p>
+              <p><kbd className="font-mono">Ctrl+Enter</kbd> — confirm sale</p>
+              <p><kbd className="font-mono">Ctrl+P</kbd> — print receipt</p>
+              <p><kbd className="font-mono">Esc</kbd> — close dialog</p>
+            </TooltipContent>
+          </Tooltip>
           {/* View mode toggle */}
           <div className="flex border rounded-md overflow-hidden">
             <button
@@ -803,7 +883,7 @@ export function POSTab({ business }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label className="text-xs text-muted-foreground">Cashier</Label>
-                  <Input placeholder="Staff name" value={cashier} onChange={e => setCashier(e.target.value)} className="mt-1" />
+                  <Input value={cashier} disabled className="mt-1 bg-muted/50 text-muted-foreground" />
                 </div>
                 <div>
                   <Label className="text-xs text-muted-foreground">Order Discount (Ksh)</Label>

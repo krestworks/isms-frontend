@@ -1,4 +1,4 @@
-import { api, setAccessToken } from "./api";
+import { api, setAccessToken, ApiError } from "./api";
 import type { Role, SessionUser } from "@/data/sessionStore";
 import type { AccountBranding } from "@/data/brandingStore";
 
@@ -17,8 +17,6 @@ export interface OtpRequiredResponse {
   message: string;
   data: {
     otpChallenge: string;
-    dev_otp?: string;
-    dev_email?: unknown;
   };
 }
 
@@ -69,7 +67,7 @@ export const authService = {
     return res;
   },
 
-  async resendEmailVerification(email: string): Promise<{ message: string; dev_email?: unknown }> {
+  async resendEmailVerification(email: string): Promise<{ message: string }> {
     return api.post("/auth/verify-email/resend", { email }, { skipAuth: true });
   },
 
@@ -91,8 +89,13 @@ export const authService = {
     setAccessToken(null);
   },
 
-  async forgotPassword(email: string): Promise<{ message: string; dev_otp?: string }> {
-    const res = await api.post<{ success: boolean; message: string; dev_otp?: string }>(
+  /** Re-auth confirmation step for sensitive UI actions (does not change anything). */
+  async verifyPassword(password: string): Promise<void> {
+    await api.post("/auth/password/verify", { password });
+  },
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const res = await api.post<{ success: boolean; message: string }>(
       "/auth/password/reset",
       { email },
       { skipAuth: true },
@@ -144,5 +147,22 @@ export const authService = {
   },
   async revokeSession(id: string): Promise<void> {
     await api.delete(`/auth/sessions/${id}`);
+  },
+
+  /**
+   * Cheap read-only poll used to detect an admin-revoked session quickly
+   * (access tokens otherwise stay valid for their full 15-minute life
+   * regardless of revocation). Distinguishes a confirmed revoke (401 from the
+   * server) from a transient network hiccup — only the former should force a
+   * logout; a dropped wifi connection should not.
+   */
+  async checkSession(): Promise<"valid" | "revoked" | "unknown"> {
+    try {
+      await api.get("/auth/session/check");
+      return "valid";
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) return "revoked";
+      return "unknown";
+    }
   },
 };

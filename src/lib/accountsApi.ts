@@ -57,7 +57,7 @@ export const accountsApi = {
   },
 
   create(body: { name: string; contactEmail: string; adminName: string; adminEmail: string; phone?: string; plan?: string }) {
-    return api.post<{ success: boolean; data: { account: ApiAccount; adminUser: object }; dev_invite_link?: string }>(
+    return api.post<{ success: boolean; message: string; data: { account: ApiAccount; adminUser: object }; emailSent?: boolean; emailError?: string }>(
       "/accounts",
       body,
     );
@@ -72,6 +72,6 @@ export const accountsApi = {
   },
 
   resendInvite(id: string) {
-    return api.post<{ success: boolean; message: string; dev_invite_link?: string }>(`/accounts/${id}/resend-invite`, {});
+    return api.post<{ success: boolean; message: string; emailSent?: boolean; emailError?: string }>(`/accounts/${id}/resend-invite`, {});
   },
 };

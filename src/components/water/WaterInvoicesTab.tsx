@@ -180,9 +180,9 @@ export function WaterInvoicesTab() {
     { label: "Due Date",      value: i => i.dueDate?.split("T")[0] || "—" },
     { label: "Client",        value: i => i.client },
     { label: "Type",          value: i => i.type },
-    { label: "Subtotal (Ksh)",value: i => i.subtotal },
-    { label: "VAT (Ksh)",     value: i => i.vatAmount },
-    { label: "Total (Ksh)",   value: i => i.totalAmount },
+    { label: "Subtotal (Ksh)",value: i => i.subtotal, total: rows => rows.reduce((sum, i) => sum + i.subtotal, 0) },
+    { label: "VAT (Ksh)",     value: i => i.vatAmount, total: rows => rows.reduce((sum, i) => sum + i.vatAmount, 0) },
+    { label: "Total (Ksh)",   value: i => i.totalAmount, total: rows => rows.reduce((sum, i) => sum + i.totalAmount, 0) },
     { label: "Status",        value: i => i.displayStatus },
   ];
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw, AlertTriangle } from "lucide-react";
+import { Plus, RefreshCw, AlertTriangle, Printer, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,6 +17,7 @@ import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { useSession } from "@/data/sessionStore";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 
@@ -201,11 +202,11 @@ export function PumpSalesTab() {
     { label: "Date",           value: s => s.date.split("T")[0] },
     { label: "Pump",           value: s => `Pump ${s.pumpNumber}` },
     { label: "Fuel Type",      value: s => s.fuelType },
-    { label: "Litres",         value: s => s.litres },
+    { label: "Litres",         value: s => s.litres, total: rows => rows.reduce((sum, s) => sum + s.litres, 0) },
     { label: "Price/L (Ksh)",  value: s => s.pricePerLitre },
-    { label: "Gross (Ksh)",    value: s => s.amount },
-    { label: "Discount (Ksh)", value: s => s.discount },
-    { label: "Net Amount (Ksh)",value: s => s.netAmount },
+    { label: "Gross (Ksh)",    value: s => s.amount, total: rows => rows.reduce((sum, s) => sum + s.amount, 0) },
+    { label: "Discount (Ksh)", value: s => s.discount, total: rows => rows.reduce((sum, s) => sum + s.discount, 0) },
+    { label: "Net Amount (Ksh)",value: s => s.netAmount, total: rows => rows.reduce((sum, s) => sum + s.netAmount, 0) },
     { label: "Payment Method", value: s => s.paymentMethod },
     { label: "Status",         value: s => s.paymentStatus },
     { label: "Customer",       value: s => s.customer || "Walk-in" },
@@ -338,7 +339,7 @@ export function PumpSalesTab() {
           </div>
           <div><Label>Discount (Ksh)</Label><Input type="number" value={form.discount || ""} onChange={e => set("discount", +e.target.value)} /></div>
           <div><Label>Net Amount (Ksh)</Label><Input value={`Ksh ${form.netAmount.toLocaleString()}`} disabled className="font-mono" /></div>
-          <div><Label>Attendant</Label><Input value={form.attendant} onChange={e => set("attendant", e.target.value)} /></div>
+          <div><Label>Attendant</Label><Input value={form.attendant} disabled className="bg-muted/50 text-muted-foreground" /></div>
           <div>
             <Label>Payment Method</Label>
             <Select value={form.paymentMethod} onValueChange={v => set("paymentMethod", v)}>
@@ -351,7 +352,11 @@ export function PumpSalesTab() {
       </ModalForm>
 
       {/* View Sale */}
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Sale Details" isView
+        footerExtra={<>
+          <Button variant="outline" size="sm" onClick={() => viewing && openPdfInNewTab(`/fuel/sales/${viewing.id}/receipt.pdf`)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && downloadPdf(`/fuel/sales/${viewing.id}/receipt.pdf`, `${viewing.receiptNo}.pdf`)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
+        </>}>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><span className="text-muted-foreground">Receipt:</span> <span className="font-mono">{viewing.receiptNo}</span></div>

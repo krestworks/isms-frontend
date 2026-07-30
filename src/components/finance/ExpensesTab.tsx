@@ -40,7 +40,7 @@ const exportColumns: ExportColumn<ApiFinanceExpense>[] = [
   { label: "Module",   value: r => r.module || "—" },
   { label: "Category", value: r => r.category || "—" },
   { label: "Vendor",   value: r => r.vendor || "—" },
-  { label: "Amount",   value: r => r.amount },
+  { label: "Amount",   value: r => r.amount, total: rows => rows.reduce((sum, r) => sum + r.amount, 0) },
   { label: "Payment",  value: r => r.paymentMethod || "—" },
   { label: "Status",   value: r => r.status },
 ];

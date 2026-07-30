@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Printer, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import { usePermissions } from "@/lib/permissions";
 import { usePendingDeleteIds } from "@/lib/usePendingDeleteIds";
 import { ExportMenu } from "@/components/shared/ExportMenu";
 import type { ExportColumn } from "@/lib/exportCsv";
+import { openPdfInNewTab, downloadPdf } from "@/lib/pdfDoc";
 
 const PAY_METHODS = ["Cash", "M-Pesa", "Card", "Invoice", "Cheque"];
 const today = () => new Date().toISOString().split("T")[0];
@@ -126,12 +127,12 @@ export function BillingTab() {
     { label: "Service Ref",    value: b => b.serviceRef || "—" },
     { label: "Customer",       value: b => b.customerName },
     { label: "Vehicle",        value: b => b.vehicleReg },
-    { label: "Labour (Ksh)",   value: b => b.labourCharges },
-    { label: "Parts (Ksh)",    value: b => b.partsCost },
-    { label: "Discount (Ksh)", value: b => b.discount },
-    { label: "Total (Ksh)",    value: b => b.totalAmount },
-    { label: "Paid (Ksh)",     value: b => b.paidAmount },
-    { label: "Balance (Ksh)",  value: b => b.balance },
+    { label: "Labour (Ksh)",   value: b => b.labourCharges, total: rows => rows.reduce((sum, b) => sum + b.labourCharges, 0) },
+    { label: "Parts (Ksh)",    value: b => b.partsCost, total: rows => rows.reduce((sum, b) => sum + b.partsCost, 0) },
+    { label: "Discount (Ksh)", value: b => b.discount, total: rows => rows.reduce((sum, b) => sum + b.discount, 0) },
+    { label: "Total (Ksh)",    value: b => b.totalAmount, total: rows => rows.reduce((sum, b) => sum + b.totalAmount, 0) },
+    { label: "Paid (Ksh)",     value: b => b.paidAmount, total: rows => rows.reduce((sum, b) => sum + b.paidAmount, 0) },
+    { label: "Balance (Ksh)",  value: b => b.balance, total: rows => rows.reduce((sum, b) => sum + b.balance, 0) },
     { label: "Payment Method", value: b => b.paymentMethod },
     { label: "Status",         value: b => b.paymentStatus },
   ];
@@ -215,7 +216,11 @@ export function BillingTab() {
         </div>
       </ModalForm>
 
-      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Bill Details" isView>
+      <ModalForm open={!!viewing} onClose={() => setViewing(null)} title="Bill Details" isView
+        footerExtra={<>
+          <Button variant="outline" size="sm" onClick={() => viewing && openPdfInNewTab(`/auto/bills/${viewing.id}/receipt.pdf`)}><Printer className="h-3.5 w-3.5 mr-1.5" />Print</Button>
+          <Button variant="outline" size="sm" onClick={() => viewing && downloadPdf(`/auto/bills/${viewing.id}/receipt.pdf`, `${viewing.billNo}.pdf`)}><Download className="h-3.5 w-3.5 mr-1.5" />Download</Button>
+        </>}>
         {viewing && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><span className="text-muted-foreground">Bill #:</span> <span className="font-mono">{viewing.billNo}</span></div>

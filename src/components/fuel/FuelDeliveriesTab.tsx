@@ -92,7 +92,7 @@ export function FuelDeliveriesTab() {
   const exportColumns: ExportColumn<ApiFuelDelivery>[] = [
     { label: "Date",           value: d => d.date.split("T")[0] },
     { label: "Tank",           value: d => d.tank ? `${d.tank.name} (${d.tank.fuelType})` : "—" },
-    { label: "Litres",         value: d => d.litres },
+    { label: "Litres",         value: d => d.litres, total: rows => rows.reduce((sum, d) => sum + d.litres, 0) },
     { label: "Supplier",       value: d => d.supplier || "—" },
     { label: "Delivery Note",  value: d => d.deliveryNote || "—" },
     { label: "Recorded By",    value: d => d.recordedBy || "—" },

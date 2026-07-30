@@ -173,8 +173,8 @@ export function ServiceRecordsTab() {
     { label: "Phone",        value: r => r.customerPhone || "—" },
     { label: "Service",      value: r => r.serviceType },
     { label: "Technician",   value: r => r.technician || "—" },
-    { label: "Est. Cost (Ksh)", value: r => r.estimatedCost },
-    { label: "Actual Cost (Ksh)", value: r => r.actualCost || 0 },
+    { label: "Est. Cost (Ksh)", value: r => r.estimatedCost, total: rows => rows.reduce((sum, r) => sum + r.estimatedCost, 0) },
+    { label: "Actual Cost (Ksh)", value: r => r.actualCost || 0, total: rows => rows.reduce((sum, r) => sum + (r.actualCost || 0), 0) },
     { label: "Status",       value: r => r.status },
   ];
 

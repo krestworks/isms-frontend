@@ -146,7 +146,7 @@ export default function PurchaseOrdersTab() {
     { label: "Supplier",  value: p => p.supplier?.name ?? p.supplierName ?? "—" },
     { label: "Order Date",value: p => new Date(p.orderDate).toLocaleDateString() },
     { label: "Expected",  value: p => p.expectedDate ? new Date(p.expectedDate).toLocaleDateString() : "—" },
-    { label: "Total",     value: p => p.totalAmount },
+    { label: "Total",     value: p => p.totalAmount, total: rows => rows.reduce((sum, p) => sum + p.totalAmount, 0) },
     { label: "Status",    value: p => p.status },
   ];
 

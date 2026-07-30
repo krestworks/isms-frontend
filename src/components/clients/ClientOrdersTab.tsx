@@ -48,7 +48,7 @@ const exportColumns: ExportColumn<ApiClientOrder>[] = [
   { label: "Client",      value: r => r.clientName },
   { label: "Module",      value: r => r.module },
   { label: "Description", value: r => r.description },
-  { label: "Amount",      value: r => r.amount },
+  { label: "Amount",      value: r => r.amount, total: rows => rows.reduce((sum, r) => sum + r.amount, 0) },
   { label: "Payment",     value: r => r.paymentMethod },
   { label: "Status",      value: r => r.status },
 ];
